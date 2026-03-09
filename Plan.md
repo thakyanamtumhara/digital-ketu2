@@ -347,12 +347,13 @@ Each step shows timing (how many ms it took) and token/cost impact.
 
 ## 10. Infrastructure — Railway
 
-### 10.1 Vector Database: Railway PostgreSQL + pgvector
-- Use **existing Railway PostgreSQL** database — no new service needed.
+### 10.1 Vector Database: Neon PostgreSQL + pgvector
+- Use **Neon** (free tier) PostgreSQL with pgvector — Railway's default PostgreSQL doesn't include pgvector.
+- **Neon project:** `digitalketu-2` on AWS Asia Pacific 1 (Singapore)
 - Enable **pgvector extension** for smart similarity search on knowledge base.
 - All saved replies and catalog entries stored as vector embeddings in PostgreSQL.
 - When buyer asks a question → pgvector finds the most relevant chunks by meaning (not exact words).
-- Setup: `CREATE EXTENSION vector;` on existing Railway PostgreSQL.
+- Setup: pgvector auto-enabled via `CREATE EXTENSION IF NOT EXISTS vector;` in Dockerfile CMD.
 
 ### 10.2 What Runs on Railway (Everything)
 | Component | Technology | Purpose |
@@ -402,7 +403,7 @@ Each step shows timing (how many ms it took) and token/cost impact.
 | Intervention cooldown | 10 min from last manual msg | Gives Om time to handle conversation without AI interference |
 | Wrong reply marking | Edit button on WhatsApp repo app | Om stays in his natural workflow; no dashboard switching |
 | Reply frequency | One reply per buyer thought | Avoids spamming buyer with multiple AI messages |
-| Vector database | Railway PostgreSQL + pgvector | Already running, no extra cost, no new platform |
+| Vector database | Neon PostgreSQL + pgvector | Free tier, pgvector built-in, Railway PostgreSQL doesn't support pgvector |
 | Hosting | Railway (everything) | Already in use, WhatsApp Business API already deployed there |
 | Working hours | Schedule option on dashboard | Configurable when AI is active |
 | Cost protection | ₹500/day spending cap | Protects against spikes, spam, or abuse |
@@ -416,9 +417,9 @@ Each step shows timing (how many ms it took) and token/cost impact.
 | # | What | Details | Status |
 |---|------|---------|--------|
 | 1 | WhatsApp repo token | Fine-grained token for WhatsApp Business API on Railway. Needs: read messages, send messages, read saved replies. **Plus code read/write access** for adding the Edit button to the WhatsApp repo app UI. | ✅ Not needed — repo connected directly via Claude Code (`thakyanamtumhara/wwbun`) |
-| 2 | Anthropic API key | For Claude API to generate replies. | ⏳ Om will add as Railway env variable (`ANTHROPIC_API_KEY`) |
-| 3 | GitHub token (for Railway auto-sync) | **Fine-grained read-only token** for `thakyanamtumhara/wwbun` + `thakyanamtumhara/catalog`. Railway server uses this to auto-sync saved replies + catalog every 3-4 days. | ⏳ Om will add as Railway env variable (`GITHUB_TOKEN`) |
-| 4 | Railway access | Project setup for auto-reply server. Om creates the Railway project. | Already have |
+| 2 | Anthropic API key | For Claude API to generate replies. | ✅ Added as Railway env variable (`ANTHROPIC_API_KEY`) |
+| 3 | GitHub token (for Railway auto-sync) | **Fine-grained read-only token** for `thakyanamtumhara/wwbun` + `thakyanamtumhara/catalog`. Railway server uses this to auto-sync saved replies + catalog every 3-4 days. | ✅ Added as Railway env variable (`GITHUB_TOKEN`) |
+| 4 | Railway access | Project setup for auto-reply server. Om creates the Railway project. | ✅ Deployed on Railway (charismatic-integrity project) |
 | 5 | Catalog repo name/URL | The GitHub repo where product catalog is stored. | ✅ `thakyanamtumhara/catalog` |
 | 6 | WhatsApp repo name/URL | The Railway-deployed WhatsApp Business API endpoint details. | ✅ `thakyanamtumhara/wwbun` |
 
@@ -427,9 +428,13 @@ Each step shows timing (how many ms it took) and token/cost impact.
 ## 13. Pending / To Be Decided
 
 - [x] ~~WhatsApp repo token handover~~ — Not needed, repo connected directly via Claude Code
-- [ ] Railway project setup for auto-reply server
-- [ ] Om adds 2 env variables to Railway: `ANTHROPIC_API_KEY` + `GITHUB_TOKEN` (read-only, for auto-sync)
+- [x] Railway project setup for auto-reply server — ✅ Deployed, server running on Railway
+- [x] Om adds env variables to Railway: `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `DATABASE_URL` (Neon), `WWBUN_API_URL`, `DIGITAL_KETU_SECRET`
+- [x] Database setup — ✅ Neon PostgreSQL with pgvector (digitalketu-2 project, Singapore region)
+- [x] Server-to-server auth — ✅ Shared secret (`DIGITAL_KETU_SECRET`) between wwbun and digital-ketu2
+- [ ] wwbun env variables — Add `DIGITAL_KETU_URL` and `DIGITAL_KETU_SECRET` to wwbun on Railway
 - [ ] Edit button UI implementation on WhatsApp repo app (`thakyanamtumhara/wwbun`) — Claude Code will implement
+- [ ] End-to-end test — Send a WhatsApp message and verify AI reply flow works
 
 ---
 
