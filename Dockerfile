@@ -18,4 +18,4 @@ RUN bun run build
 EXPOSE 3000
 
 # Enable pgvector, run migrations, then start server
-CMD ["sh", "-c", "bun run server/startup.js && bunx prisma db push --skip-generate && bun run start"]
+CMD ["sh", "-c", "bunx prisma db execute --url \"$DATABASE_URL\" --stdin <<< 'CREATE EXTENSION IF NOT EXISTS vector;' 2>/dev/null || true; bunx prisma db push --skip-generate && bun run start"]
