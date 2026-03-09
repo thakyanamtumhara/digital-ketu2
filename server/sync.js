@@ -52,14 +52,17 @@ export async function syncSavedReplies(db, anthropic) {
     let templates = []
 
     if (WWBUN_API_URL && DIGITAL_KETU_SECRET) {
-      // Fetch templates from wwbun API
-      const response = await fetch(`${WWBUN_API_URL}/api/templates`, {
+      // Fetch templates from wwbun API (secret-authenticated export endpoint)
+      const response = await fetch(`${WWBUN_API_URL}/api/templates/export`, {
         headers: {
           'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET,
         },
       })
       if (response.ok) {
         templates = await response.json()
+        console.log(`[Sync] Fetched ${templates.length} templates from wwbun`)
+      } else {
+        console.warn(`[Sync] wwbun templates export failed: ${response.status} ${response.statusText}`)
       }
     }
 
@@ -148,7 +151,11 @@ export async function syncCatalog(db, anthropic) {
     // Fetch products.json from catalog repo
     const rawJson = await fetchGitHubFile(GITHUB_REPO_CATALOG, 'products.json')
     const catalogData = JSON.parse(rawJson)
-    const products = catalogData.products || []
+
+    // Products are nested inside categories: categories[].products[]
+    const products = (catalogData.categories || []).flatMap(cat =>
+      (cat.products || []).map(p => ({ ...p, category: cat.name }))
+    )
 
     itemsFound = products.length
 
