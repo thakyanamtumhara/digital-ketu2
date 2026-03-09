@@ -268,16 +268,20 @@ export async function syncStylePairs(db, anthropic) {
 
 ${pairsText}
 
-Write a style guide covering:
+Write a style guide covering ONLY communication style (not content/knowledge):
 1. Average reply length (word count)
 2. Language preference (Hindi/English/Hinglish mix)
 3. Tone and formality level
 4. Common phrases and words Om uses frequently
-5. How Om handles: pricing questions, product queries, order intent, general inquiries
-6. What Om avoids saying
-7. Key patterns (does he use emojis? punctuation? greetings?)
+5. What Om avoids saying
+6. Key patterns (does he use emojis? punctuation? greetings?)
 
-Keep the guide under 200 words. Be specific with examples from the data. This guide will be injected into an AI system prompt to mimic Om's style.`
+DO NOT include these scenarios (they are handled separately):
+- Pricing info (comes from product catalog)
+- Product specifications (comes from product catalog)
+- Logistics/tracking (deferred to Ketu/human)
+
+Focus purely on HOW Om writes, not WHAT info he gives. Keep the guide under 150 words. Be specific with examples from the data. This guide will be injected into an AI system prompt to mimic Om's style.`
       }],
     })
 
