@@ -47,15 +47,15 @@ export async function syncSavedReplies(db, anthropic) {
   try {
     // Try fetching from wwbun API first (if accessible on Railway internal network)
     const WWBUN_API_URL = process.env.WWBUN_API_URL
-    const WWBUN_AUTH_TOKEN = process.env.WWBUN_AUTH_TOKEN
+    const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 
     let templates = []
 
-    if (WWBUN_API_URL && WWBUN_AUTH_TOKEN) {
+    if (WWBUN_API_URL && DIGITAL_KETU_SECRET) {
       // Fetch templates from wwbun API
       const response = await fetch(`${WWBUN_API_URL}/api/templates`, {
         headers: {
-          'Cookie': `ww_auth_token=${WWBUN_AUTH_TOKEN}`,
+          'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET,
         },
       })
       if (response.ok) {

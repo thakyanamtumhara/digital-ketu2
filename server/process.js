@@ -4,7 +4,7 @@
 import { vectorSearch, vectorSearchDeferList } from './embeddings.js'
 
 const WWBUN_API_URL = process.env.WWBUN_API_URL
-const WWBUN_AUTH_TOKEN = process.env.WWBUN_AUTH_TOKEN
+const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 
 // Claude pricing (Haiku 4.5 — cheapest for high volume)
 const PRICE_PER_INPUT_TOKEN = 0.000001   // $1 per 1M input tokens
@@ -320,8 +320,8 @@ function buildUserPrompt({ mergedText, chunks, catalogChunks, conversationHistor
 // ===========================================
 
 async function sendReplyViaWwbun(whatsappNumber, message) {
-  if (!WWBUN_API_URL || !WWBUN_AUTH_TOKEN) {
-    console.warn('[Send] WWBUN_API_URL or WWBUN_AUTH_TOKEN not configured, skipping send')
+  if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) {
+    console.warn('[Send] WWBUN_API_URL or DIGITAL_KETU_SECRET not configured, skipping send')
     return null
   }
 
@@ -330,7 +330,7 @@ async function sendReplyViaWwbun(whatsappNumber, message) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Cookie': `ww_auth_token=${WWBUN_AUTH_TOKEN}`,
+        'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET,
       },
       body: JSON.stringify({
         whatsappNumber,
