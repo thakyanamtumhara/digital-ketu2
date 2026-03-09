@@ -237,7 +237,7 @@ export async function syncStylePairs(db, anthropic) {
     }
 
     // Step 1: Fetch quality reply pairs from wwbun
-    const response = await fetch(`${WWBUN_API_URL}/api/messages/export-style-pairs?limit=200`, {
+    const response = await fetch(`${WWBUN_API_URL}/api/messages/export-style-pairs?limit=1000`, {
       headers: { 'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET },
     })
 
@@ -261,7 +261,7 @@ export async function syncStylePairs(db, anthropic) {
 
     const styleResponse = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1000,
+      max_tokens: 1500,
       messages: [{
         role: 'user',
         content: `Analyze these ${pairs.length} real WhatsApp reply pairs from Om (a wholesale t-shirt business owner). Extract a COMPACT style guide that captures how Om communicates.
