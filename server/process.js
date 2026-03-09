@@ -224,6 +224,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   // --- Check: Defer to Ketu list (skip for greetings) ---
+  // If a correction exists (correctReply), use it directly instead of deferring
   if (!isGreeting) {
     const deferMatch = await vectorSearchDeferList(db, anthropic, mergedText, {
       threshold: settings.deferThreshold,
@@ -234,6 +235,27 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         where: { id: deferMatch.id },
         data: { triggerCount: { increment: 1 } },
       })
+
+      // If Om provided a corrected reply, use it directly (no defer, no Claude call)
+      if (deferMatch.correctReply) {
+        await sendReplyViaWwbun(whatsappNumber, deferMatch.correctReply)
+        await createLog(db, conversation.id, mergedText, messageIds, {
+          status: 'REPLIED',
+          deferReason: null,
+          similarityScore: deferMatch.similarity,
+          aiReply: deferMatch.correctReply,
+          processingMs: Date.now() - startTime,
+          sentViaWwbun: true,
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          costUsd: 0,
+        })
+        console.log(`[CorrectedReply] ${whatsappNumber} — used Om's correction, 0 tokens`)
+        return
+      }
+
+      // No corrected reply — defer to Ketu
       await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
       await createLog(db, conversation.id, mergedText, messageIds, {
         status: 'DEFERRED',
@@ -432,7 +454,41 @@ function filterChunksForMessage(allChunks, message, isGreeting) {
   const needsLogistics = logisticsKeywords.some(kw => lower.includes(kw))
 
   if (needsCatalog) {
-    selected.push(...catalog)
+    // General catalog keywords → send all products
+    const generalCatalogKeywords = [
+      'catalog', 'catalogue', 'product', 'products', 'collection', 'range',
+      'kya kya hai', 'sab dikhao', 'all products', 'full list', 'what all',
+    ]
+    const wantsFullCatalog = generalCatalogKeywords.some(kw => lower.includes(kw))
+
+    if (wantsFullCatalog) {
+      selected.push(...catalog)
+    } else {
+      // Smart match: only send products matching buyer's query
+      const matchedProducts = catalog.filter(product => {
+        const titleLower = (product.title || '').toLowerCase()
+        const contentLower = (product.content || '').toLowerCase()
+        const meta = product.metadata
+          ? (typeof product.metadata === 'string' ? JSON.parse(product.metadata) : product.metadata)
+          : {}
+        const colorsStr = (meta.colors || []).join(' ').toLowerCase()
+        const categoryStr = (meta.category || '').toLowerCase()
+
+        // Check product name, content, colors, category against buyer's words
+        const words = lower.split(/\s+/).filter(w => w.length > 2)
+        return words.some(w =>
+          titleLower.includes(w) || contentLower.includes(w) ||
+          colorsStr.includes(w) || categoryStr.includes(w)
+        )
+      })
+
+      // If specific products matched, send only those; otherwise send all as fallback
+      if (matchedProducts.length > 0) {
+        selected.push(...matchedProducts)
+      } else {
+        selected.push(...catalog)
+      }
+    }
   }
 
   if (needsLogistics || needsCatalog) {
