@@ -84,7 +84,21 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
-  // --- Check: Media-only message ---
+  // --- Check: Emoji reaction (👍, ❤️, etc.) — skip silently ---
+  const isReaction = messages.every(m =>
+    m.messageType === 'reaction' ||
+    (m.messageText && m.messageText.startsWith('[Reacted:'))
+  )
+  if (isReaction) {
+    await createLog(db, conversation.id, mergedText || '[reaction]', messageIds, {
+      status: 'SKIPPED',
+      deferReason: 'emoji_reaction',
+      processingMs: Date.now() - startTime,
+    })
+    return
+  }
+
+  // --- Check: Media-only message (actual image/audio/video/document) ---
   if (hasMediaOnly) {
     await sendReplyViaWwbun(whatsappNumber, settings.mediaMessage)
     await createLog(db, conversation.id, '[media]', messageIds, {
