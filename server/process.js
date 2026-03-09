@@ -218,11 +218,18 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   })
   const conversationHistory = recentLogs.reverse()
 
+  // Fetch Om's real reply style from defer-to-ketu corrections
+  const deferExamples = await db.deferToKetu.findMany({
+    select: { buyerQuestion: true, correctReply: true },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+  })
+
   // Separate catalog chunks for display
   const catalogChunks = allChunks.filter(c => c.source === 'CATALOG')
   const otherChunks = allChunks.filter(c => c.source !== 'CATALOG')
 
-  const systemPrompt = buildSystemPrompt({ isFirstTime, settings })
+  const systemPrompt = buildSystemPrompt({ isFirstTime, settings, deferExamples })
   const userPrompt = buildUserPrompt({
     mergedText,
     chunks: otherChunks,
@@ -321,13 +328,14 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 // Prompt Building
 // ===========================================
 
-function buildSystemPrompt({ isFirstTime, settings }) {
+function buildSystemPrompt({ isFirstTime, settings, deferExamples }) {
   let prompt = `You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
 RULES:
 - Reply in the buyer's language. If they write Hindi, reply in Hindi. If English, reply in English. If Hinglish, reply in Hinglish.
 - Be friendly, professional, and helpful. Sound like a real person, not a robot.
-- Keep replies concise — WhatsApp messages should be short and readable.
+- Keep replies SHORT — max 10-15 words. WhatsApp replies should be quick, direct, and to the point. No long paragraphs.
+- Match Ketu's style: casual, friendly, uses simple words. Look at the STYLE EXAMPLES below.
 - Never make up information. Only use the knowledge provided below.
 - If you don't have enough info in the knowledge base to answer accurately, respond with EXACTLY: [DEFER]
 - Do NOT make up prices, product details, or policies. Only use info from the knowledge base provided.
@@ -335,6 +343,14 @@ RULES:
 - Always share sale91.com when purchase intent is detected.
 - Never reveal you are an AI. You are Ketu's assistant.
 - Use natural greetings appropriate to the language (Namaste, Hello, Hi, etc.).`
+
+  // Add Om's real reply style examples from defer-to-ketu corrections
+  if (deferExamples && deferExamples.length > 0) {
+    prompt += `\n\nSTYLE EXAMPLES (this is how Ketu actually replies — match this tone, length, and word choice):`
+    for (const ex of deferExamples.slice(0, 10)) {
+      prompt += `\nBuyer: "${ex.buyerQuestion}" → Ketu: "${ex.correctReply}"`
+    }
+  }
 
   if (isFirstTime) {
     prompt += `\n\nIMPORTANT: This is the buyer's FIRST message ever. You MUST include the catalog link sale91.com/catalog in your reply, regardless of what they ask.`

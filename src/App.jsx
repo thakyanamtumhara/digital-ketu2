@@ -184,27 +184,201 @@ function LiveMonitor({ logs, expandedLog, setExpandedLog }) {
             <div style={styles.logMessage}><strong>Buyer:</strong> {log.buyerMessage}</div>
             {log.aiReply && <div style={styles.logReply}><strong>AI Reply:</strong> {log.aiReply}</div>}
           </div>
-          {expandedLog === log.id && (
-            <div style={styles.logExpanded}>
-              {log.knowledgeChunks && (
-                <div><strong>Knowledge chunks used:</strong><pre style={styles.pre}>{JSON.stringify(log.knowledgeChunks, null, 2)}</pre></div>
-              )}
-              {log.catalogMatch && (
-                <div><strong>Catalog match:</strong><pre style={styles.pre}>{JSON.stringify(log.catalogMatch, null, 2)}</pre></div>
-              )}
-              {log.similarityScore != null && (
-                <div><strong>Best similarity:</strong> {(log.similarityScore * 100).toFixed(1)}%</div>
-              )}
-              {log.promptTokens && (
-                <div><strong>Tokens:</strong> {log.promptTokens} input + {log.completionTokens} output = {log.totalTokens} total</div>
-              )}
-              {log.promptSent && (
-                <div><strong>Full prompt:</strong><pre style={styles.pre}>{typeof log.promptSent === 'string' ? log.promptSent : JSON.stringify(log.promptSent, null, 2)}</pre></div>
-              )}
-            </div>
-          )}
+          {expandedLog === log.id && <ProcessPipeline log={log} />}
         </div>
       ))}
+    </div>
+  )
+}
+
+function ProcessPipeline({ log }) {
+  const [showPrompt, setShowPrompt] = useState(null) // 'system' | 'user' | null
+  const prompt = log.promptSent || {}
+  const chunks = log.knowledgeChunks || []
+  const catalogChunks = chunks.filter(c => c.source === 'CATALOG')
+  const otherChunks = chunks.filter(c => c.source !== 'CATALOG')
+  const costInr = log.costUsd ? (log.costUsd * 85).toFixed(2) : null
+
+  return (
+    <div style={styles.pipeline}>
+      {/* Step 1: Incoming */}
+      <div style={styles.pipeStep}>
+        <div style={styles.pipeStepHeader}>
+          <span style={{ ...styles.pipeStepNum, background: '#3b82f6' }}>1</span>
+          <span style={styles.pipeStepTitle}>INCOMING MESSAGE</span>
+          <span style={styles.pipeStepMeta}>{new Date(log.createdAt).toLocaleString('en-IN')}</span>
+        </div>
+        <div style={styles.pipeStepBody}>
+          <div style={{ padding: '8px 12px', background: '#1e293b', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
+            {log.buyerMessage}
+          </div>
+          <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+            From: {log.conversation?.whatsappNumber || '—'} | {log.isMedia ? 'Media message' : 'Text message'}
+          </div>
+        </div>
+      </div>
+
+      <div style={styles.pipeArrow}>↓</div>
+
+      {/* Step 2: Checks */}
+      <div style={styles.pipeStep}>
+        <div style={styles.pipeStepHeader}>
+          <span style={{ ...styles.pipeStepNum, background: log.status === 'SKIPPED' || log.status === 'COOLDOWN' ? '#ef4444' : '#22c55e' }}>2</span>
+          <span style={styles.pipeStepTitle}>CHECKS PIPELINE</span>
+          <span style={styles.pipeStepMeta}>{log.status === 'SKIPPED' || log.status === 'COOLDOWN' ? 'STOPPED HERE' : 'ALL PASSED'}</span>
+        </div>
+        <div style={styles.pipeStepBody}>
+          {log.deferReason === 'off_hours' && <div style={styles.pipeCheckFail}>STOPPED: System OFF or outside schedule</div>}
+          {log.deferReason === 'daily_limit' && <div style={styles.pipeCheckFail}>STOPPED: Daily budget exceeded</div>}
+          {log.deferReason === 'media_only' && <div style={styles.pipeCheckFail}>STOPPED: Media-only message → sent media reply</div>}
+          {log.deferReason === 'spam' && <div style={styles.pipeCheckFail}>STOPPED: Empty/spam message</div>}
+          {log.deferReason === 'cooldown' && <div style={styles.pipeCheckFail}>STOPPED: Om intervened → cooldown active</div>}
+          {log.deferReason === 'post_defer_ack' && <div style={styles.pipeCheckFail}>STOPPED: Buyer acknowledged previous defer (ok/thanks)</div>}
+          {log.deferReason === 'defer_to_ketu' && (
+            <div style={styles.pipeCheckFail}>
+              STOPPED: Matched defer-to-ketu rule (similarity: {log.similarityScore ? (log.similarityScore * 100).toFixed(1) + '%' : 'N/A'})
+            </div>
+          )}
+          {log.deferReason === 'empty_knowledge_base' && <div style={styles.pipeCheckFail}>STOPPED: Knowledge base empty</div>}
+          {(log.status === 'REPLIED' || log.deferReason === 'claude_deferred') && (
+            <div style={{ fontSize: '12px', color: '#86efac' }}>All 10 checks passed → proceeded to Claude API</div>
+          )}
+        </div>
+      </div>
+
+      {/* Only show steps 3-5 if Claude was actually called */}
+      {(log.promptTokens || log.promptSent) && (
+        <>
+          <div style={styles.pipeArrow}>↓</div>
+
+          {/* Step 3: Knowledge sent */}
+          <div style={styles.pipeStep}>
+            <div style={styles.pipeStepHeader}>
+              <span style={{ ...styles.pipeStepNum, background: '#a78bfa' }}>3</span>
+              <span style={styles.pipeStepTitle}>KNOWLEDGE SENT TO CLAUDE</span>
+              <span style={styles.pipeStepMeta}>{chunks.length} chunks</span>
+            </div>
+            <div style={styles.pipeStepBody}>
+              {otherChunks.length > 0 && (
+                <div style={{ marginBottom: '6px' }}>
+                  <div style={{ fontSize: '12px', color: '#a78bfa', fontWeight: '600', marginBottom: '4px' }}>
+                    Saved Replies + Policies ({otherChunks.length})
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {otherChunks.map((c, i) => (
+                      <span key={i} style={{ ...styles.colorChip, background: c.source === 'POLICY' ? '#422006' : '#1e293b', color: c.source === 'POLICY' ? '#fbbf24' : '#cbd5e1' }}>
+                        [{c.source}] {c.title}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {catalogChunks.length > 0 && (
+                <div>
+                  <div style={{ fontSize: '12px', color: '#22c55e', fontWeight: '600', marginBottom: '4px' }}>
+                    Catalog Products ({catalogChunks.length})
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {catalogChunks.map((c, i) => (
+                      <span key={i} style={{ ...styles.colorChip, background: '#14532d', color: '#86efac' }}>
+                        {c.title}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={styles.pipeArrow}>↓</div>
+
+          {/* Step 4: Claude API call */}
+          <div style={styles.pipeStep}>
+            <div style={styles.pipeStepHeader}>
+              <span style={{ ...styles.pipeStepNum, background: '#f59e0b' }}>4</span>
+              <span style={styles.pipeStepTitle}>CLAUDE API CALL</span>
+              <span style={styles.pipeStepMeta}>Haiku 4.5</span>
+            </div>
+            <div style={styles.pipeStepBody}>
+              {/* Token breakdown */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', marginBottom: '8px' }}>
+                <div style={styles.tokenBox}>
+                  <div style={{ fontSize: '18px', fontWeight: '700', color: '#60a5fa' }}>{log.promptTokens?.toLocaleString() || '—'}</div>
+                  <div style={{ fontSize: '10px', color: '#64748b' }}>Input Tokens</div>
+                </div>
+                <div style={styles.tokenBox}>
+                  <div style={{ fontSize: '18px', fontWeight: '700', color: '#a78bfa' }}>{log.completionTokens?.toLocaleString() || '—'}</div>
+                  <div style={{ fontSize: '10px', color: '#64748b' }}>Output Tokens</div>
+                </div>
+                <div style={styles.tokenBox}>
+                  <div style={{ fontSize: '18px', fontWeight: '700', color: '#f8fafc' }}>{log.totalTokens?.toLocaleString() || '—'}</div>
+                  <div style={{ fontSize: '10px', color: '#64748b' }}>Total Tokens</div>
+                </div>
+                <div style={styles.tokenBox}>
+                  <div style={{ fontSize: '18px', fontWeight: '700', color: '#22c55e' }}>${log.costUsd?.toFixed(6) || '—'}</div>
+                  <div style={{ fontSize: '10px', color: '#64748b' }}>Cost {costInr && `(Rs.${costInr})`}</div>
+                </div>
+                <div style={styles.tokenBox}>
+                  <div style={{ fontSize: '18px', fontWeight: '700', color: '#fbbf24' }}>{log.processingMs || '—'}ms</div>
+                  <div style={{ fontSize: '10px', color: '#64748b' }}>Processing Time</div>
+                </div>
+              </div>
+
+              {/* Prompt toggle buttons */}
+              {prompt.system && (
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <button
+                    style={{ ...styles.btnSecondary, marginLeft: 0, background: showPrompt === 'system' ? '#1e293b' : 'transparent' }}
+                    onClick={() => setShowPrompt(showPrompt === 'system' ? null : 'system')}
+                  >
+                    {showPrompt === 'system' ? 'Hide' : 'View'} System Prompt
+                  </button>
+                  <button
+                    style={{ ...styles.btnSecondary, marginLeft: 0, background: showPrompt === 'user' ? '#1e293b' : 'transparent' }}
+                    onClick={() => setShowPrompt(showPrompt === 'user' ? null : 'user')}
+                  >
+                    {showPrompt === 'user' ? 'Hide' : 'View'} Full User Prompt
+                  </button>
+                </div>
+              )}
+              {showPrompt === 'system' && prompt.system && (
+                <div style={{ ...styles.promptBlock, maxHeight: '300px', overflow: 'auto' }}>{prompt.system}</div>
+              )}
+              {showPrompt === 'user' && prompt.user && (
+                <div style={{ ...styles.promptBlock, maxHeight: '400px', overflow: 'auto' }}>{prompt.user}</div>
+              )}
+            </div>
+          </div>
+
+          <div style={styles.pipeArrow}>↓</div>
+
+          {/* Step 5: Output */}
+          <div style={styles.pipeStep}>
+            <div style={styles.pipeStepHeader}>
+              <span style={{ ...styles.pipeStepNum, background: log.status === 'REPLIED' ? '#22c55e' : '#f59e0b' }}>5</span>
+              <span style={styles.pipeStepTitle}>
+                {log.status === 'REPLIED' ? 'AI REPLY SENT' : log.deferReason === 'claude_deferred' ? 'CLAUDE DEFERRED' : 'OUTPUT'}
+              </span>
+              <span style={styles.pipeStepMeta}>{log.sentViaWwbun ? 'Sent via wwbun' : 'Not sent'}</span>
+            </div>
+            <div style={styles.pipeStepBody}>
+              {log.deferReason === 'claude_deferred' && (
+                <div style={{ padding: '8px 12px', background: '#422006', borderRadius: '6px', borderLeft: '3px solid #f59e0b', fontSize: '13px', color: '#fbbf24', marginBottom: '8px' }}>
+                  Claude responded with [DEFER] — didn't have enough knowledge to answer. Defer message sent instead.
+                </div>
+              )}
+              {log.aiReply && (
+                <div style={{ padding: '8px 12px', background: '#1e293b', borderRadius: '6px', borderLeft: '3px solid #22c55e', fontSize: '13px', color: '#86efac' }}>
+                  {log.aiReply}
+                </div>
+              )}
+              {log.wwbunMessageId && (
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>wwbun message ID: {log.wwbunMessageId}</div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -357,16 +531,18 @@ function SettingTextarea({ label, value, onChange }) {
 }
 
 function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
-  const [showSection, setShowSection] = useState({ catalog: true, replies: false, history: false })
+  const [showSection, setShowSection] = useState({ instructions: true, policies: false, catalog: false, replies: false, deferList: false, history: false })
   const toggle = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
 
   const catalogItems = knowledge?.chunks?.CATALOG || []
   const savedReplies = knowledge?.chunks?.SAVED_REPLY || []
   const policies = knowledge?.chunks?.POLICY || []
+  const deferItems = knowledge?.deferToKetuList || []
+  const kbSettings = knowledge?.settings || {}
 
   return (
     <div>
-      <h2 style={styles.sectionTitle}>Knowledge Base Sync</h2>
+      <h2 style={styles.sectionTitle}>Complete Knowledge Base</h2>
 
       <div style={styles.syncInfo}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
@@ -374,13 +550,119 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
             <p style={{ margin: '0 0 4px' }}><strong>Last sync:</strong> {settings.lastSyncAt ? new Date(settings.lastSyncAt).toLocaleString('en-IN') : 'Never'}</p>
             <p style={{ margin: '0 0 4px' }}><strong>Next sync:</strong> {settings.nextSyncAt ? new Date(settings.nextSyncAt).toLocaleString('en-IN') : 'Not scheduled'}</p>
             <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>
-              <strong>Total:</strong> {knowledge?.totalChunks || 0} chunks — {catalogItems.length} products, {savedReplies.length} saved replies, {policies.length} policies
+              <strong>Total:</strong> {knowledge?.totalChunks || 0} chunks — {catalogItems.length} products, {savedReplies.length} saved replies, {policies.length} policies, {deferItems.length} defer rules
             </p>
           </div>
           <button style={styles.btnPrimary} onClick={onSync} disabled={syncing}>
             {syncing ? 'Syncing...' : 'Sync Now'}
           </button>
         </div>
+      </div>
+
+      {/* AI Instructions (System Prompt) */}
+      <div style={styles.kbSection}>
+        <div style={styles.kbHeader} onClick={() => toggle('instructions')}>
+          <span style={styles.kbHeaderTitle}>AI Instructions (System Prompt)</span>
+          <span style={{ color: '#64748b' }}>{showSection.instructions ? '▼' : '▶'}</span>
+        </div>
+        {showSection.instructions && (
+          <div style={styles.kbContent}>
+            <div style={styles.kbCard}>
+              <div style={{ fontWeight: '600', color: '#f59e0b', fontSize: '13px', marginBottom: '8px' }}>SYSTEM PROMPT — sent with every message to Claude</div>
+              <div style={styles.promptBlock}>
+                {`You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
+
+RULES:
+- Reply in the buyer's language. Hindi → Hindi, English → English, Hinglish → Hinglish.
+- Be friendly, professional, and helpful. Sound like a real person, not a robot.
+- Keep replies SHORT — max 10-15 words. Quick, direct, to the point.
+- Match Ketu's style from STYLE EXAMPLES (pulled from Defer-to-Ketu corrections).
+- Never make up information. Only use the knowledge provided.
+- If not enough info → respond with EXACTLY: [DEFER]
+- Do NOT make up prices, product details, or policies.
+- When buyer shows buying intent → guide to sale91.com + suggest samples.
+- Never reveal you are an AI. You are Ketu's assistant.
+- Natural greetings (Namaste, Hello, Hi, etc.).
+
+STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
+(up to 10 real examples of how Ketu replies, teaching tone + length + word choice)`}
+              </div>
+              <div style={{ marginTop: '8px', padding: '8px', background: '#422006', borderRadius: '4px', fontSize: '12px', color: '#fbbf24' }}>
+                For first-time buyers: MUST include sale91.com/catalog link in reply
+              </div>
+            </div>
+
+            <div style={styles.kbCard}>
+              <div style={{ fontWeight: '600', color: '#a78bfa', fontSize: '13px', marginBottom: '8px' }}>HOW KNOWLEDGE IS SENT</div>
+              <div style={{ fontSize: '12px', color: '#94a3b8', lineHeight: '1.6' }}>
+                <div style={{ marginBottom: '4px' }}>1. ALL {knowledge?.totalChunks || 0} chunks are sent in every request (no vector search for replies)</div>
+                <div style={{ marginBottom: '4px' }}>2. Saved replies are labelled as [SAVED_REPLY], policies as [POLICY]</div>
+                <div style={{ marginBottom: '4px' }}>3. Catalog products are sent separately under PRODUCT CATALOG INFO</div>
+                <div style={{ marginBottom: '4px' }}>4. Last 5 conversation messages are included for context</div>
+                <div style={{ marginBottom: '4px' }}>5. Claude (Haiku 4.5) picks what's relevant from the full KB</div>
+              </div>
+            </div>
+
+            <div style={styles.kbCard}>
+              <div style={{ fontWeight: '600', color: '#f87171', fontSize: '13px', marginBottom: '8px' }}>PROCESSING PIPELINE</div>
+              <div style={{ fontSize: '12px', color: '#94a3b8', lineHeight: '1.8' }}>
+                <div>Message received from WhatsApp (via wwbun)</div>
+                <div style={{ color: '#475569' }}>  ↓ 3-sec merge window (multiple messages = one thought)</div>
+                <div>Check 1: Is system ON? → skip if OFF</div>
+                <div>Check 2: Working hours? → skip if outside {settings.scheduleStart || '09:00'}-{settings.scheduleEnd || '21:00'} IST</div>
+                <div>Check 3: Daily budget? → skip if over Rs.{settings.dailyBudgetInr}</div>
+                <div>Check 4: Media only? → send media message</div>
+                <div>Check 5: Empty/spam? → skip</div>
+                <div>Check 6: Cooldown? → skip if Om intervened (last {settings.cooldownMinutes} min)</div>
+                <div>Check 7: Post-defer ack? → skip "ok/thanks/theek hai" after defer</div>
+                <div>Check 8: Greeting? → skip defer check for hi/hello</div>
+                <div>Check 9: Defer-to-Ketu match? → defer if similarity {'>'} {(settings.deferThreshold * 100).toFixed(0)}%</div>
+                <div>Check 10: KB empty? → defer if no knowledge</div>
+                <div style={{ color: '#475569' }}>  ↓</div>
+                <div style={{ color: '#22c55e' }}>Send ALL chunks + system prompt + conversation history to Claude Haiku 4.5</div>
+                <div style={{ color: '#475569' }}>  ↓</div>
+                <div>If [DEFER] in reply → send defer message to buyer</div>
+                <div style={{ color: '#22c55e' }}>Otherwise → send AI reply via wwbun → log tokens + cost</div>
+              </div>
+            </div>
+
+            <div style={styles.kbCard}>
+              <div style={{ fontWeight: '600', color: '#60a5fa', fontSize: '13px', marginBottom: '8px' }}>CONFIGURED MESSAGES</div>
+              <div style={{ fontSize: '12px', marginBottom: '6px' }}>
+                <span style={{ color: '#64748b' }}>Defer message:</span>
+                <div style={{ color: '#fbbf24', marginTop: '2px' }}>{kbSettings.deferMessage || settings.deferMessage}</div>
+              </div>
+              <div style={{ fontSize: '12px' }}>
+                <span style={{ color: '#64748b' }}>Media message:</span>
+                <div style={{ color: '#fbbf24', marginTop: '2px' }}>{kbSettings.mediaMessage || settings.mediaMessage}</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Business Policies */}
+      <div style={styles.kbSection}>
+        <div style={styles.kbHeader} onClick={() => toggle('policies')}>
+          <span style={styles.kbHeaderTitle}>Business Policies ({policies.length})</span>
+          <span style={{ color: '#64748b' }}>{showSection.policies ? '▼' : '▶'}</span>
+        </div>
+        {showSection.policies && (
+          <div style={styles.kbContent}>
+            {policies.length === 0 && <p style={styles.empty}>No policies synced yet</p>}
+            {policies.map((item, i) => (
+              <div key={i} style={styles.kbCard}>
+                <div style={{ fontWeight: '600', color: '#f8fafc', fontSize: '14px', marginBottom: '8px' }}>{item.title}</div>
+                <div style={{ fontSize: '13px', color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>
+                  {item.content}
+                </div>
+                <div style={{ marginTop: '4px', fontSize: '11px', color: '#475569' }}>
+                  Synced: {new Date(item.updatedAt).toLocaleString('en-IN')}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Synced Catalog */}
@@ -397,11 +679,14 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ fontWeight: '600', color: '#f8fafc', fontSize: '14px' }}>{item.title}</div>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    {item.metadata?.bulkPrice && <span style={styles.priceBadge}>₹{item.metadata.bulkPrice}</span>}
+                    {item.metadata?.bulkPrice && <span style={styles.priceBadge}>Bulk ₹{item.metadata.bulkPrice}</span>}
                     {item.metadata?.samplePrice && <span style={{ ...styles.priceBadge, background: '#1e3a5f' }}>Sample ₹{item.metadata.samplePrice}</span>}
                   </div>
                 </div>
                 {item.metadata?.gsm && <div style={styles.kbMeta}>{item.metadata.gsm}gsm | {item.metadata.category || ''}</div>}
+                <div style={{ marginTop: '6px', fontSize: '12px', color: '#94a3b8' }}>
+                  {item.content.split('\n').find(l => l.startsWith('Description:'))?.replace('Description: ', '') || ''}
+                </div>
                 {item.metadata?.colors && (
                   <div style={{ marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                     {item.metadata.colors.map((c, j) => (
@@ -414,9 +699,6 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
                     Sizes: {item.metadata.sizes.join(', ')}
                   </div>
                 )}
-                <div style={{ marginTop: '6px', fontSize: '12px', color: '#94a3b8' }}>
-                  {item.content.split('\n').find(l => l.startsWith('Description:'))?.replace('Description: ', '') || ''}
-                </div>
                 <div style={{ marginTop: '4px', fontSize: '11px', color: '#475569' }}>
                   Synced: {new Date(item.updatedAt).toLocaleString('en-IN')}
                 </div>
@@ -448,6 +730,28 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
                 </div>
                 <div style={{ marginTop: '4px', fontSize: '11px', color: '#475569' }}>
                   Synced: {new Date(item.updatedAt).toLocaleString('en-IN')}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Defer-to-Ketu Rules */}
+      <div style={styles.kbSection}>
+        <div style={styles.kbHeader} onClick={() => toggle('deferList')}>
+          <span style={styles.kbHeaderTitle}>Defer-to-Ketu Rules ({deferItems.length})</span>
+          <span style={{ color: '#64748b' }}>{showSection.deferList ? '▼' : '▶'}</span>
+        </div>
+        {showSection.deferList && (
+          <div style={styles.kbContent}>
+            {deferItems.length === 0 && <p style={styles.empty}>No defer rules yet (Om hasn't corrected any replies)</p>}
+            {deferItems.map((item, i) => (
+              <div key={i} style={styles.kbCard}>
+                <div style={{ fontSize: '13px', marginBottom: '4px' }}><span style={{ color: '#f87171' }}>Q:</span> {item.buyerQuestion}</div>
+                <div style={{ fontSize: '13px', color: '#86efac' }}><span style={{ color: '#22c55e' }}>Correct:</span> {item.correctReply}</div>
+                <div style={{ marginTop: '4px', fontSize: '11px', color: '#475569' }}>
+                  Added: {new Date(item.createdAt).toLocaleDateString('en-IN')}
                 </div>
               </div>
             ))}
@@ -580,6 +884,19 @@ const styles = {
   priceBadge: { padding: '2px 8px', borderRadius: '4px', background: '#14532d', color: '#86efac', fontSize: '12px', fontWeight: '600' },
   colorChip: { padding: '1px 6px', borderRadius: '3px', background: '#334155', color: '#cbd5e1', fontSize: '11px' },
   mediaBadge: { padding: '1px 6px', borderRadius: '3px', background: '#7c3aed', color: '#fff', fontSize: '10px', fontWeight: '600' },
+
+  // Pipeline viewer
+  pipeline: { padding: '16px', borderTop: '1px solid #334155', background: '#0f172a' },
+  pipeStep: { background: '#1e293b', borderRadius: '8px', overflow: 'hidden', marginBottom: '0' },
+  pipeStepHeader: { display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: '#1e293b' },
+  pipeStepNum: { width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '11px', fontWeight: '700', flexShrink: 0 },
+  pipeStepTitle: { fontWeight: '700', fontSize: '12px', color: '#f8fafc', letterSpacing: '0.5px' },
+  pipeStepMeta: { marginLeft: 'auto', fontSize: '11px', color: '#64748b' },
+  pipeStepBody: { padding: '8px 14px 12px', fontSize: '13px', color: '#cbd5e1' },
+  pipeArrow: { textAlign: 'center', color: '#475569', fontSize: '16px', padding: '2px 0' },
+  pipeCheckFail: { padding: '6px 10px', background: '#7f1d1d', borderRadius: '4px', color: '#fca5a5', fontSize: '12px' },
+  tokenBox: { background: '#0f172a', padding: '10px', borderRadius: '6px', textAlign: 'center', border: '1px solid #334155' },
+  promptBlock: { padding: '10px', background: '#0f172a', borderRadius: '6px', border: '1px solid #334155', fontSize: '12px', color: '#94a3b8', whiteSpace: 'pre-wrap', lineHeight: '1.5', fontFamily: 'monospace' },
 
   // Buttons
   btnPrimary: { padding: '8px 20px', border: 'none', borderRadius: '6px', background: '#3b82f6', color: '#fff', fontWeight: '600', cursor: 'pointer', fontSize: '14px' },
