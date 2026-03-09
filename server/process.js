@@ -118,6 +118,38 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  // --- Check: Post-defer acknowledgment ---
+  // If last message was deferred and buyer just acknowledged (ok, thanks, etc.), stay silent
+  const lastLog = await db.messageLog.findFirst({
+    where: { conversationId: conversation.id },
+    orderBy: { createdAt: 'desc' },
+    select: { status: true },
+  })
+
+  if (lastLog && lastLog.status === 'DEFERRED') {
+    const normalizedText = mergedText.trim().toLowerCase()
+      .replace(/[.!?,।]+$/g, '')
+      .trim()
+
+    const ackPatterns = [
+      'ok', 'okay', 'fine', 'sure', 'thanks', 'thank you', 'alright',
+      'got it', 'noted', 'understood', 'no problem', 'np', 'cool',
+      'great', 'good', 'right', 'yes', 'yep', 'ya', 'yaa',
+      'theek hai', 'thik hai', 'accha', 'acha', 'sahi hai',
+      'ji', 'haan', 'ha', 'dhanyavaad', 'shukriya', 'bas',
+      'theek', 'thik', 'achchha', 'hmm', 'hm', 'k', 'kk',
+    ]
+
+    if (ackPatterns.includes(normalizedText)) {
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'SKIPPED',
+        deferReason: 'post_defer_ack',
+        processingMs: Date.now() - startTime,
+      })
+      return
+    }
+  }
+
   // --- Check: Defer to Ketu list ---
   const deferMatch = await vectorSearchDeferList(db, anthropic, mergedText, {
     threshold: settings.deferThreshold,

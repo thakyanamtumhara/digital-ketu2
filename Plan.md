@@ -124,6 +124,17 @@ For every buyer message, the system builds a prompt with exactly **5 components*
 - If no → process normally.
 - This prevents the AI from sending duplicate replies to the same buyer message.
 
+### 4.6 Post-Defer Acknowledgment Handling (Conversation Closure Detection)
+- When AI defers a message ("Ketu will get back to you"), the buyer often replies with a simple acknowledgment: "Ok", "Okay", "Thanks", "Theek hai", etc.
+- This acknowledgment means **the conversation is closed** — the buyer accepted that Ketu will reply later.
+- **Rule:** If the last AI interaction was a **DEFERRED** status, and the buyer's new message is a short acknowledgment, **do NOT reply**. Stay silent.
+- The message is logged as `SKIPPED` with reason `post_defer_ack` for dashboard visibility.
+- **Acknowledgment patterns detected** (case-insensitive, trailing punctuation stripped):
+  - English: ok, okay, fine, sure, thanks, thank you, alright, got it, noted, understood, no problem, np, cool, great, good, right, yes, yep, ya, yaa
+  - Hindi/Hinglish: theek hai, thik hai, accha, acha, sahi hai, ji, haan, ha, dhanyavaad, shukriya, bas, theek, thik, hmm, hm, k, kk
+- If the buyer sends a **real follow-up question** (not an acknowledgment), the normal pipeline continues as usual.
+- **Implementation:** Check runs after cooldown check and before the defer-to-Ketu vector search, so it's fast and costs zero tokens.
+
 ---
 
 ## 5. First-Time Buyer Rule
@@ -432,9 +443,10 @@ Each step shows timing (how many ms it took) and token/cost impact.
 - [x] Om adds env variables to Railway: `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `DATABASE_URL` (Neon), `WWBUN_API_URL`, `DIGITAL_KETU_SECRET`
 - [x] Database setup — ✅ Neon PostgreSQL with pgvector (digitalketu-2 project, Singapore region)
 - [x] Server-to-server auth — ✅ Shared secret (`DIGITAL_KETU_SECRET`) between wwbun and digital-ketu2
-- [ ] wwbun env variables — Add `DIGITAL_KETU_URL` and `DIGITAL_KETU_SECRET` to wwbun on Railway
+- [x] wwbun env variables — ✅ `DIGITAL_KETU_URL` and `DIGITAL_KETU_SECRET` added to wwbun on Railway
+- [x] End-to-end test — ✅ AI replies working (buyer "Stylo" received AI responses)
+- [x] Post-defer acknowledgment fix — ✅ AI no longer replies to "Ok"/"Okay" after deferring (section 4.6)
 - [ ] Edit button UI implementation on WhatsApp repo app (`thakyanamtumhara/wwbun`) — Claude Code will implement
-- [ ] End-to-end test — Send a WhatsApp message and verify AI reply flow works
 
 ---
 
