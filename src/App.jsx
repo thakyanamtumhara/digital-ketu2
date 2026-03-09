@@ -193,11 +193,25 @@ function LiveMonitor({ logs, expandedLog, setExpandedLog }) {
 
 function ProcessPipeline({ log }) {
   const [showPrompt, setShowPrompt] = useState(null) // 'system' | 'user' | null
+  const [showSection, setShowSection] = useState({})
+  const toggleSec = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
   const prompt = log.promptSent || {}
   const chunks = log.knowledgeChunks || []
   const catalogChunks = chunks.filter(c => c.source === 'CATALOG')
   const otherChunks = chunks.filter(c => c.source !== 'CATALOG')
   const costInr = log.costUsd ? (log.costUsd * 85).toFixed(2) : null
+
+  // Extract style examples from system prompt
+  const hasStyleExamples = prompt.system && prompt.system.includes('STYLE EXAMPLES')
+  const styleExamplesText = hasStyleExamples
+    ? prompt.system.split('STYLE EXAMPLES')[1]?.split('IMPORTANT:')[0]?.trim() || ''
+    : ''
+
+  // Extract conversation history from user prompt
+  const hasConvoHistory = prompt.user && prompt.user.includes('RECENT CONVERSATION:')
+  const convoHistoryText = hasConvoHistory
+    ? prompt.user.split('RECENT CONVERSATION:')[1]?.split("BUYER'S NEW MESSAGE:")[0]?.trim() || ''
+    : ''
 
   return (
     <div style={styles.pipeline}>
@@ -254,47 +268,131 @@ function ProcessPipeline({ log }) {
         </div>
       </div>
 
-      {/* Only show steps 3-5 if Claude was actually called */}
+      {/* Only show steps 3-6 if Claude was actually called */}
       {(log.promptTokens || log.promptSent) && (
         <>
           <div style={styles.pipeArrow}>↓</div>
 
-          {/* Step 3: Knowledge sent */}
+          {/* Step 3: EVERYTHING sent to Claude */}
           <div style={styles.pipeStep}>
             <div style={styles.pipeStepHeader}>
               <span style={{ ...styles.pipeStepNum, background: '#a78bfa' }}>3</span>
-              <span style={styles.pipeStepTitle}>KNOWLEDGE SENT TO CLAUDE</span>
-              <span style={styles.pipeStepMeta}>{chunks.length} chunks</span>
+              <span style={styles.pipeStepTitle}>EVERYTHING SENT TO CLAUDE</span>
+              <span style={styles.pipeStepMeta}>{chunks.length} chunks + instructions + history</span>
             </div>
             <div style={styles.pipeStepBody}>
-              {otherChunks.length > 0 && (
-                <div style={{ marginBottom: '6px' }}>
-                  <div style={{ fontSize: '12px', color: '#a78bfa', fontWeight: '600', marginBottom: '4px' }}>
-                    Saved Replies + Policies ({otherChunks.length})
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                    {otherChunks.map((c, i) => (
-                      <span key={i} style={{ ...styles.colorChip, background: c.source === 'POLICY' ? '#422006' : '#1e293b', color: c.source === 'POLICY' ? '#fbbf24' : '#cbd5e1' }}>
-                        [{c.source}] {c.title}
-                      </span>
-                    ))}
-                  </div>
+
+              {/* A: Style Instructions */}
+              <div style={styles.pipeSectionBox}>
+                <div style={styles.pipeSectionHeader} onClick={() => toggleSec('style')}>
+                  <span style={{ color: '#f59e0b', fontWeight: '600' }}>A. STYLE INSTRUCTIONS (System Prompt)</span>
+                  <span style={{ color: '#64748b', fontSize: '11px' }}>{showSection.style ? '▼' : '▶ tap to view'}</span>
                 </div>
-              )}
-              {catalogChunks.length > 0 && (
-                <div>
-                  <div style={{ fontSize: '12px', color: '#22c55e', fontWeight: '600', marginBottom: '4px' }}>
-                    Catalog Products ({catalogChunks.length})
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                    {catalogChunks.map((c, i) => (
-                      <span key={i} style={{ ...styles.colorChip, background: '#14532d', color: '#86efac' }}>
-                        {c.title}
-                      </span>
-                    ))}
-                  </div>
+                <div style={{ fontSize: '12px', color: '#94a3b8', padding: '4px 0' }}>
+                  Rules: language matching, 10-15 word max, friendly tone, no AI reveal, [DEFER] when unsure, sale91.com for buying intent
                 </div>
-              )}
+                {showSection.style && prompt.system && (
+                  <div style={{ ...styles.promptBlock, maxHeight: '250px', overflow: 'auto', marginTop: '6px' }}>
+                    {prompt.system.split('STYLE EXAMPLES')[0].trim()}
+                  </div>
+                )}
+              </div>
+
+              {/* B: Style Examples from Om's corrections */}
+              <div style={styles.pipeSectionBox}>
+                <div style={styles.pipeSectionHeader} onClick={() => toggleSec('examples')}>
+                  <span style={{ color: '#f97316', fontWeight: '600' }}>B. OM'S STYLE EXAMPLES (from Defer-to-Ketu)</span>
+                  <span style={{ color: '#64748b', fontSize: '11px' }}>{showSection.examples ? '▼' : '▶ tap to view'}</span>
+                </div>
+                {hasStyleExamples ? (
+                  <>
+                    <div style={{ fontSize: '12px', color: '#94a3b8', padding: '4px 0' }}>
+                      Real examples of how Ketu replies — Claude matches this tone + length
+                    </div>
+                    {showSection.examples && (
+                      <div style={{ ...styles.promptBlock, maxHeight: '200px', overflow: 'auto', marginTop: '6px' }}>
+                        {styleExamplesText}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ fontSize: '12px', color: '#64748b', padding: '4px 0' }}>
+                    No style examples yet — Om hasn't corrected any replies via Defer-to-Ketu
+                  </div>
+                )}
+              </div>
+
+              {/* C: Knowledge Chunks */}
+              <div style={styles.pipeSectionBox}>
+                <div style={styles.pipeSectionHeader} onClick={() => toggleSec('chunks')}>
+                  <span style={{ color: '#a78bfa', fontWeight: '600' }}>C. KNOWLEDGE CHUNKS ({chunks.length})</span>
+                  <span style={{ color: '#64748b', fontSize: '11px' }}>{showSection.chunks ? '▼' : '▶ tap to view'}</span>
+                </div>
+                {otherChunks.length > 0 && (
+                  <div style={{ marginTop: '4px' }}>
+                    <div style={{ fontSize: '11px', color: '#a78bfa', marginBottom: '3px' }}>
+                      Saved Replies + Policies ({otherChunks.length})
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
+                      {otherChunks.map((c, i) => (
+                        <span key={i} style={{ ...styles.colorChip, background: c.source === 'POLICY' ? '#422006' : '#1e293b', color: c.source === 'POLICY' ? '#fbbf24' : '#cbd5e1' }}>
+                          [{c.source}] {c.title}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {catalogChunks.length > 0 && (
+                  <div style={{ marginTop: '6px' }}>
+                    <div style={{ fontSize: '11px', color: '#22c55e', marginBottom: '3px' }}>
+                      Catalog Products ({catalogChunks.length})
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
+                      {catalogChunks.map((c, i) => (
+                        <span key={i} style={{ ...styles.colorChip, background: '#14532d', color: '#86efac' }}>
+                          {c.title}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {showSection.chunks && prompt.user && (
+                  <div style={{ ...styles.promptBlock, maxHeight: '300px', overflow: 'auto', marginTop: '6px' }}>
+                    {prompt.user.split('RECENT CONVERSATION:')[0]?.split("BUYER'S NEW MESSAGE:")[0]?.trim() || prompt.user}
+                  </div>
+                )}
+              </div>
+
+              {/* D: Conversation History */}
+              <div style={styles.pipeSectionBox}>
+                <div style={styles.pipeSectionHeader} onClick={() => toggleSec('history')}>
+                  <span style={{ color: '#06b6d4', fontWeight: '600' }}>D. CONVERSATION HISTORY (last 5 replies)</span>
+                  <span style={{ color: '#64748b', fontSize: '11px' }}>{showSection.history ? '▼' : '▶ tap to view'}</span>
+                </div>
+                {hasConvoHistory ? (
+                  <>
+                    <div style={{ fontSize: '12px', color: '#94a3b8', padding: '4px 0' }}>
+                      Previous messages from this buyer included for context
+                    </div>
+                    {showSection.history && (
+                      <div style={{ ...styles.promptBlock, maxHeight: '200px', overflow: 'auto', marginTop: '6px' }}>
+                        {convoHistoryText}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ fontSize: '12px', color: '#64748b', padding: '4px 0' }}>
+                    No conversation history — this is the buyer's first AI interaction
+                  </div>
+                )}
+              </div>
+
+              {/* E: Buyer's message */}
+              <div style={styles.pipeSectionBox}>
+                <span style={{ color: '#3b82f6', fontWeight: '600', fontSize: '12px' }}>E. BUYER'S MESSAGE:</span>
+                <span style={{ color: '#cbd5e1', fontSize: '12px', marginLeft: '8px' }}>"{log.buyerMessage}"</span>
+              </div>
+
             </div>
           </div>
 
@@ -332,28 +430,26 @@ function ProcessPipeline({ log }) {
                 </div>
               </div>
 
-              {/* Prompt toggle buttons */}
-              {prompt.system && (
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                  <button
-                    style={{ ...styles.btnSecondary, marginLeft: 0, background: showPrompt === 'system' ? '#1e293b' : 'transparent' }}
-                    onClick={() => setShowPrompt(showPrompt === 'system' ? null : 'system')}
-                  >
-                    {showPrompt === 'system' ? 'Hide' : 'View'} System Prompt
-                  </button>
-                  <button
-                    style={{ ...styles.btnSecondary, marginLeft: 0, background: showPrompt === 'user' ? '#1e293b' : 'transparent' }}
-                    onClick={() => setShowPrompt(showPrompt === 'user' ? null : 'user')}
-                  >
-                    {showPrompt === 'user' ? 'Hide' : 'View'} Full User Prompt
-                  </button>
-                </div>
-              )}
+              {/* Full raw prompt buttons */}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  style={{ ...styles.btnSecondary, marginLeft: 0, background: showPrompt === 'system' ? '#1e293b' : 'transparent', fontSize: '11px' }}
+                  onClick={() => setShowPrompt(showPrompt === 'system' ? null : 'system')}
+                >
+                  {showPrompt === 'system' ? 'Hide' : 'Raw'} System Prompt
+                </button>
+                <button
+                  style={{ ...styles.btnSecondary, marginLeft: 0, background: showPrompt === 'user' ? '#1e293b' : 'transparent', fontSize: '11px' }}
+                  onClick={() => setShowPrompt(showPrompt === 'user' ? null : 'user')}
+                >
+                  {showPrompt === 'user' ? 'Hide' : 'Raw'} User Prompt
+                </button>
+              </div>
               {showPrompt === 'system' && prompt.system && (
-                <div style={{ ...styles.promptBlock, maxHeight: '300px', overflow: 'auto' }}>{prompt.system}</div>
+                <div style={{ ...styles.promptBlock, maxHeight: '300px', overflow: 'auto', marginTop: '8px' }}>{prompt.system}</div>
               )}
               {showPrompt === 'user' && prompt.user && (
-                <div style={{ ...styles.promptBlock, maxHeight: '400px', overflow: 'auto' }}>{prompt.user}</div>
+                <div style={{ ...styles.promptBlock, maxHeight: '400px', overflow: 'auto', marginTop: '8px' }}>{prompt.user}</div>
               )}
             </div>
           </div>
@@ -907,6 +1003,8 @@ const styles = {
   pipeStepBody: { padding: '8px 14px 12px', fontSize: '13px', color: '#cbd5e1' },
   pipeArrow: { textAlign: 'center', color: '#475569', fontSize: '16px', padding: '2px 0' },
   pipeCheckFail: { padding: '6px 10px', background: '#7f1d1d', borderRadius: '4px', color: '#fca5a5', fontSize: '12px' },
+  pipeSectionBox: { padding: '8px 10px', background: '#0f172a', borderRadius: '6px', border: '1px solid #334155', marginBottom: '6px' },
+  pipeSectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', fontSize: '12px' },
   tokenBox: { background: '#0f172a', padding: '10px', borderRadius: '6px', textAlign: 'center', border: '1px solid #334155' },
   promptBlock: { padding: '10px', background: '#0f172a', borderRadius: '6px', border: '1px solid #334155', fontSize: '12px', color: '#94a3b8', whiteSpace: 'pre-wrap', lineHeight: '1.5', fontFamily: 'monospace' },
 
