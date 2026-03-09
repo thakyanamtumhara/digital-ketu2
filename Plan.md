@@ -400,18 +400,18 @@ Each step shows timing (how many ms it took) and token/cost impact.
 
 | # | What | Details | Status |
 |---|------|---------|--------|
-| 1 | WhatsApp repo token | Fine-grained token for WhatsApp Business API on Railway. Needs: read messages, send messages, read saved replies. **Plus code read/write access** for adding the Edit button to the WhatsApp repo app UI. | Pending |
+| 1 | WhatsApp repo token | Fine-grained token for WhatsApp Business API on Railway. Needs: read messages, send messages, read saved replies. **Plus code read/write access** for adding the Edit button to the WhatsApp repo app UI. | ✅ Not needed — repo connected directly via Claude Code (`thakyanamtumhara/wwbun`) |
 | 2 | Anthropic API key | For Claude API to generate replies. | Pending |
-| 3 | GitHub token (catalog repo) | **Fine-grained token with Content: Read access** to the catalog repo. Used to pull product data via GitHub API every 3-4 days. | Pending |
+| 3 | GitHub token (catalog repo) | **Fine-grained token with Content: Read access** to the catalog repo. Used to pull product data via GitHub API every 3-4 days. | ✅ Not needed — repo connected directly via Claude Code (`thakyanamtumhara/catalog`) |
 | 4 | Railway access | Project setup for auto-reply server. Om creates the Railway project. | Already have |
-| 5 | Catalog repo name/URL | The GitHub repo where product catalog is stored. | Pending |
-| 6 | WhatsApp repo name/URL | The Railway-deployed WhatsApp Business API endpoint details. | Pending |
+| 5 | Catalog repo name/URL | The GitHub repo where product catalog is stored. | ✅ `thakyanamtumhara/catalog` |
+| 6 | WhatsApp repo name/URL | The Railway-deployed WhatsApp Business API endpoint details. | ✅ `thakyanamtumhara/wwbun` |
 
 ---
 
 ## 13. Pending / To Be Decided
 
-- [ ] WhatsApp repo token handover (including code read/write for Edit button)
+- [x] ~~WhatsApp repo token handover~~ — Not needed, repo connected directly via Claude Code
 - [ ] Railway project setup for auto-reply server
 - [ ] Push notification to Om when AI defers to Ketu (so Om knows a buyer is waiting)
 - [ ] Edit button UI implementation on WhatsApp repo app
