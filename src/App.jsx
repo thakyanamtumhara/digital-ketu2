@@ -175,7 +175,7 @@ function LiveMonitor({ logs, expandedLog, setExpandedLog }) {
             </div>
             <div style={styles.logMeta}>
               {log.totalTokens && <span>{log.totalTokens} tok</span>}
-              {log.costUsd != null && <span> / ${log.costUsd.toFixed(5)}</span>}
+              {log.costUsd != null && <span> / Rs.{(log.costUsd * 85).toFixed(2)}</span>}
               {log.processingMs && <span> / {log.processingMs}ms</span>}
               <span style={styles.logTime}>{new Date(log.createdAt).toLocaleTimeString('en-IN')}</span>
             </div>
@@ -421,8 +421,8 @@ function ProcessPipeline({ log }) {
                   <div style={{ fontSize: '10px', color: '#64748b' }}>Total Tokens</div>
                 </div>
                 <div style={styles.tokenBox}>
-                  <div style={{ fontSize: '18px', fontWeight: '700', color: '#22c55e' }}>${log.costUsd?.toFixed(6) || '—'}</div>
-                  <div style={{ fontSize: '10px', color: '#64748b' }}>Cost {costInr && `(Rs.${costInr})`}</div>
+                  <div style={{ fontSize: '18px', fontWeight: '700', color: '#22c55e' }}>Rs.{costInr || '—'}</div>
+                  <div style={{ fontSize: '10px', color: '#64748b' }}>Cost</div>
                 </div>
                 <div style={styles.tokenBox}>
                   <div style={{ fontSize: '18px', fontWeight: '700', color: '#fbbf24' }}>{log.processingMs || '—'}ms</div>
@@ -504,9 +504,9 @@ function Analytics({ analytics, period, setPeriod }) {
         <StatCard label="Deferred" value={analytics.totalDeferred} />
         <StatCard label="Skipped" value={analytics.totalSkipped} />
         <StatCard label="Total Tokens" value={analytics.tokens.total.toLocaleString()} />
-        <StatCard label="Total Cost" value={`$${analytics.tokens.totalCostUsd.toFixed(4)}`} />
+        <StatCard label="Total Cost" value={`Rs.${(analytics.tokens.totalCostUsd * 85).toFixed(2)}`} />
         <StatCard label="Avg Tokens/Reply" value={analytics.tokens.avgTokensPerReply} />
-        <StatCard label="Avg Cost/Reply" value={`$${(analytics.tokens.avgCostPerReply || 0).toFixed(5)}`} />
+        <StatCard label="Avg Cost/Reply" value={`Rs.${((analytics.tokens.avgCostPerReply || 0) * 85).toFixed(2)}`} />
         <StatCard label="Avg Processing" value={`${analytics.tokens.avgProcessingMs}ms`} />
         <StatCard label="Intervention Rate" value={analytics.interventionRate} />
       </div>
