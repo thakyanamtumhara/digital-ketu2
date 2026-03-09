@@ -1,18 +1,12 @@
 // Embedding generation and vector search using Claude + pgvector
 
 /**
- * Generate embedding for a text string using Claude's voyage model via Anthropic API
- * Returns a 1024-dimension vector
+ * Generate embedding for a text string
+ * Uses simple hash-based approach (placeholder until proper embedding model is added)
+ * NOTE: For MVP, the main reply flow uses getAllChunks() instead of vector search
+ *       to avoid embedding quality issues. Vector search is only used for defer-to-Ketu matching.
  */
 export async function getEmbedding(anthropic, text) {
-  const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1,
-    system: 'You are an embedding model. Return only the number 1.',
-    messages: [{ role: 'user', content: text }],
-  })
-  // For now, we'll use a simple hash-based approach until Anthropic embeddings API is used
-  // In production, replace with Anthropic's embedding endpoint or a local model
   return textToSimpleEmbedding(text)
 }
 
@@ -94,6 +88,17 @@ export async function vectorSearchDeferList(db, anthropic, queryText, { threshol
   `
 
   return results.length > 0 ? results[0] : null
+}
+
+/**
+ * Get ALL knowledge chunks from the database (for small KB, send everything to Claude)
+ * This avoids embedding quality issues — Claude itself picks relevant info
+ */
+export async function getAllChunks(db) {
+  return db.knowledgeChunk.findMany({
+    select: { id: true, source: true, title: true, content: true, metadata: true },
+    orderBy: { source: 'asc' },
+  })
 }
 
 /**

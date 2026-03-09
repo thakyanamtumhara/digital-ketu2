@@ -55,20 +55,24 @@ The system connects to Om's WhatsApp repo via **API token** and syncs automatica
 
 ---
 
-## 3. How AI Generates Replies (RAG Approach)
+## 3. How AI Generates Replies
 
-The AI does **NOT** read the entire knowledge base for every reply. That would be too expensive and slow.
+### Current MVP Approach: Send All Chunks to Claude
+Since the knowledge base is small (~30-50 chunks), **ALL knowledge chunks** are sent to Claude with every message. Claude picks what's relevant and generates the reply.
 
-### Flow:
-1. **Buyer sends a question**
-2. **Search step (fast, cheap):** System searches the knowledge base using vector/embedding search and pulls only the **relevant chunks** (5-10 small pieces)
-3. **Generate step (Claude):** Only those relevant chunks + communication style are sent to Claude
-4. **Claude generates reply** that sounds like Om and has accurate info
+**Why this approach (instead of vector search):**
+- Hash-based embeddings produce low similarity scores → vector search was failing to find relevant chunks
+- With a small KB, sending everything costs only ~2000-4000 tokens per message (~₹0.02-0.04 per reply with Haiku 4.5)
+- Claude is much better at judging relevance than hash-based similarity
+- No false "low confidence" deferrals — Claude answers if it has the info
 
-### Result:
-- Even if knowledge base grows, each reply uses only a small portion
-- Token cost stays **low and predictable**
-- Better results because AI focuses on relevant info only
+**Claude decides when to defer:** If Claude doesn't have enough info in the knowledge base to answer accurately, it responds with `[DEFER]` and the system sends the defer message instead.
+
+### Future Upgrade: Vector Search (when KB grows)
+When the knowledge base grows beyond ~100 chunks, switch to proper vector search:
+- Add Voyage AI embeddings (Anthropic's recommended embedding model)
+- Re-enable the confidence threshold check
+- This will reduce tokens per message by only sending relevant chunks
 
 ### What Exactly Gets Sent to Claude (Prompt Structure)
 For every buyer message, the system builds a prompt with exactly **5 components**:
@@ -77,11 +81,11 @@ For every buyer message, the system builds a prompt with exactly **5 components*
 |---|-----------|-----------------|---------------------|-----------------|
 | 1 | Instructions | System rules (cooldown, merge, first-time buyer, guide to website, etc.) | No — fixed every time | ~300-500 |
 | 2 | Style Guide | Om's communication tone, language, greeting/closing style | No — fixed every time | ~100-200 |
-| 3 | Knowledge chunks | Relevant pieces from saved replies + catalog (pulled via vector search) | Yes — different per question | ~200-500 |
+| 3 | Knowledge chunks | ALL saved replies + catalog + policies (full KB) | No — same every time (until sync) | ~1500-3000 |
 | 4 | Conversation history | Last **5 messages** from this buyer's conversation | Yes — changes as conversation progresses | ~100-300 |
 | 5 | Buyer's message | The actual new question from the buyer | Yes — unique every time | ~20-50 |
 
-**Estimated total per reply: ~700-1500 input tokens + output tokens for the reply**
+**Estimated total per reply: ~2000-4000 input tokens + output tokens for the reply**
 
 **Notes on conversation history:**
 - Only the **last 5 messages** are included (not entire conversation)
@@ -229,12 +233,17 @@ back to you shortly"        Claude AI reply flow
 (no Claude API call)
 ```
 
-### 6.7 Low Confidence Fallback — Defer to Ketu
-Even if a question doesn't match the "Defer to Ketu" list, the AI may still not have a good answer. This happens when the knowledge base search returns **low similarity results** — meaning no saved reply or catalog entry is relevant to what the buyer asked.
+### 6.7 Low Confidence Fallback — Claude Decides When to Defer
+Since the MVP sends ALL knowledge chunks to Claude, **Claude itself decides** whether it has enough info to answer.
 
-**Rule:** After searching the knowledge base, if the best match similarity score is **below 60%**, do NOT call Claude. Instead reply: **"Ketu will get back to you shortly on this."**
+**How it works:**
+- System prompt tells Claude: "If you don't have enough info, respond with exactly: `[DEFER]`"
+- If Claude responds with `[DEFER]`, the system sends the defer message instead
+- This is more accurate than similarity threshold — Claude understands context, not just word overlap
 
-**Example:** Buyer asks "Do you do custom embroidery on t-shirts?" but there's no saved reply about embroidery. Search returns "round neck pricing" as closest match at 35% similarity → too low → defer to Ketu.
+**Example:** Buyer asks "Do you do custom embroidery on t-shirts?" → Claude sees the full knowledge base, finds no embroidery info → responds with `[DEFER]` → buyer gets "Ketu will get back to you shortly on this."
+
+**Future (when KB grows):** Switch to vector search with Voyage AI embeddings and re-enable the 60% confidence threshold.
 
 **Complete message flow with all checks:**
 ```
@@ -244,19 +253,17 @@ Is it media only? ──YES──▶ "Please write in text, can't view media"
        ↓ NO
 Merge messages (≤3 sec gap)
        ↓
-Is buyer first-time? ──YES──▶ Include sale91.com/catalog in reply
-       ↓
+Post-defer ack? ──YES──▶ Stay silent (section 4.6)
+       ↓ NO
 Check "Defer to Ketu" list (≥85% match?)
        ↓ YES                    ↓ NO
-"Ketu will get back       Search knowledge base
-to you shortly"           (saved replies + catalog)
-                               ↓
-                    Best match similarity ≥60%?
-                     ↓ YES              ↓ NO
-               Build prompt &      "Ketu will get back
-               call Claude API     to you shortly"
-                     ↓
-               Send AI reply
+"Ketu will get back       Send ALL knowledge chunks
+to you shortly"           + buyer message to Claude
+(no Claude API call)           ↓
+                         Claude responds with [DEFER]?
+                          ↓ YES              ↓ NO
+                    "Ketu will get back    Send Claude's
+                    to you shortly"        AI reply to buyer
 ```
 
 ---
@@ -446,6 +453,9 @@ Each step shows timing (how many ms it took) and token/cost impact.
 - [x] wwbun env variables — ✅ `DIGITAL_KETU_URL` and `DIGITAL_KETU_SECRET` added to wwbun on Railway
 - [x] End-to-end test — ✅ AI replies working (buyer "Stylo" received AI responses)
 - [x] Post-defer acknowledgment fix — ✅ AI no longer replies to "Ok"/"Okay" after deferring (section 4.6)
+- [x] Fix AI deferring all messages — ✅ Removed wasted Claude API call from embeddings, switched to send-all-chunks approach for MVP (KB is small)
+- [x] Auto-sync on startup — ✅ Server forces sync when knowledge base is empty
+- [ ] Upgrade to Voyage AI embeddings — When KB grows beyond ~100 chunks, switch to proper vector search
 - [ ] Edit button UI implementation on WhatsApp repo app (`thakyanamtumhara/wwbun`) — Claude Code will implement
 
 ---

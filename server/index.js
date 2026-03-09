@@ -5,7 +5,7 @@ import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage } from './process.js'
 import { syncSavedReplies, syncCatalog } from './sync.js'
-import { getEmbedding, vectorSearch, vectorSearchDeferList } from './embeddings.js'
+import { getEmbedding } from './embeddings.js'
 
 const app = new Hono()
 const db = new PrismaClient()
@@ -361,8 +361,14 @@ app.get('/api/sync/logs', async (c) => {
 // ===========================================
 
 async function runScheduledSync() {
-  const settings = await getSettings()
-  if (settings.nextSyncAt && new Date() < new Date(settings.nextSyncAt)) return
+  // Force sync if knowledge base is empty (first deploy or after DB reset)
+  const chunkCount = await db.knowledgeChunk.count()
+  if (chunkCount === 0) {
+    console.log('[Sync] Knowledge base is EMPTY — forcing initial sync...')
+  } else {
+    const settings = await getSettings()
+    if (settings.nextSyncAt && new Date() < new Date(settings.nextSyncAt)) return
+  }
 
   console.log('[Sync] Running scheduled sync...')
   try {
@@ -375,7 +381,8 @@ async function runScheduledSync() {
         nextSyncAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
       },
     })
-    console.log('[Sync] Scheduled sync complete')
+    const newCount = await db.knowledgeChunk.count()
+    console.log(`[Sync] Scheduled sync complete — ${newCount} knowledge chunks now in DB`)
   } catch (err) {
     console.error('[Sync] Scheduled sync failed:', err.message)
   }

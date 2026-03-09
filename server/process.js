@@ -1,7 +1,7 @@
 // Core message processing pipeline
-// Handles: merge → dedup → media check → cooldown → defer check → RAG → Claude → reply
+// Handles: merge → dedup → media check → cooldown → defer check → all chunks → Claude → reply
 
-import { vectorSearch, vectorSearchDeferList } from './embeddings.js'
+import { getAllChunks, vectorSearchDeferList } from './embeddings.js'
 
 const WWBUN_API_URL = process.env.WWBUN_API_URL
 const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
@@ -172,18 +172,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
-  // --- RAG: Search knowledge base ---
-  const chunks = await vectorSearch(db, anthropic, mergedText, { limit: 7, minSimilarity: 0.0 })
-  const bestSimilarity = chunks.length > 0 ? chunks[0].similarity : 0
+  // --- Fetch ALL knowledge chunks (KB is small, ~30-50 chunks) ---
+  // Send everything to Claude — Claude picks what's relevant
+  // This avoids embedding quality issues with hash-based vectors
+  const allChunks = await getAllChunks(db)
 
-  // --- Check: Low confidence ---
-  if (bestSimilarity < settings.confidenceThreshold) {
+  // If KB is completely empty, defer (sync hasn't run yet)
+  if (allChunks.length === 0) {
     await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'DEFERRED',
-      deferReason: 'low_confidence',
-      similarityScore: bestSimilarity,
-      knowledgeChunks: chunks.map(c => ({ title: c.title, source: c.source, similarity: c.similarity })),
+      deferReason: 'empty_knowledge_base',
       aiReply: settings.deferMessage,
       processingMs: Date.now() - startTime,
       sentViaWwbun: true,
@@ -204,8 +203,8 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const conversationHistory = recentLogs.reverse()
 
   // Separate catalog chunks for display
-  const catalogChunks = chunks.filter(c => c.source === 'CATALOG')
-  const otherChunks = chunks.filter(c => c.source !== 'CATALOG')
+  const catalogChunks = allChunks.filter(c => c.source === 'CATALOG')
+  const otherChunks = allChunks.filter(c => c.source !== 'CATALOG')
 
   const systemPrompt = buildSystemPrompt({ isFirstTime, settings })
   const userPrompt = buildUserPrompt({
@@ -237,8 +236,31 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'FAILED',
       deferReason: err.message,
-      knowledgeChunks: chunks.map(c => ({ title: c.title, source: c.source, similarity: c.similarity })),
+      knowledgeChunks: allChunks.map(c => ({ title: c.title, source: c.source })),
       processingMs: Date.now() - startTime,
+    })
+    return
+  }
+
+  // --- Check if Claude deferred (couldn't answer from knowledge base) ---
+  const DEFER_MARKER = '[DEFER]'
+  if (aiReply.includes(DEFER_MARKER)) {
+    await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'DEFERRED',
+      deferReason: 'claude_deferred',
+      aiReply: settings.deferMessage,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      costUsd,
+      processingMs: Date.now() - startTime,
+      sentViaWwbun: true,
+    })
+    // Update daily spend even for deferred (Claude API was called)
+    await db.settings.update({
+      where: { id: 'default' },
+      data: { dailySpentUsd: { increment: costUsd } },
     })
     return
   }
@@ -264,8 +286,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   await createLog(db, conversation.id, mergedText, messageIds, {
     status: 'REPLIED',
     aiReply,
-    knowledgeChunks: chunks.map(c => ({ title: c.title, source: c.source, similarity: c.similarity })),
-    similarityScore: bestSimilarity,
+    knowledgeChunks: allChunks.map(c => ({ title: c.title, source: c.source })),
     catalogMatch: catalogChunks.length > 0 ? catalogChunks[0].metadata : null,
     promptTokens,
     completionTokens,
@@ -292,7 +313,8 @@ RULES:
 - Be friendly, professional, and helpful. Sound like a real person, not a robot.
 - Keep replies concise — WhatsApp messages should be short and readable.
 - Never make up information. Only use the knowledge provided below.
-- If you don't have enough info to answer, say Ketu will get back to them shortly.
+- If you don't have enough info in the knowledge base to answer accurately, respond with EXACTLY: [DEFER]
+- Do NOT make up prices, product details, or policies. Only use info from the knowledge base provided.
 - When buyer shows buying intent (asking about pricing, MOQ, how to order), guide them to buy from sale91.com and suggest ordering samples from the website.
 - Always share sale91.com when purchase intent is detected.
 - Never reveal you are an AI. You are Ketu's assistant.
