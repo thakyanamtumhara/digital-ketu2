@@ -268,7 +268,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const filteredChunks = filterChunksForMessage(allChunks, mergedText, isGreeting)
 
   // --- Build prompt for Claude ---
-  const isFirstTime = false // Already handled by welcome bypass above
+  // isFirstTime is always false here — welcome bypass already returned above
 
   // Get recent conversation history (last 5 messages)
   const recentLogs = await db.messageLog.findMany({
@@ -301,7 +301,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const catalogChunks = filteredChunks.filter(c => c.source === 'CATALOG')
   const otherChunks = filteredChunks.filter(c => c.source !== 'CATALOG')
 
-  const systemPrompt = buildSystemPrompt({ isFirstTime, settings, deferExamples, stylePairs })
+  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, stylePairs })
   const userPrompt = buildUserPrompt({
     mergedText,
     chunks: otherChunks,
