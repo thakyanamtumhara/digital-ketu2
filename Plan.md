@@ -252,24 +252,39 @@ to you shortly"           (saved replies + catalog)
 
 ## 7. Architecture Summary
 
+### Integration Model: wwbun forwards → digital-ketu2 processes → wwbun sends reply
+
 ```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  WhatsApp    │────▶│  Auto-Reply      │────▶│   Claude    │
-│  API/Repo    │◀────│  Server          │◀────│   API       │
-└─────────────┘     └──────────────────┘     └─────────────┘
-                            │
-                   ┌────────┼────────┐
-                   │        │        │
-             ┌─────▼─────┐ ┌▼──────┐ ┌▼────────────┐
-             │ Knowledge  │ │Defer  │ │ Intervention │
-             │ Base       │ │to Ketu│ │ Log          │
-             │ (Vector DB)│ │ List  │ │ (Learning)   │
-             └───────────┘ └───────┘ └──────────────┘
+┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌─────────────┐
+│  WhatsApp    │────▶│  wwbun           │────▶│  digital-ketu2   │────▶│   Claude    │
+│  Cloud API   │     │  (WhatsApp app)  │     │  (Auto-Reply     │     │   API       │
+│              │◀────│                  │◀────│   Server)        │◀────│             │
+└──────────────┘     └──────────────────┘     └──────────────────┘     └─────────────┘
+                                                      │
+                                             ┌────────┼────────┐
+                                             │        │        │
+                                       ┌─────▼─────┐ ┌▼──────┐ ┌▼────────────┐
+                                       │ Knowledge  │ │Defer  │ │ Intervention │
+                                       │ Base       │ │to Ketu│ │ Log          │
+                                       │ (Vector DB)│ │ List  │ │ (Learning)   │
+                                       └───────────┘ └───────┘ └──────────────┘
+
+Flow:
+1. WhatsApp Cloud API sends webhook to wwbun (existing behavior)
+2. wwbun forwards incoming message to digital-ketu2 API
+3. digital-ketu2 processes (merge, RAG search, Claude API)
+4. digital-ketu2 calls wwbun API to send the AI reply
+5. wwbun sends via WhatsApp API and tracks the message properly
 
 Knowledge Base Sources:
-├── Saved Replies (from WhatsApp repo)
-├── Product Catalog (sale91.com/catalog)
+├── Saved Replies (from wwbun repo via GitHub API)
+├── Product Catalog (from catalog repo via GitHub API)
 └── Communication Style Guide
+
+Edit Button (already exists in wwbun):
+├── Om clicks Edit on AI reply → types correct response
+├── wwbun sends correction data to digital-ketu2 API
+└── digital-ketu2 saves to "Defer to Ketu" list
 ```
 
 ---

@@ -1,0 +1,149 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// --- Knowledge Base ---
+
+model KnowledgeChunk {
+  id        String   @id @default(cuid())
+  source    ChunkSource
+  sourceId  String?           // original ID from source (template ID, product slug, etc.)
+  title     String?           // short label for dashboard display
+  content   String            // the text content
+  embedding Unsupported("vector(1024)")? // Claude embedding dimension
+  metadata  Json?             // extra info (product price, category, etc.)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([source])
+  @@index([sourceId])
+}
+
+enum ChunkSource {
+  SAVED_REPLY     // from wwbun ReplyTemplate
+  CATALOG         // from catalog repo products
+  STYLE_GUIDE     // communication style rules
+  FAQ             // extracted FAQ pairs
+  POLICY          // shipping, payment, MOQ policies
+}
+
+// --- Defer to Ketu ---
+
+model DeferToKetu {
+  id              String   @id @default(cuid())
+  buyerQuestion   String            // the question AI got wrong
+  aiWrongReply    String            // what AI replied (incorrectly)
+  correctReply    String            // what Om typed as correction
+  embedding       Unsupported("vector(1024)")? // embedding of buyer question
+  triggerCount    Int      @default(0) // how many times this has been triggered since
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// --- Conversation Tracking ---
+
+model BuyerConversation {
+  id              String   @id @default(cuid())
+  whatsappNumber  String   @unique
+  isFirstTime     Boolean  @default(true)
+  cooldownUntil   DateTime?          // if Om intervened, AI pauses until this time
+  lastMessageAt   DateTime?
+  messageCount    Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  messages        MessageLog[]
+}
+
+// --- Message Log (for dashboard + analytics) ---
+
+model MessageLog {
+  id                String   @id @default(cuid())
+  conversationId    String
+  conversation      BuyerConversation @relation(fields: [conversationId], references: [id])
+
+  // Incoming
+  buyerMessage      String            // merged message from buyer
+  messageIds        String[]          // WhatsApp message IDs (for dedup)
+  isMedia           Boolean  @default(false)
+
+  // Processing
+  status            MessageStatus
+  deferReason       String?           // "defer_to_ketu" | "low_confidence" | "cooldown" | "spam" | "media_only" | "daily_limit" | "off_hours"
+  knowledgeChunks   Json?             // which chunks were retrieved
+  similarityScore   Float?            // best match score from vector search
+  catalogMatch      Json?             // product matched from catalog
+
+  // Claude API
+  promptTokens      Int?
+  completionTokens  Int?
+  totalTokens       Int?
+  costUsd           Float?
+  promptSent        Json?             // the full prompt sent to Claude (for dashboard)
+
+  // Output
+  aiReply           String?           // the reply generated
+  sentViaWwbun      Boolean  @default(false) // whether reply was sent via wwbun API
+  wwbunMessageId    String?           // message ID from wwbun after sending
+
+  // Timing
+  processingMs      Int?              // total processing time
+  createdAt         DateTime @default(now())
+
+  @@index([conversationId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum MessageStatus {
+  PROCESSING
+  REPLIED            // AI replied successfully
+  DEFERRED           // deferred to Ketu
+  COOLDOWN           // Om intervened, AI paused
+  SKIPPED            // spam, media-only, off-hours, daily limit
+  FAILED             // error occurred
+}
+
+// --- Settings ---
+
+model Settings {
+  id                  String   @id @default("default")
+  isActive            Boolean  @default(true)       // global ON/OFF toggle
+  dailyBudgetInr      Float    @default(500)        // daily spend limit in INR
+  dailySpentUsd       Float    @default(0)          // today's spend in USD
+  dailySpentResetAt   DateTime @default(now())      // when daily counter was last reset
+  deferMessage        String   @default("Ketu will get back to you shortly on this.")
+  mediaMessage        String   @default("Sir, Ketu is not available right now. I'm not able to see images or listen to audio at the moment — could you please write your query in text? I'll read and reply right away.")
+  confidenceThreshold Float    @default(0.6)        // min similarity for Claude call
+  deferThreshold      Float    @default(0.85)       // min similarity for defer-to-ketu match
+  mergeWindowMs       Int      @default(3000)       // message merge window (3 sec)
+  cooldownMinutes     Int      @default(10)         // cooldown after Om intervenes
+  scheduleEnabled     Boolean  @default(false)
+  scheduleStart       String?  @default("09:00")    // HH:MM IST
+  scheduleEnd         String?  @default("21:00")    // HH:MM IST
+  lastSyncAt          DateTime?
+  nextSyncAt          DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+// --- Sync Log ---
+
+model SyncLog {
+  id            String   @id @default(cuid())
+  syncType      String                // "saved_replies" | "catalog"
+  status        String                // "success" | "failed"
+  itemsFound    Int      @default(0)
+  itemsUpdated  Int      @default(0)
+  itemsNew      Int      @default(0)
+  error         String?
+  durationMs    Int?
+  createdAt     DateTime @default(now())
+}
