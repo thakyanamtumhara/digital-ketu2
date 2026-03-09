@@ -25,11 +25,13 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const previousLastMessageAt = existingConversation?.lastMessageAt || null
 
   // Get or create buyer conversation (this overwrites lastMessageAt to "now")
+  // Always set isFirstTime to false on update — if record exists, buyer is not first-time
   const conversation = await db.buyerConversation.upsert({
     where: { whatsappNumber },
     update: {
       lastMessageAt: new Date(),
       messageCount: { increment: messages.length },
+      isFirstTime: false,
     },
     create: {
       whatsappNumber,
@@ -139,36 +141,28 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
-  // --- Check: Post-defer acknowledgment ---
-  // If last message was deferred and buyer just acknowledged (ok, thanks, etc.), stay silent
-  const lastLog = await db.messageLog.findFirst({
-    where: { conversationId: conversation.id },
-    orderBy: { createdAt: 'desc' },
-    select: { status: true },
-  })
+  // --- Check: Acknowledgment messages — always skip ---
+  // If buyer just says ok/okay/hmm etc., AI should stay silent regardless of context
+  const normalizedText = mergedText.trim().toLowerCase()
+    .replace(/[.!?,।]+$/g, '')
+    .trim()
 
-  if (lastLog && lastLog.status === 'DEFERRED') {
-    const normalizedText = mergedText.trim().toLowerCase()
-      .replace(/[.!?,।]+$/g, '')
-      .trim()
+  const ackPatterns = [
+    'ok', 'okay', 'fine', 'sure', 'thanks', 'thank you', 'alright',
+    'got it', 'noted', 'understood', 'no problem', 'np', 'cool',
+    'great', 'good', 'right', 'yes', 'yep', 'ya', 'yaa',
+    'theek hai', 'thik hai', 'accha', 'acha', 'sahi hai',
+    'ji', 'haan', 'ha', 'dhanyavaad', 'shukriya', 'bas',
+    'theek', 'thik', 'achchha', 'hmm', 'hm', 'k', 'kk',
+  ]
 
-    const ackPatterns = [
-      'ok', 'okay', 'fine', 'sure', 'thanks', 'thank you', 'alright',
-      'got it', 'noted', 'understood', 'no problem', 'np', 'cool',
-      'great', 'good', 'right', 'yes', 'yep', 'ya', 'yaa',
-      'theek hai', 'thik hai', 'accha', 'acha', 'sahi hai',
-      'ji', 'haan', 'ha', 'dhanyavaad', 'shukriya', 'bas',
-      'theek', 'thik', 'achchha', 'hmm', 'hm', 'k', 'kk',
-    ]
-
-    if (ackPatterns.includes(normalizedText)) {
-      await createLog(db, conversation.id, mergedText, messageIds, {
-        status: 'SKIPPED',
-        deferReason: 'post_defer_ack',
-        processingMs: Date.now() - startTime,
-      })
-      return
-    }
+  if (ackPatterns.includes(normalizedText)) {
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'SKIPPED',
+      deferReason: 'acknowledgment',
+      processingMs: Date.now() - startTime,
+    })
+    return
   }
 
   // --- Check: Is this a greeting? Skip defer-to-ketu for greetings ---
@@ -191,7 +185,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const lastMessageAge = previousLastMessageAt
     ? Date.now() - new Date(previousLastMessageAt).getTime()
     : Infinity
-  const isFirstTime = !existingConversation || existingConversation.isFirstTime
+  // Only truly first-time if no conversation exists at all (no previousLastMessageAt)
+  // If buyer has messaged before (has lastMessageAt), only send welcome if 7+ days gap
+  const isFirstTime = !existingConversation
   const shouldSendWelcome = isFirstTime || lastMessageAge > SEVEN_DAYS_MS
 
   if (shouldSendWelcome) {
@@ -203,14 +199,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     const welcomeMessage = welcomeChunk?.content || 'https://sale91.com/catalog\n\nCheck rates, color and buy 👆'
 
     await sendReplyViaWwbun(whatsappNumber, welcomeMessage)
-
-    // Mark as no longer first-time
-    if (isFirstTime) {
-      await db.buyerConversation.update({
-        where: { id: conversation.id },
-        data: { isFirstTime: false },
-      })
-    }
 
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'REPLIED',
