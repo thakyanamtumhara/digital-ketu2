@@ -384,7 +384,11 @@ async function runScheduledSync() {
   try {
     await syncSavedReplies(db, anthropic)
     await syncCatalog(db, anthropic)
-    await syncStylePairs(db, anthropic).catch(err => console.error('[Sync] Style pairs failed:', err.message))
+    // Style pairs: only sync on FIRST run (empty DB), not every 3 days
+    // Om's communication style doesn't change — re-extract manually if needed
+    if (chunkCount === 0) {
+      await syncStylePairs(db, anthropic).catch(err => console.error('[Sync] Style pairs failed:', err.message))
+    }
     await db.settings.update({
       where: { id: 'default' },
       data: {
