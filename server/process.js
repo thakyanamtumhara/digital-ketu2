@@ -150,26 +150,42 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
   }
 
-  // --- Check: Defer to Ketu list ---
-  const deferMatch = await vectorSearchDeferList(db, anthropic, mergedText, {
-    threshold: settings.deferThreshold,
-  })
-  if (deferMatch) {
-    // Increment trigger count
-    await db.deferToKetu.update({
-      where: { id: deferMatch.id },
-      data: { triggerCount: { increment: 1 } },
+  // --- Check: Is this a greeting? Skip defer-to-ketu for greetings ---
+  const greetingPatterns = [
+    'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
+    'helo', 'hllo', 'helloo', 'hellooo',
+    'namaste', 'namaskar', 'namaskaar',
+    'good morning', 'good afternoon', 'good evening',
+    'gm', 'morning', 'evening',
+    'hy', 'hye', 'hola', 'yo',
+  ]
+  const normalizedForGreeting = mergedText.trim().toLowerCase()
+    .replace(/[.!?,।🙏👋]+/g, '')
+    .trim()
+  const isGreeting = greetingPatterns.includes(normalizedForGreeting)
+
+  // --- Check: Defer to Ketu list (skip for greetings) ---
+  if (!isGreeting) {
+    const deferMatch = await vectorSearchDeferList(db, anthropic, mergedText, {
+      threshold: settings.deferThreshold,
     })
-    await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
-    await createLog(db, conversation.id, mergedText, messageIds, {
-      status: 'DEFERRED',
-      deferReason: 'defer_to_ketu',
-      similarityScore: deferMatch.similarity,
-      aiReply: settings.deferMessage,
-      processingMs: Date.now() - startTime,
-      sentViaWwbun: true,
-    })
-    return
+    if (deferMatch) {
+      // Increment trigger count
+      await db.deferToKetu.update({
+        where: { id: deferMatch.id },
+        data: { triggerCount: { increment: 1 } },
+      })
+      await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'DEFERRED',
+        deferReason: 'defer_to_ketu',
+        similarityScore: deferMatch.similarity,
+        aiReply: settings.deferMessage,
+        processingMs: Date.now() - startTime,
+        sentViaWwbun: true,
+      })
+      return
+    }
   }
 
   // --- Fetch ALL knowledge chunks (KB is small, ~30-50 chunks) ---
