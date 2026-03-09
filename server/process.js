@@ -17,7 +17,14 @@ const USD_TO_INR = 85
 export async function processIncomingMessage({ whatsappNumber, messages, db, anthropic, settings }) {
   const startTime = Date.now()
 
-  // Get or create buyer conversation
+  // Check existing conversation BEFORE updating lastMessageAt (needed for welcome bypass)
+  const existingConversation = await db.buyerConversation.findUnique({
+    where: { whatsappNumber },
+    select: { lastMessageAt: true, isFirstTime: true },
+  })
+  const previousLastMessageAt = existingConversation?.lastMessageAt || null
+
+  // Get or create buyer conversation (this overwrites lastMessageAt to "now")
   const conversation = await db.buyerConversation.upsert({
     where: { whatsappNumber },
     update: {
@@ -181,10 +188,11 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // --- WELCOME MESSAGE BYPASS ---
   // First-time buyer OR returning after 7+ days → send welcome message directly, no Claude call
   const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
-  const lastMessageAge = conversation.lastMessageAt
-    ? Date.now() - new Date(conversation.lastMessageAt).getTime()
+  const lastMessageAge = previousLastMessageAt
+    ? Date.now() - new Date(previousLastMessageAt).getTime()
     : Infinity
-  const shouldSendWelcome = conversation.isFirstTime || lastMessageAge > SEVEN_DAYS_MS
+  const isFirstTime = !existingConversation || existingConversation.isFirstTime
+  const shouldSendWelcome = isFirstTime || lastMessageAge > SEVEN_DAYS_MS
 
   if (shouldSendWelcome) {
     // Fetch the /welcome saved reply from knowledge base
@@ -197,7 +205,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     await sendReplyViaWwbun(whatsappNumber, welcomeMessage)
 
     // Mark as no longer first-time
-    if (conversation.isFirstTime) {
+    if (isFirstTime) {
       await db.buyerConversation.update({
         where: { id: conversation.id },
         data: { isFirstTime: false },
