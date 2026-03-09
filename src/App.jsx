@@ -12,6 +12,7 @@ function App() {
   const [expandedLog, setExpandedLog] = useState(null)
   const [period, setPeriod] = useState('today')
   const [syncing, setSyncing] = useState(false)
+  const [knowledge, setKnowledge] = useState(null)
 
   // Fetch data
   const fetchSettings = useCallback(async () => {
@@ -37,6 +38,11 @@ function App() {
   const fetchSyncLogs = useCallback(async () => {
     const res = await fetch(`${API}/sync/logs`)
     if (res.ok) setSyncLogs(await res.json())
+  }, [])
+
+  const fetchKnowledge = useCallback(async () => {
+    const res = await fetch(`${API}/knowledge/download`)
+    if (res.ok) setKnowledge(await res.json())
   }, [])
 
   useEffect(() => {
@@ -66,6 +72,7 @@ function App() {
     try {
       await fetch(`${API}/sync/all`, { method: 'POST' })
       await fetchSyncLogs()
+      await fetchKnowledge()
       await fetchSettings()
     } finally {
       setSyncing(false)
@@ -109,7 +116,7 @@ function App() {
             onClick={() => {
               setTab(t)
               if (t === 'defer') fetchDeferList()
-              if (t === 'sync') fetchSyncLogs()
+              if (t === 'sync') { fetchSyncLogs(); fetchKnowledge() }
               if (t === 'analytics') fetchAnalytics()
             }}
           >
@@ -127,7 +134,7 @@ function App() {
         {tab === 'analytics' && <Analytics analytics={analytics} period={period} setPeriod={setPeriod} />}
         {tab === 'defer' && <DeferManager list={deferList} onDelete={deleteDefer} settings={settings} updateSetting={updateSetting} />}
         {tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
-        {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} onSync={triggerSync} syncing={syncing} />}
+        {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} onSync={triggerSync} syncing={syncing} knowledge={knowledge} />}
       </main>
     </div>
   )
@@ -349,34 +356,130 @@ function SettingTextarea({ label, value, onChange }) {
   )
 }
 
-function SyncPanel({ logs, settings, onSync, syncing }) {
+function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
+  const [showSection, setShowSection] = useState({ catalog: true, replies: false, history: false })
+  const toggle = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
+
+  const catalogItems = knowledge?.chunks?.CATALOG || []
+  const savedReplies = knowledge?.chunks?.SAVED_REPLY || []
+  const policies = knowledge?.chunks?.POLICY || []
+
   return (
     <div>
       <h2 style={styles.sectionTitle}>Knowledge Base Sync</h2>
 
       <div style={styles.syncInfo}>
-        <p><strong>Last sync:</strong> {settings.lastSyncAt ? new Date(settings.lastSyncAt).toLocaleString('en-IN') : 'Never'}</p>
-        <p><strong>Next sync:</strong> {settings.nextSyncAt ? new Date(settings.nextSyncAt).toLocaleString('en-IN') : 'Not scheduled'}</p>
-        <button style={styles.btnPrimary} onClick={onSync} disabled={syncing}>
-          {syncing ? 'Syncing...' : 'Sync Now'}
-        </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          <div>
+            <p style={{ margin: '0 0 4px' }}><strong>Last sync:</strong> {settings.lastSyncAt ? new Date(settings.lastSyncAt).toLocaleString('en-IN') : 'Never'}</p>
+            <p style={{ margin: '0 0 4px' }}><strong>Next sync:</strong> {settings.nextSyncAt ? new Date(settings.nextSyncAt).toLocaleString('en-IN') : 'Not scheduled'}</p>
+            <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>
+              <strong>Total:</strong> {knowledge?.totalChunks || 0} chunks — {catalogItems.length} products, {savedReplies.length} saved replies, {policies.length} policies
+            </p>
+          </div>
+          <button style={styles.btnPrimary} onClick={onSync} disabled={syncing}>
+            {syncing ? 'Syncing...' : 'Sync Now'}
+          </button>
+        </div>
       </div>
 
-      <h3 style={{ ...styles.sectionTitle, fontSize: '16px', marginTop: '24px' }}>Sync History</h3>
-      {logs.length === 0 && <p style={styles.empty}>No sync history yet</p>}
-      {logs.map(log => (
-        <div key={log.id} style={{ ...styles.logCard, borderLeft: `4px solid ${log.status === 'success' ? '#22c55e' : '#ef4444'}` }}>
-          <div style={styles.logHeader}>
-            <span><strong>{log.syncType}</strong> — {log.status}</span>
-            <span>{new Date(log.createdAt).toLocaleString('en-IN')}</span>
-          </div>
-          <div style={styles.logBody}>
-            {log.itemsFound > 0 && <span>Found: {log.itemsFound} | New: {log.itemsNew} | Updated: {log.itemsUpdated}</span>}
-            {log.durationMs && <span> | {log.durationMs}ms</span>}
-            {log.error && <div style={styles.errorText}>{log.error}</div>}
-          </div>
+      {/* Synced Catalog */}
+      <div style={styles.kbSection}>
+        <div style={styles.kbHeader} onClick={() => toggle('catalog')}>
+          <span style={styles.kbHeaderTitle}>Synced Catalog ({catalogItems.length} products)</span>
+          <span style={{ color: '#64748b' }}>{showSection.catalog ? '▼' : '▶'}</span>
         </div>
-      ))}
+        {showSection.catalog && (
+          <div style={styles.kbContent}>
+            {catalogItems.length === 0 && <p style={styles.empty}>No catalog products synced yet</p>}
+            {catalogItems.map((item, i) => (
+              <div key={i} style={styles.kbCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ fontWeight: '600', color: '#f8fafc', fontSize: '14px' }}>{item.title}</div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {item.metadata?.bulkPrice && <span style={styles.priceBadge}>₹{item.metadata.bulkPrice}</span>}
+                    {item.metadata?.samplePrice && <span style={{ ...styles.priceBadge, background: '#1e3a5f' }}>Sample ₹{item.metadata.samplePrice}</span>}
+                  </div>
+                </div>
+                {item.metadata?.gsm && <div style={styles.kbMeta}>{item.metadata.gsm}gsm | {item.metadata.category || ''}</div>}
+                {item.metadata?.colors && (
+                  <div style={{ marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {item.metadata.colors.map((c, j) => (
+                      <span key={j} style={styles.colorChip}>{c}</span>
+                    ))}
+                  </div>
+                )}
+                {item.metadata?.sizes && (
+                  <div style={{ marginTop: '4px', fontSize: '12px', color: '#64748b' }}>
+                    Sizes: {item.metadata.sizes.join(', ')}
+                  </div>
+                )}
+                <div style={{ marginTop: '6px', fontSize: '12px', color: '#94a3b8' }}>
+                  {item.content.split('\n').find(l => l.startsWith('Description:'))?.replace('Description: ', '') || ''}
+                </div>
+                <div style={{ marginTop: '4px', fontSize: '11px', color: '#475569' }}>
+                  Synced: {new Date(item.updatedAt).toLocaleString('en-IN')}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Synced Saved Replies */}
+      <div style={styles.kbSection}>
+        <div style={styles.kbHeader} onClick={() => toggle('replies')}>
+          <span style={styles.kbHeaderTitle}>Synced Saved Replies ({savedReplies.length})</span>
+          <span style={{ color: '#64748b' }}>{showSection.replies ? '▼' : '▶'}</span>
+        </div>
+        {showSection.replies && (
+          <div style={styles.kbContent}>
+            {savedReplies.length === 0 && <p style={styles.empty}>No saved replies synced yet</p>}
+            {savedReplies.map((item, i) => (
+              <div key={i} style={styles.kbCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: '600', color: '#60a5fa', fontSize: '14px' }}>{item.title}</span>
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    {item.metadata?.mediaType && <span style={styles.mediaBadge}>{item.metadata.mediaType}</span>}
+                  </div>
+                </div>
+                <div style={{ marginTop: '6px', fontSize: '13px', color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: '1.4' }}>
+                  {item.content}
+                </div>
+                <div style={{ marginTop: '4px', fontSize: '11px', color: '#475569' }}>
+                  Synced: {new Date(item.updatedAt).toLocaleString('en-IN')}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Sync History */}
+      <div style={styles.kbSection}>
+        <div style={styles.kbHeader} onClick={() => toggle('history')}>
+          <span style={styles.kbHeaderTitle}>Sync History</span>
+          <span style={{ color: '#64748b' }}>{showSection.history ? '▼' : '▶'}</span>
+        </div>
+        {showSection.history && (
+          <div style={styles.kbContent}>
+            {logs.length === 0 && <p style={styles.empty}>No sync history yet</p>}
+            {logs.map(log => (
+              <div key={log.id} style={{ ...styles.logCard, borderLeft: `4px solid ${log.status === 'success' ? '#22c55e' : '#ef4444'}` }}>
+                <div style={styles.logHeader}>
+                  <span><strong>{log.syncType}</strong> — {log.status}</span>
+                  <span>{new Date(log.createdAt).toLocaleString('en-IN')}</span>
+                </div>
+                <div style={styles.logBody}>
+                  {log.itemsFound > 0 && <span>Found: {log.itemsFound} | New: {log.itemsNew} | Updated: {log.itemsUpdated}</span>}
+                  {log.durationMs && <span> | {log.durationMs}ms</span>}
+                  {log.error && <div style={styles.errorText}>{log.error}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -466,6 +569,17 @@ const styles = {
   // Sync
   syncInfo: { background: '#1e293b', padding: '16px', borderRadius: '8px', marginBottom: '16px' },
   errorText: { color: '#fca5a5', marginTop: '4px' },
+
+  // Knowledge base viewer
+  kbSection: { background: '#1e293b', borderRadius: '8px', marginBottom: '12px', overflow: 'hidden' },
+  kbHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', cursor: 'pointer', userSelect: 'none' },
+  kbHeaderTitle: { fontWeight: '600', color: '#f8fafc', fontSize: '15px' },
+  kbContent: { padding: '0 16px 16px', maxHeight: '500px', overflowY: 'auto' },
+  kbCard: { background: '#0f172a', padding: '12px', borderRadius: '6px', marginBottom: '8px', border: '1px solid #334155' },
+  kbMeta: { fontSize: '12px', color: '#64748b', marginTop: '2px' },
+  priceBadge: { padding: '2px 8px', borderRadius: '4px', background: '#14532d', color: '#86efac', fontSize: '12px', fontWeight: '600' },
+  colorChip: { padding: '1px 6px', borderRadius: '3px', background: '#334155', color: '#cbd5e1', fontSize: '11px' },
+  mediaBadge: { padding: '1px 6px', borderRadius: '3px', background: '#7c3aed', color: '#fff', fontSize: '10px', fontWeight: '600' },
 
   // Buttons
   btnPrimary: { padding: '8px 20px', border: 'none', borderRadius: '6px', background: '#3b82f6', color: '#fff', fontWeight: '600', cursor: 'pointer', fontSize: '14px' },
