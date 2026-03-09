@@ -264,11 +264,22 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     take: 10,
   })
 
+  // Fetch Om's real WhatsApp reply pairs for style learning
+  const stylePairChunks = await db.knowledgeChunk.findMany({
+    where: { source: 'STYLE_PAIR' },
+    select: { metadata: true },
+    orderBy: { updatedAt: 'desc' },
+    take: 15,
+  })
+  const stylePairs = stylePairChunks
+    .filter(c => c.metadata?.buyerMessage && c.metadata?.omReply)
+    .map(c => ({ buyerMessage: c.metadata.buyerMessage, omReply: c.metadata.omReply }))
+
   // Separate catalog chunks for display
   const catalogChunks = filteredChunks.filter(c => c.source === 'CATALOG')
   const otherChunks = filteredChunks.filter(c => c.source !== 'CATALOG')
 
-  const systemPrompt = buildSystemPrompt({ isFirstTime, settings, deferExamples })
+  const systemPrompt = buildSystemPrompt({ isFirstTime, settings, deferExamples, stylePairs })
   const userPrompt = buildUserPrompt({
     mergedText,
     chunks: otherChunks,
@@ -340,7 +351,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   await createLog(db, conversation.id, mergedText, messageIds, {
     status: 'REPLIED',
     aiReply,
-    knowledgeChunks: allChunks.map(c => ({ title: c.title, source: c.source })),
+    knowledgeChunks: filteredChunks.map(c => ({ title: c.title, source: c.source })),
     catalogMatch: catalogChunks.length > 0 ? catalogChunks[0].metadata : null,
     promptTokens,
     completionTokens,
@@ -437,7 +448,7 @@ function filterChunksForMessage(allChunks, message, isGreeting) {
 // Prompt Building
 // ===========================================
 
-function buildSystemPrompt({ isFirstTime, settings, deferExamples }) {
+function buildSystemPrompt({ isFirstTime, settings, deferExamples, stylePairs }) {
   let prompt = `You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
 RULES:
@@ -458,6 +469,14 @@ RULES:
     prompt += `\n\nSTYLE EXAMPLES (this is how Ketu actually replies — match this tone, length, and word choice):`
     for (const ex of deferExamples.slice(0, 10)) {
       prompt += `\nBuyer: "${ex.buyerQuestion}" → Ketu: "${ex.correctReply}"`
+    }
+  }
+
+  // Add Om's real WhatsApp reply pairs for style learning
+  if (stylePairs && stylePairs.length > 0) {
+    prompt += `\n\nREAL WHATSAPP REPLIES (Om's actual replies to buyers — learn from this style):`
+    for (const pair of stylePairs.slice(0, 15)) {
+      prompt += `\nBuyer: "${pair.buyerMessage}" → Om: "${pair.omReply}"`
     }
   }
 

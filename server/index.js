@@ -4,7 +4,7 @@ import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage } from './process.js'
-import { syncSavedReplies, syncCatalog } from './sync.js'
+import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding } from './embeddings.js'
 
 const app = new Hono()
@@ -327,11 +327,21 @@ app.post('/api/sync/catalog', async (c) => {
   }
 })
 
+app.post('/api/sync/style-pairs', async (c) => {
+  try {
+    const result = await syncStylePairs(db, anthropic)
+    return c.json(result)
+  } catch (err) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
 app.post('/api/sync/all', async (c) => {
   try {
-    const [replies, catalog] = await Promise.all([
+    const [replies, catalog, stylePairs] = await Promise.all([
       syncSavedReplies(db, anthropic),
       syncCatalog(db, anthropic),
+      syncStylePairs(db, anthropic).catch(err => ({ status: 'failed', error: err.message })),
     ])
     // Update last sync time
     await db.settings.update({
@@ -341,7 +351,7 @@ app.post('/api/sync/all', async (c) => {
         nextSyncAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 days
       },
     })
-    return c.json({ savedReplies: replies, catalog })
+    return c.json({ savedReplies: replies, catalog, stylePairs })
   } catch (err) {
     return c.json({ error: err.message }, 500)
   }
@@ -374,6 +384,7 @@ async function runScheduledSync() {
   try {
     await syncSavedReplies(db, anthropic)
     await syncCatalog(db, anthropic)
+    await syncStylePairs(db, anthropic).catch(err => console.error('[Sync] Style pairs failed:', err.message))
     await db.settings.update({
       where: { id: 'default' },
       data: {

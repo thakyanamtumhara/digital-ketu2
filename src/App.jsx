@@ -635,12 +635,13 @@ function SettingTextarea({ label, value, onChange }) {
 }
 
 function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
-  const [showSection, setShowSection] = useState({ instructions: true, policies: false, catalog: false, replies: false, deferList: false, history: false })
+  const [showSection, setShowSection] = useState({ instructions: true, policies: false, catalog: false, replies: false, stylePairs: false, deferList: false, history: false })
   const toggle = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
 
   const catalogItems = knowledge?.chunks?.CATALOG || []
   const savedReplies = knowledge?.chunks?.SAVED_REPLY || []
   const policies = knowledge?.chunks?.POLICY || []
+  const stylePairs = knowledge?.chunks?.STYLE_PAIR || []
   const deferItems = knowledge?.deferToKetuList || []
   const kbSettings = knowledge?.settings || {}
 
@@ -654,7 +655,7 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
             <p style={{ margin: '0 0 4px' }}><strong>Last sync:</strong> {settings.lastSyncAt ? new Date(settings.lastSyncAt).toLocaleString('en-IN') : 'Never'}</p>
             <p style={{ margin: '0 0 4px' }}><strong>Next sync:</strong> {settings.nextSyncAt ? new Date(settings.nextSyncAt).toLocaleString('en-IN') : 'Not scheduled'}</p>
             <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>
-              <strong>Total:</strong> {knowledge?.totalChunks || 0} chunks — {catalogItems.length} products, {savedReplies.length} saved replies, {policies.length} policies, {deferItems.length} defer rules
+              <strong>Total:</strong> {knowledge?.totalChunks || 0} chunks — {catalogItems.length} products, {savedReplies.length} saved replies, {stylePairs.length} style pairs, {policies.length} policies, {deferItems.length} defer rules
             </p>
           </div>
           <button style={styles.btnPrimary} onClick={onSync} disabled={syncing}>
@@ -839,6 +840,37 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
                 <div style={{ marginTop: '4px', fontSize: '11px', color: '#475569' }}>
                   Synced: {new Date(item.updatedAt).toLocaleString('en-IN')}
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Om's Real WhatsApp Reply Pairs */}
+      <div style={styles.kbSection}>
+        <div style={styles.kbHeader} onClick={() => toggle('stylePairs')}>
+          <span style={styles.kbHeaderTitle}>Om's Real Replies ({stylePairs.length})</span>
+          <span style={{ color: '#64748b' }}>{showSection.stylePairs ? '▼' : '▶'}</span>
+        </div>
+        {showSection.stylePairs && (
+          <div style={styles.kbContent}>
+            {stylePairs.length === 0 && <p style={styles.empty}>No style pairs synced yet — click "Sync Now" to export from WhatsApp</p>}
+            <div style={{ marginBottom: '8px', padding: '8px', background: '#1a1a2e', borderRadius: '6px', fontSize: '12px', color: '#94a3b8' }}>
+              Real buyer→Om reply pairs exported from WhatsApp conversations. Used to teach Claude Om's communication style.
+            </div>
+            {stylePairs.map((item, i) => (
+              <div key={i} style={styles.kbCard}>
+                <div style={{ fontSize: '13px', marginBottom: '4px' }}>
+                  <span style={{ color: '#60a5fa' }}>Buyer:</span> {item.metadata?.buyerMessage || item.content?.split('\n')[0]?.replace('Buyer: "', '').replace('"', '')}
+                </div>
+                <div style={{ fontSize: '13px', color: '#86efac' }}>
+                  <span style={{ color: '#22c55e' }}>Om:</span> {item.metadata?.omReply || item.content?.split('\n')[1]?.replace("Om's reply: \"", '').replace('"', '')}
+                </div>
+                {item.metadata?.timestamp && (
+                  <div style={{ marginTop: '4px', fontSize: '11px', color: '#475569' }}>
+                    {new Date(item.metadata.timestamp).toLocaleDateString('en-IN')}
+                  </div>
+                )}
               </div>
             ))}
           </div>

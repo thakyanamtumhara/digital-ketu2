@@ -221,6 +221,82 @@ export async function syncCatalog(db, anthropic) {
 }
 
 // ===========================================
+// Sync Om's Real Reply Pairs from wwbun
+// ===========================================
+
+export async function syncStylePairs(db, anthropic) {
+  const startTime = Date.now()
+  let itemsFound = 0, itemsNew = 0, itemsUpdated = 0
+
+  try {
+    const WWBUN_API_URL = process.env.WWBUN_API_URL
+    const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
+
+    if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) {
+      throw new Error('WWBUN_API_URL or DIGITAL_KETU_SECRET not configured')
+    }
+
+    const response = await fetch(`${WWBUN_API_URL}/api/messages/export-style-pairs?limit=200`, {
+      headers: { 'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET },
+    })
+
+    if (!response.ok) {
+      throw new Error(`wwbun style pairs export failed: ${response.status} ${response.statusText}`)
+    }
+
+    const pairs = await response.json()
+    itemsFound = pairs.length
+    console.log(`[Sync] Fetched ${pairs.length} style pairs from wwbun`)
+
+    // Store each pair as a knowledge chunk (source: STYLE_PAIR)
+    for (const pair of pairs) {
+      const content = `Buyer: "${pair.buyerMessage}"\nOm's reply: "${pair.omReply}"`
+      const sourceId = `style_${Buffer.from(pair.buyerMessage.substring(0, 50) + pair.omReply.substring(0, 50)).toString('base64').substring(0, 40)}`
+
+      const result = await storeChunkWithEmbedding(db, anthropic, {
+        source: 'STYLE_PAIR',
+        sourceId,
+        title: `Style: "${pair.buyerMessage.substring(0, 60)}"`,
+        content,
+        metadata: {
+          buyerMessage: pair.buyerMessage,
+          omReply: pair.omReply,
+          timestamp: pair.timestamp,
+        },
+      })
+      if (result.action === 'created') itemsNew++
+      else itemsUpdated++
+    }
+
+    await db.syncLog.create({
+      data: {
+        syncType: 'style_pairs',
+        status: 'success',
+        itemsFound,
+        itemsNew,
+        itemsUpdated,
+        durationMs: Date.now() - startTime,
+      },
+    })
+
+    console.log(`[Sync] Style pairs: ${itemsFound} found, ${itemsNew} new, ${itemsUpdated} updated`)
+    return { status: 'success', itemsFound, itemsNew, itemsUpdated }
+
+  } catch (err) {
+    await db.syncLog.create({
+      data: {
+        syncType: 'style_pairs',
+        status: 'failed',
+        error: err.message,
+        durationMs: Date.now() - startTime,
+      },
+    })
+    console.error('[Sync] Style pairs failed:', err.message)
+    throw err
+  }
+}
+
+// ===========================================
 // Helpers
 // ===========================================
 
