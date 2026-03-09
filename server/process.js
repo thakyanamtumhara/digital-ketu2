@@ -286,22 +286,18 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     take: 10,
   })
 
-  // Fetch Om's real WhatsApp reply pairs for style learning
-  const stylePairChunks = await db.knowledgeChunk.findMany({
-    where: { source: 'STYLE_PAIR' },
-    select: { metadata: true },
-    orderBy: { updatedAt: 'desc' },
-    take: 15,
+  // Fetch Om's extracted style guide (compact, ~200 words instead of raw pairs)
+  const styleGuideChunk = await db.knowledgeChunk.findFirst({
+    where: { source: 'STYLE_GUIDE', sourceId: 'om_style_guide' },
+    select: { content: true },
   })
-  const stylePairs = stylePairChunks
-    .filter(c => c.metadata?.buyerMessage && c.metadata?.omReply)
-    .map(c => ({ buyerMessage: c.metadata.buyerMessage, omReply: c.metadata.omReply }))
+  const styleGuide = styleGuideChunk?.content || null
 
   // Separate catalog chunks for display
   const catalogChunks = filteredChunks.filter(c => c.source === 'CATALOG')
   const otherChunks = filteredChunks.filter(c => c.source !== 'CATALOG')
 
-  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, stylePairs })
+  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, styleGuide })
   const userPrompt = buildUserPrompt({
     mergedText,
     chunks: otherChunks,
@@ -470,7 +466,7 @@ function filterChunksForMessage(allChunks, message, isGreeting) {
 // Prompt Building
 // ===========================================
 
-function buildSystemPrompt({ isFirstTime, settings, deferExamples, stylePairs }) {
+function buildSystemPrompt({ isFirstTime, settings, deferExamples, styleGuide }) {
   let prompt = `You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
 RULES:
@@ -494,12 +490,9 @@ RULES:
     }
   }
 
-  // Add Om's real WhatsApp reply pairs for style learning
-  if (stylePairs && stylePairs.length > 0) {
-    prompt += `\n\nREAL WHATSAPP REPLIES (Om's actual replies to buyers — learn from this style):`
-    for (const pair of stylePairs.slice(0, 15)) {
-      prompt += `\nBuyer: "${pair.buyerMessage}" → Om: "${pair.omReply}"`
-    }
+  // Add Om's extracted style guide (compact — extracted once from 200 real reply pairs)
+  if (styleGuide) {
+    prompt += `\n\nOM'S COMMUNICATION STYLE (extracted from real WhatsApp conversations):\n${styleGuide}`
   }
 
   if (isFirstTime) {

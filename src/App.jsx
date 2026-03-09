@@ -635,13 +635,14 @@ function SettingTextarea({ label, value, onChange }) {
 }
 
 function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
-  const [showSection, setShowSection] = useState({ instructions: true, policies: false, catalog: false, replies: false, stylePairs: false, deferList: false, history: false })
+  const [showSection, setShowSection] = useState({ instructions: true, policies: false, catalog: false, replies: false, styleGuide: false, stylePairs: false, deferList: false, history: false })
   const toggle = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
 
   const catalogItems = knowledge?.chunks?.CATALOG || []
   const savedReplies = knowledge?.chunks?.SAVED_REPLY || []
   const policies = knowledge?.chunks?.POLICY || []
   const stylePairs = knowledge?.chunks?.STYLE_PAIR || []
+  const styleGuides = knowledge?.chunks?.STYLE_GUIDE || []
   const deferItems = knowledge?.deferToKetuList || []
   const kbSettings = knowledge?.settings || {}
 
@@ -655,7 +656,7 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
             <p style={{ margin: '0 0 4px' }}><strong>Last sync:</strong> {settings.lastSyncAt ? new Date(settings.lastSyncAt).toLocaleString('en-IN') : 'Never'}</p>
             <p style={{ margin: '0 0 4px' }}><strong>Next sync:</strong> {settings.nextSyncAt ? new Date(settings.nextSyncAt).toLocaleString('en-IN') : 'Not scheduled'}</p>
             <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>
-              <strong>Total:</strong> {knowledge?.totalChunks || 0} chunks — {catalogItems.length} products, {savedReplies.length} saved replies, {stylePairs.length} style pairs, {policies.length} policies, {deferItems.length} defer rules
+              <strong>Total:</strong> {knowledge?.totalChunks || 0} chunks — {catalogItems.length} products, {savedReplies.length} saved replies, {styleGuides.length > 0 ? '1 style guide' : '0 style guide'} ({stylePairs.length} pairs), {policies.length} policies, {deferItems.length} defer rules
             </p>
           </div>
           <button style={styles.btnPrimary} onClick={onSync} disabled={syncing}>
@@ -846,7 +847,34 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
         )}
       </div>
 
-      {/* Om's Real WhatsApp Reply Pairs */}
+      {/* Om's Style Guide (extracted from real replies — this is what Claude uses) */}
+      <div style={styles.kbSection}>
+        <div style={styles.kbHeader} onClick={() => toggle('styleGuide')}>
+          <span style={styles.kbHeaderTitle}>Om's Style Guide {styleGuides.length > 0 ? '(Active)' : '(Not extracted yet)'}</span>
+          <span style={{ color: '#64748b' }}>{showSection.styleGuide ? '▼' : '▶'}</span>
+        </div>
+        {showSection.styleGuide && (
+          <div style={styles.kbContent}>
+            {styleGuides.length === 0 && <p style={styles.empty}>No style guide yet — click "Sync Now" to extract from WhatsApp conversations</p>}
+            <div style={{ marginBottom: '8px', padding: '8px', background: '#1a1a2e', borderRadius: '6px', fontSize: '12px', color: '#94a3b8' }}>
+              Compact style guide extracted by AI from {styleGuides[0]?.metadata?.pairsAnalyzed || 0} real WhatsApp reply pairs. This is injected into every Claude prompt (~150-200 tokens instead of sending raw pairs).
+            </div>
+            {styleGuides.map((item, i) => (
+              <div key={i} style={styles.kbCard}>
+                <div style={{ fontWeight: '600', color: '#f59e0b', fontSize: '13px', marginBottom: '8px' }}>STYLE GUIDE — sent with every message to Claude</div>
+                <div style={styles.promptBlock}>{item.content}</div>
+                {item.metadata?.extractedAt && (
+                  <div style={{ marginTop: '6px', fontSize: '11px', color: '#475569' }}>
+                    Extracted: {new Date(item.metadata.extractedAt).toLocaleString('en-IN')} | Based on {item.metadata.pairsAnalyzed} pairs | {item.metadata.extractionTokens} tokens used for extraction
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Om's Real WhatsApp Reply Pairs (raw data — for monitoring) */}
       <div style={styles.kbSection}>
         <div style={styles.kbHeader} onClick={() => toggle('stylePairs')}>
           <span style={styles.kbHeaderTitle}>Om's Real Replies ({stylePairs.length})</span>
@@ -856,7 +884,7 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
           <div style={styles.kbContent}>
             {stylePairs.length === 0 && <p style={styles.empty}>No style pairs synced yet — click "Sync Now" to export from WhatsApp</p>}
             <div style={{ marginBottom: '8px', padding: '8px', background: '#1a1a2e', borderRadius: '6px', fontSize: '12px', color: '#94a3b8' }}>
-              Real buyer→Om reply pairs exported from WhatsApp conversations. Used to teach Claude Om's communication style.
+              Raw buyer→Om reply pairs from WhatsApp. These were analyzed to create the Style Guide above. Shown here for your monitoring.
             </div>
             {stylePairs.map((item, i) => (
               <div key={i} style={styles.kbCard}>

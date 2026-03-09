@@ -236,6 +236,7 @@ export async function syncStylePairs(db, anthropic) {
       throw new Error('WWBUN_API_URL or DIGITAL_KETU_SECRET not configured')
     }
 
+    // Step 1: Fetch quality reply pairs from wwbun
     const response = await fetch(`${WWBUN_API_URL}/api/messages/export-style-pairs?limit=200`, {
       headers: { 'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET },
     })
@@ -246,9 +247,60 @@ export async function syncStylePairs(db, anthropic) {
 
     const pairs = await response.json()
     itemsFound = pairs.length
-    console.log(`[Sync] Fetched ${pairs.length} style pairs from wwbun`)
+    console.log(`[Sync] Fetched ${pairs.length} quality style pairs from wwbun`)
 
-    // Store each pair as a knowledge chunk (source: STYLE_PAIR)
+    if (pairs.length === 0) {
+      await db.syncLog.create({
+        data: { syncType: 'style_pairs', status: 'success', itemsFound: 0, itemsNew: 0, itemsUpdated: 0, durationMs: Date.now() - startTime },
+      })
+      return { status: 'success', itemsFound: 0, itemsNew: 0, itemsUpdated: 0 }
+    }
+
+    // Step 2: Send ALL pairs to Claude ONCE to extract a compact style guide
+    const pairsText = pairs.map((p, i) => `${i + 1}. Buyer: "${p.buyerMessage}" → Om: "${p.omReply}"`).join('\n')
+
+    const styleResponse = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1000,
+      messages: [{
+        role: 'user',
+        content: `Analyze these ${pairs.length} real WhatsApp reply pairs from Om (a wholesale t-shirt business owner). Extract a COMPACT style guide that captures how Om communicates.
+
+${pairsText}
+
+Write a style guide covering:
+1. Average reply length (word count)
+2. Language preference (Hindi/English/Hinglish mix)
+3. Tone and formality level
+4. Common phrases and words Om uses frequently
+5. How Om handles: pricing questions, product queries, order intent, general inquiries
+6. What Om avoids saying
+7. Key patterns (does he use emojis? punctuation? greetings?)
+
+Keep the guide under 200 words. Be specific with examples from the data. This guide will be injected into an AI system prompt to mimic Om's style.`
+      }],
+    })
+
+    const styleGuide = styleResponse.content[0].text
+    const styleTokens = styleResponse.usage.input_tokens + styleResponse.usage.output_tokens
+    console.log(`[Sync] Style guide extracted (${styleTokens} tokens used for extraction)`)
+
+    // Step 3: Store the compact style guide as a single chunk (replaces all raw pairs)
+    const guideResult = await storeChunkWithEmbedding(db, anthropic, {
+      source: 'STYLE_GUIDE',
+      sourceId: 'om_style_guide',
+      title: "Om's Communication Style Guide",
+      content: styleGuide,
+      metadata: {
+        pairsAnalyzed: pairs.length,
+        extractedAt: new Date().toISOString(),
+        extractionTokens: styleTokens,
+      },
+    })
+    if (guideResult.action === 'created') itemsNew++
+    else itemsUpdated++
+
+    // Step 4: Also store raw pairs for dashboard display (but NOT sent to Claude per-message)
     for (const pair of pairs) {
       const content = `Buyer: "${pair.buyerMessage}"\nOm's reply: "${pair.omReply}"`
       const sourceId = `style_${Buffer.from(pair.buyerMessage.substring(0, 50) + pair.omReply.substring(0, 50)).toString('base64').substring(0, 40)}`
@@ -279,8 +331,8 @@ export async function syncStylePairs(db, anthropic) {
       },
     })
 
-    console.log(`[Sync] Style pairs: ${itemsFound} found, ${itemsNew} new, ${itemsUpdated} updated`)
-    return { status: 'success', itemsFound, itemsNew, itemsUpdated }
+    console.log(`[Sync] Style pairs: ${itemsFound} pairs → 1 style guide + ${pairs.length} raw pairs stored`)
+    return { status: 'success', itemsFound, itemsNew, itemsUpdated, styleGuideExtracted: true }
 
   } catch (err) {
     await db.syncLog.create({
