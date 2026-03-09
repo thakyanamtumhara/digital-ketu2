@@ -164,6 +164,43 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     .trim()
   const isGreeting = greetingPatterns.includes(normalizedForGreeting)
 
+  // --- WELCOME MESSAGE BYPASS ---
+  // First-time buyer OR returning after 7+ days → send welcome message directly, no Claude call
+  const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+  const lastMessageAge = conversation.lastMessageAt
+    ? Date.now() - new Date(conversation.lastMessageAt).getTime()
+    : Infinity
+  const shouldSendWelcome = conversation.isFirstTime || lastMessageAge > SEVEN_DAYS_MS
+
+  if (shouldSendWelcome) {
+    // Fetch the /welcome saved reply from knowledge base
+    const welcomeChunk = await db.knowledgeChunk.findFirst({
+      where: { source: 'SAVED_REPLY', sourceId: 'welcome' },
+      select: { content: true },
+    })
+    const welcomeMessage = welcomeChunk?.content || 'https://sale91.com/catalog\n\nCheck rates, color and buy 👆'
+
+    await sendReplyViaWwbun(whatsappNumber, welcomeMessage)
+
+    // Mark as no longer first-time
+    if (conversation.isFirstTime) {
+      await db.buyerConversation.update({
+        where: { id: conversation.id },
+        data: { isFirstTime: false },
+      })
+    }
+
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'REPLIED',
+      aiReply: welcomeMessage,
+      deferReason: 'welcome_bypass',
+      processingMs: Date.now() - startTime,
+      sentViaWwbun: true,
+    })
+    console.log(`[Welcome] ${whatsappNumber} — direct welcome, 0 tokens`)
+    return
+  }
+
   // --- Check: Defer to Ketu list (skip for greetings) ---
   if (!isGreeting) {
     const deferMatch = await vectorSearchDeferList(db, anthropic, mergedText, {
@@ -188,9 +225,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
   }
 
-  // --- Fetch ALL knowledge chunks (KB is small, ~30-50 chunks) ---
-  // Send everything to Claude — Claude picks what's relevant
-  // This avoids embedding quality issues with hash-based vectors
+  // --- Fetch knowledge chunks (SMART FILTERING to reduce tokens) ---
   const allChunks = await getAllChunks(db)
 
   // If KB is completely empty, defer (sync hasn't run yet)
@@ -206,8 +241,12 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  // --- Smart chunk selection based on message intent ---
+  // Instead of sending ALL 82 chunks (~8000 tokens), pick what's relevant (~2000-3000 tokens)
+  const filteredChunks = filterChunksForMessage(allChunks, mergedText, isGreeting)
+
   // --- Build prompt for Claude ---
-  const isFirstTime = conversation.isFirstTime
+  const isFirstTime = false // Already handled by welcome bypass above
 
   // Get recent conversation history (last 5 messages)
   const recentLogs = await db.messageLog.findMany({
@@ -226,8 +265,8 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   })
 
   // Separate catalog chunks for display
-  const catalogChunks = allChunks.filter(c => c.source === 'CATALOG')
-  const otherChunks = allChunks.filter(c => c.source !== 'CATALOG')
+  const catalogChunks = filteredChunks.filter(c => c.source === 'CATALOG')
+  const otherChunks = filteredChunks.filter(c => c.source !== 'CATALOG')
 
   const systemPrompt = buildSystemPrompt({ isFirstTime, settings, deferExamples })
   const userPrompt = buildUserPrompt({
@@ -259,7 +298,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'FAILED',
       deferReason: err.message,
-      knowledgeChunks: allChunks.map(c => ({ title: c.title, source: c.source })),
+      knowledgeChunks: filteredChunks.map(c => ({ title: c.title, source: c.source })),
       processingMs: Date.now() - startTime,
     })
     return
@@ -297,14 +336,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     data: { dailySpentUsd: { increment: costUsd } },
   })
 
-  // --- Mark first-time buyer as returning ---
-  if (isFirstTime) {
-    await db.buyerConversation.update({
-      where: { id: conversation.id },
-      data: { isFirstTime: false },
-    })
-  }
-
   // --- Log ---
   await createLog(db, conversation.id, mergedText, messageIds, {
     status: 'REPLIED',
@@ -322,6 +353,84 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   })
 
   console.log(`[Reply] ${whatsappNumber} — ${totalTokens} tokens, $${costUsd.toFixed(6)}, ${Date.now() - startTime}ms`)
+}
+
+// ===========================================
+// Smart Chunk Filtering (token optimization)
+// ===========================================
+// Instead of sending ALL 82 chunks (~8000 tokens), pick relevant ones (~2000-3000)
+
+function filterChunksForMessage(allChunks, message, isGreeting) {
+  const lower = message.toLowerCase()
+  const policies = allChunks.filter(c => c.source === 'POLICY')
+  const catalog = allChunks.filter(c => c.source === 'CATALOG')
+  const savedReplies = allChunks.filter(c => c.source === 'SAVED_REPLY')
+
+  // Always include: policies (small, always relevant)
+  const selected = [...policies]
+
+  // For greetings: just policies (welcome already handled by bypass)
+  if (isGreeting) {
+    return selected
+  }
+
+  // Product-related keywords → include catalog
+  const productKeywords = [
+    'tshirt', 't-shirt', 't shirt', 'hoodie', 'sweatshirt', 'polo', 'round neck',
+    'oversize', 'oversized', 'drop shoulder', 'jacket', 'varsity', 'shorts',
+    'kids', 'cotton', 'polyester', 'gsm', 'fabric', 'sublimation', 'acid wash',
+    'acidwash', 'biowash', 'zip', 'hoodie', 'jogger', 'bottom',
+    'price', 'rate', 'cost', 'kitna', 'kitne', 'kya rate', 'bhav', 'daam',
+    'color', 'colour', 'rang', 'size', 'sizes',
+    'catalog', 'catalogue', 'product', 'products', 'collection', 'range',
+    'sample', 'order', 'bulk', 'wholesale', 'moq', 'minimum',
+    'buy', 'kharidna', 'lena', 'chahiye', 'mangta', 'bhejo', 'ship',
+  ]
+  const needsCatalog = productKeywords.some(kw => lower.includes(kw))
+
+  // Logistics/business keywords → include relevant saved replies
+  const logisticsKeywords = [
+    'delivery', 'shipping', 'dispatch', 'track', 'tracking', 'courier',
+    'payment', 'pay', 'upi', 'bank', 'account', 'prepaid',
+    'gst', 'bill', 'invoice', 'tax',
+    'return', 'exchange', 'refund', 'cancel',
+    'printer', 'printing', 'embroidery', 'custom', 'customize',
+    'pickup', 'tiruppur', 'address', 'location', 'where',
+    'discount', 'offer', 'deal',
+    'cod', 'cash on delivery',
+    'time', 'kitne din', 'kab', 'when',
+  ]
+  const needsLogistics = logisticsKeywords.some(kw => lower.includes(kw))
+
+  if (needsCatalog) {
+    selected.push(...catalog)
+  }
+
+  if (needsLogistics || needsCatalog) {
+    // Include saved replies that match keywords in the message
+    const relevantReplies = savedReplies.filter(sr => {
+      const titleLower = (sr.title || '').toLowerCase()
+      const contentLower = (sr.content || '').toLowerCase()
+      // Check if any word in the buyer's message appears in this saved reply
+      const words = lower.split(/\s+/).filter(w => w.length > 3)
+      return words.some(w => titleLower.includes(w) || contentLower.includes(w))
+    })
+    selected.push(...relevantReplies)
+  }
+
+  // If nothing specific matched, include catalog + policies (general product inquiry)
+  if (selected.length <= policies.length) {
+    selected.push(...catalog)
+  }
+
+  // Deduplicate
+  const seen = new Set()
+  return selected.filter(c => {
+    const key = `${c.source}:${c.sourceId || c.title}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 // ===========================================

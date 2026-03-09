@@ -240,8 +240,16 @@ function ProcessPipeline({ log }) {
             </div>
           )}
           {log.deferReason === 'empty_knowledge_base' && <div style={styles.pipeCheckFail}>STOPPED: Knowledge base empty</div>}
-          {(log.status === 'REPLIED' || log.deferReason === 'claude_deferred') && (
-            <div style={{ fontSize: '12px', color: '#86efac' }}>All 10 checks passed → proceeded to Claude API</div>
+          {log.deferReason === 'welcome_bypass' && (
+            <div style={{ padding: '6px 10px', background: '#1e3a5f', borderRadius: '4px', color: '#93c5fd', fontSize: '12px' }}>
+              WELCOME BYPASS: First-time buyer or returning after 7+ days → sent welcome message directly (0 tokens, 0 cost)
+            </div>
+          )}
+          {(log.status === 'REPLIED' && !log.deferReason?.includes('welcome') && !log.deferReason?.includes('media')) && log.promptTokens && (
+            <div style={{ fontSize: '12px', color: '#86efac' }}>All checks passed → proceeded to Claude API</div>
+          )}
+          {log.deferReason === 'claude_deferred' && (
+            <div style={{ fontSize: '12px', color: '#86efac' }}>All checks passed → proceeded to Claude API</div>
           )}
         </div>
       </div>
@@ -593,13 +601,15 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
             </div>
 
             <div style={styles.kbCard}>
-              <div style={{ fontWeight: '600', color: '#a78bfa', fontSize: '13px', marginBottom: '8px' }}>HOW KNOWLEDGE IS SENT</div>
+              <div style={{ fontWeight: '600', color: '#a78bfa', fontSize: '13px', marginBottom: '8px' }}>HOW KNOWLEDGE IS SENT (OPTIMIZED)</div>
               <div style={{ fontSize: '12px', color: '#94a3b8', lineHeight: '1.6' }}>
-                <div style={{ marginBottom: '4px' }}>1. ALL {knowledge?.totalChunks || 0} chunks are sent in every request (no vector search for replies)</div>
-                <div style={{ marginBottom: '4px' }}>2. Saved replies are labelled as [SAVED_REPLY], policies as [POLICY]</div>
-                <div style={{ marginBottom: '4px' }}>3. Catalog products are sent separately under PRODUCT CATALOG INFO</div>
-                <div style={{ marginBottom: '4px' }}>4. Last 5 conversation messages are included for context</div>
-                <div style={{ marginBottom: '4px' }}>5. Claude (Haiku 4.5) picks what's relevant from the full KB</div>
+                <div style={{ marginBottom: '4px', color: '#93c5fd' }}>0. First-time / 7-day inactive → welcome message sent directly (0 tokens!)</div>
+                <div style={{ marginBottom: '4px' }}>1. Smart filtering picks only relevant chunks (~2-3K tokens instead of 8K)</div>
+                <div style={{ marginBottom: '4px' }}>2. Product keywords → sends catalog + policies</div>
+                <div style={{ marginBottom: '4px' }}>3. Logistics keywords → sends matching saved replies + policies</div>
+                <div style={{ marginBottom: '4px' }}>4. Policies always included (small, always relevant)</div>
+                <div style={{ marginBottom: '4px' }}>5. Last 5 conversation messages included for context</div>
+                <div style={{ marginBottom: '4px' }}>6. Om's style examples (from corrections) included in system prompt</div>
               </div>
             </div>
 
@@ -615,11 +625,13 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
                 <div>Check 5: Empty/spam? → skip</div>
                 <div>Check 6: Cooldown? → skip if Om intervened (last {settings.cooldownMinutes} min)</div>
                 <div>Check 7: Post-defer ack? → skip "ok/thanks/theek hai" after defer</div>
-                <div>Check 8: Greeting? → skip defer check for hi/hello</div>
-                <div>Check 9: Defer-to-Ketu match? → defer if similarity {'>'} {(settings.deferThreshold * 100).toFixed(0)}%</div>
-                <div>Check 10: KB empty? → defer if no knowledge</div>
+                <div style={{ color: '#93c5fd', fontWeight: '600' }}>Check 8: WELCOME BYPASS → first-time or 7+ days inactive → send /welcome directly (0 tokens!)</div>
+                <div>Check 9: Greeting? → skip defer check for hi/hello</div>
+                <div>Check 10: Defer-to-Ketu match? → defer if similarity {'>'} {(settings.deferThreshold * 100).toFixed(0)}%</div>
+                <div>Check 11: KB empty? → defer if no knowledge</div>
                 <div style={{ color: '#475569' }}>  ↓</div>
-                <div style={{ color: '#22c55e' }}>Send ALL chunks + system prompt + conversation history to Claude Haiku 4.5</div>
+                <div style={{ color: '#22c55e' }}>Smart filtering: only relevant chunks sent (~2-3K tokens instead of 8K)</div>
+                <div style={{ color: '#22c55e' }}>+ system prompt + style examples + conversation history → Claude Haiku 4.5</div>
                 <div style={{ color: '#475569' }}>  ↓</div>
                 <div>If [DEFER] in reply → send defer message to buyer</div>
                 <div style={{ color: '#22c55e' }}>Otherwise → send AI reply via wwbun → log tokens + cost</div>
