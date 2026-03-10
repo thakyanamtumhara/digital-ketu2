@@ -599,6 +599,15 @@ function SettingsPanel({ settings, updateSetting, onDownload }) {
         <SettingTextarea label="Defer Reply Message" value={settings.deferMessage} onChange={v => updateSetting('deferMessage', v)} />
       </div>
 
+      <h3 style={{ ...styles.sectionTitle, fontSize: '16px', marginTop: '24px' }}>Chunk Filter Keywords</h3>
+      <p style={{ color: '#94a3b8', fontSize: 13, margin: '0 0 12px' }}>
+        These keywords decide which knowledge chunks are sent to Claude. Comma-separated. Leave empty for defaults.
+      </p>
+      <div style={styles.settingsGrid}>
+        <SettingTextarea label="Product Keywords (triggers catalog chunks)" value={settings.productKeywords || ''} onChange={v => updateSetting('productKeywords', v)} />
+        <SettingTextarea label="Logistics Keywords (triggers saved reply chunks)" value={settings.logisticsKeywords || ''} onChange={v => updateSetting('logisticsKeywords', v)} />
+      </div>
+
       <div style={{ marginTop: '24px' }}>
         <button style={styles.btnPrimary} onClick={onDownload}>Download Knowledge Base</button>
       </div>

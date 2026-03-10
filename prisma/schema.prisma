@@ -128,6 +128,8 @@ model Settings {
   scheduleEnabled     Boolean  @default(false)
   scheduleStart       String?  @default("09:00")    // HH:MM IST
   scheduleEnd         String?  @default("21:00")    // HH:MM IST
+  productKeywords     String?                       // comma-separated keywords for catalog filtering
+  logisticsKeywords   String?                       // comma-separated keywords for logistics/saved-reply filtering
   lastSyncAt          DateTime?
   nextSyncAt          DateTime?
   createdAt           DateTime @default(now())

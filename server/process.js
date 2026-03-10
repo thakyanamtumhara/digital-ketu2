@@ -296,7 +296,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   // --- Smart chunk selection based on message intent ---
   // Instead of sending ALL 82 chunks (~8000 tokens), pick what's relevant (~2000-3000 tokens)
-  const filteredChunks = filterChunksForMessage(allChunks, mergedText, isGreeting)
+  const filteredChunks = filterChunksForMessage(allChunks, mergedText, isGreeting, settings)
 
   // --- Build prompt for Claude ---
   // isFirstTime is always false here — welcome bypass already returned above
@@ -449,7 +449,36 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 // ===========================================
 // Instead of sending ALL 82 chunks (~8000 tokens), pick relevant ones (~2000-3000)
 
-function filterChunksForMessage(allChunks, message, isGreeting) {
+const DEFAULT_PRODUCT_KEYWORDS = [
+  'tshirt', 't-shirt', 't shirt', 'hoodie', 'sweatshirt', 'polo', 'round neck',
+  'oversize', 'oversized', 'drop shoulder', 'jacket', 'varsity', 'shorts',
+  'kids', 'cotton', 'polyester', 'gsm', 'fabric', 'sublimation', 'acid wash',
+  'acidwash', 'biowash', 'zip', 'hoodie', 'jogger', 'bottom',
+  'price', 'rate', 'cost', 'kitna', 'kitne', 'kya rate', 'bhav', 'daam',
+  'color', 'colour', 'rang', 'size', 'sizes',
+  'catalog', 'catalogue', 'product', 'products', 'collection', 'range',
+  'sample', 'order', 'bulk', 'wholesale', 'moq', 'minimum',
+  'buy', 'kharidna', 'lena', 'chahiye', 'mangta', 'bhejo', 'ship',
+]
+
+const DEFAULT_LOGISTICS_KEYWORDS = [
+  'delivery', 'shipping', 'dispatch', 'track', 'tracking', 'courier',
+  'payment', 'pay', 'upi', 'bank', 'account', 'prepaid',
+  'gst', 'bill', 'invoice', 'tax',
+  'return', 'exchange', 'refund', 'cancel',
+  'printer', 'printing', 'embroidery', 'custom', 'customize',
+  'pickup', 'tiruppur', 'address', 'location', 'where',
+  'discount', 'offer', 'deal',
+  'cod', 'cash on delivery',
+  'time', 'kitne din', 'kab', 'when',
+]
+
+function parseKeywords(csvString, defaults) {
+  if (!csvString || !csvString.trim()) return defaults
+  return csvString.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+}
+
+function filterChunksForMessage(allChunks, message, isGreeting, settings = {}) {
   const lower = message.toLowerCase()
   const policies = allChunks.filter(c => c.source === 'POLICY')
   const catalog = allChunks.filter(c => c.source === 'CATALOG')
@@ -463,32 +492,12 @@ function filterChunksForMessage(allChunks, message, isGreeting) {
     return selected
   }
 
-  // Product-related keywords → include catalog
-  const productKeywords = [
-    'tshirt', 't-shirt', 't shirt', 'hoodie', 'sweatshirt', 'polo', 'round neck',
-    'oversize', 'oversized', 'drop shoulder', 'jacket', 'varsity', 'shorts',
-    'kids', 'cotton', 'polyester', 'gsm', 'fabric', 'sublimation', 'acid wash',
-    'acidwash', 'biowash', 'zip', 'hoodie', 'jogger', 'bottom',
-    'price', 'rate', 'cost', 'kitna', 'kitne', 'kya rate', 'bhav', 'daam',
-    'color', 'colour', 'rang', 'size', 'sizes',
-    'catalog', 'catalogue', 'product', 'products', 'collection', 'range',
-    'sample', 'order', 'bulk', 'wholesale', 'moq', 'minimum',
-    'buy', 'kharidna', 'lena', 'chahiye', 'mangta', 'bhejo', 'ship',
-  ]
+  // Product-related keywords → include catalog (editable from Settings)
+  const productKeywords = parseKeywords(settings.productKeywords, DEFAULT_PRODUCT_KEYWORDS)
   const needsCatalog = productKeywords.some(kw => lower.includes(kw))
 
-  // Logistics/business keywords → include relevant saved replies
-  const logisticsKeywords = [
-    'delivery', 'shipping', 'dispatch', 'track', 'tracking', 'courier',
-    'payment', 'pay', 'upi', 'bank', 'account', 'prepaid',
-    'gst', 'bill', 'invoice', 'tax',
-    'return', 'exchange', 'refund', 'cancel',
-    'printer', 'printing', 'embroidery', 'custom', 'customize',
-    'pickup', 'tiruppur', 'address', 'location', 'where',
-    'discount', 'offer', 'deal',
-    'cod', 'cash on delivery',
-    'time', 'kitne din', 'kab', 'when',
-  ]
+  // Logistics/business keywords → include relevant saved replies (editable from Settings)
+  const logisticsKeywords = parseKeywords(settings.logisticsKeywords, DEFAULT_LOGISTICS_KEYWORDS)
   const needsLogistics = logisticsKeywords.some(kw => lower.includes(kw))
 
   if (needsCatalog) {
