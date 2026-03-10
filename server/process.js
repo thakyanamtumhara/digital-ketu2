@@ -488,6 +488,27 @@ const DEFAULT_PRODUCT_KEYWORDS = [
   'buy', 'kharidna', 'lena', 'chahiye', 'mangta', 'bhejo', 'ship',
 ]
 
+// Generic buying-intent keywords that DON'T mean the buyer wants product info
+// These only trigger catalog when there's NO delivery/availability context
+const GENERIC_INTENT_KEYWORDS = [
+  'order', 'chahiye', 'mangta', 'bhejo', 'ship', 'lena', 'buy', 'kharidna',
+  'sample', 'bulk', 'wholesale', 'moq', 'minimum',
+]
+
+// Delivery/availability keywords — when present with only generic intent words, skip catalog
+const DELIVERY_AVAILABILITY_KEYWORDS = [
+  'delivery', 'shipping', 'dispatch', 'courier',
+  'mil jayega', 'mil jaayega', 'milega', 'milegi', 'mil jaega',
+  'pohoch jayega', 'pahunch jayega', 'pahunchega', 'pohochega',
+  'kitne din', 'kab tak', 'kab milega', 'kal', 'parso', 'parson',
+  'time lagega', 'time lagta', 'din lagenge', 'din lagte',
+  'delhi', 'mumbai', 'bangalore', 'kolkata', 'chennai', 'hyderabad',
+  'pune', 'jaipur', 'lucknow', 'ahmedabad', 'surat',
+  'maal chahiye', 'maal mil', 'maal bhej', 'goods',
+  'available', 'availability', 'stock', 'stock hai', 'stock mein',
+  'ready hai', 'ready ho jayega', 'taiyaar',
+]
+
 const DEFAULT_LOGISTICS_KEYWORDS = [
   'delivery', 'shipping', 'dispatch', 'track', 'tracking', 'courier',
   'payment', 'pay', 'upi', 'bank', 'account', 'prepaid',
@@ -521,7 +542,19 @@ function filterChunksForMessage(allChunks, message, isGreeting, settings = {}, e
 
   // Product-related keywords → include catalog (editable from Settings)
   const productKeywords = parseKeywords(settings.productKeywords, DEFAULT_PRODUCT_KEYWORDS)
-  const needsCatalog = productKeywords.some(kw => lower.includes(kw))
+  const matchedProductKws = productKeywords.filter(kw => lower.includes(kw))
+  let needsCatalog = matchedProductKws.length > 0
+
+  // If only generic intent keywords matched (chahiye, order, bhejo etc.)
+  // AND the message is about delivery/availability — skip catalog
+  if (needsCatalog) {
+    const allMatchedAreGeneric = matchedProductKws.every(kw => GENERIC_INTENT_KEYWORDS.includes(kw))
+    const hasDeliveryContext = DELIVERY_AVAILABILITY_KEYWORDS.some(kw => lower.includes(kw))
+    if (allMatchedAreGeneric && hasDeliveryContext) {
+      needsCatalog = false
+      console.log(`[FILTER] Skipping catalog — delivery/availability question (matched: ${matchedProductKws.join(', ')})`)
+    }
+  }
 
   // Logistics/business keywords → include relevant saved replies (editable from Settings)
   const logisticsKeywords = parseKeywords(settings.logisticsKeywords, DEFAULT_LOGISTICS_KEYWORDS)
