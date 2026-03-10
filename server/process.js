@@ -185,18 +185,19 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const isGreeting = greetingPatterns.includes(normalizedForGreeting)
 
   // --- WELCOME MESSAGE BYPASS ---
-  // First-time buyer OR returning after 7+ days → send welcome message directly, no Claude call
+  // ONLY for greetings ("hi", "hello", etc.) from first-time buyers or returning after 7+ days
+  // Non-greeting messages (order requests, questions, etc.) ALWAYS skip welcome and go through
+  // the normal flow: defer check → Claude. This prevents sending catalog links when buyers
+  // ask specific questions like "add that t-shirt to my order".
   const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
   const lastMessageAge = previousLastMessageAt
     ? Date.now() - new Date(previousLastMessageAt).getTime()
     : Infinity
-  // Only truly first-time if no conversation exists at all (no previousLastMessageAt)
-  // If buyer has messaged before (has lastMessageAt), only send welcome if 7+ days gap
   const isFirstTime = !existingConversation
-  let shouldSendWelcome = isFirstTime || lastMessageAge > SEVEN_DAYS_MS
+  // Key fix: welcome ONLY fires for greetings. Non-greetings always go to defer/Claude.
+  let shouldSendWelcome = isGreeting && (isFirstTime || lastMessageAge > SEVEN_DAYS_MS)
 
   // Extra safety: check message logs too — if there are recent logs (within 7 days), don't send welcome
-  // This handles cases where lastMessageAt wasn't updated (e.g., AI was OFF when buyer messaged)
   if (shouldSendWelcome && !isFirstTime) {
     const recentLog = await db.messageLog.findFirst({
       where: {
@@ -602,6 +603,7 @@ RULES:
 - Match Ketu's style: casual, friendly, uses simple words. Look at the STYLE EXAMPLES below.
 - Never make up information. Only use the knowledge provided below.
 - If you don't have enough info in the knowledge base to answer accurately, respond with EXACTLY: [DEFER]
+- If the buyer asks to modify/add/change items in an existing order, replace damaged items, change delivery address, cancel order, or anything that requires physical action on an order — respond with EXACTLY: [DEFER]. Only Ketu can handle order modifications.
 - Do NOT make up prices, product details, or policies. Only use info from the knowledge base provided.
 - Never reveal you are an AI. You are Ketu's assistant.
 - Use natural greetings appropriate to the language (Namaste, Hello, Hi, etc.).`
