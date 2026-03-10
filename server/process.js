@@ -294,10 +294,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
-  // --- Smart chunk selection based on message intent ---
-  // Instead of sending ALL 82 chunks (~8000 tokens), pick what's relevant (~2000-3000 tokens)
-  const filteredChunks = filterChunksForMessage(allChunks, mergedText, isGreeting, settings)
-
   // --- Build prompt for Claude ---
   // isFirstTime is always false here — welcome bypass already returned above
 
@@ -317,6 +313,12 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     take: 10,
   })
 
+  // Fetch ALL corrections for knowledge search (edited replies = factual knowledge)
+  const allCorrections = await db.deferToKetu.findMany({
+    where: { correctReply: { not: '' } },
+    select: { buyerQuestion: true, correctReply: true },
+  })
+
   // Fetch Om's extracted style guide (compact, ~200 words instead of raw pairs)
   const styleGuideChunk = await db.knowledgeChunk.findFirst({
     where: { source: 'STYLE_GUIDE', sourceId: 'om_style_guide' },
@@ -324,9 +326,14 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   })
   const styleGuide = styleGuideChunk?.content || null
 
-  // Separate catalog chunks for display
+  // --- Smart chunk selection based on message intent ---
+  // Instead of sending ALL 82 chunks (~8000 tokens), pick what's relevant (~2000-3000 tokens)
+  const filteredChunks = filterChunksForMessage(allChunks, mergedText, isGreeting, settings, allCorrections)
+
+  // Separate catalog, correction, and other chunks
   const catalogChunks = filteredChunks.filter(c => c.source === 'CATALOG')
-  const otherChunks = filteredChunks.filter(c => c.source !== 'CATALOG')
+  const correctionChunks = filteredChunks.filter(c => c.source === 'EDITED_REPLY')
+  const otherChunks = filteredChunks.filter(c => c.source !== 'CATALOG' && c.source !== 'EDITED_REPLY')
 
   // Detect dispatch intent: buyer says payment done + wants dispatch
   const dispatchKeywords = ['dispatch', 'nikal', 'bhej', 'ship', 'send', 'deliver', 'courier']
@@ -362,6 +369,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     mergedText,
     chunks: otherChunks,
     catalogChunks,
+    correctionChunks,
     conversationHistory,
   })
 
@@ -478,7 +486,7 @@ function parseKeywords(csvString, defaults) {
   return csvString.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
 }
 
-function filterChunksForMessage(allChunks, message, isGreeting, settings = {}) {
+function filterChunksForMessage(allChunks, message, isGreeting, settings = {}, editedReplies = []) {
   const lower = message.toLowerCase()
   const policies = allChunks.filter(c => c.source === 'POLICY')
   const catalog = allChunks.filter(c => c.source === 'CATALOG')
@@ -548,6 +556,21 @@ function filterChunksForMessage(allChunks, message, isGreeting, settings = {}) {
       return words.some(w => titleLower.includes(w) || contentLower.includes(w))
     })
     selected.push(...relevantReplies)
+
+    // Also search edited corrections for matching knowledge (3rd knowledge source)
+    const matchedCorrections = editedReplies.filter(er => {
+      const questionLower = (er.buyerQuestion || '').toLowerCase()
+      const replyLower = (er.correctReply || '').toLowerCase()
+      const words = lower.split(/\s+/).filter(w => w.length > 3)
+      return words.some(w => questionLower.includes(w) || replyLower.includes(w))
+    })
+    for (const correction of matchedCorrections) {
+      selected.push({
+        source: 'EDITED_REPLY',
+        title: correction.buyerQuestion,
+        content: correction.correctReply,
+      })
+    }
   }
 
   // If nothing specific matched, include catalog + policies (general product inquiry)
@@ -625,7 +648,7 @@ RULES:
   return prompt
 }
 
-function buildUserPrompt({ mergedText, chunks, catalogChunks, conversationHistory }) {
+function buildUserPrompt({ mergedText, chunks, catalogChunks, correctionChunks = [], conversationHistory }) {
   let prompt = ''
 
   // Knowledge chunks
@@ -633,6 +656,15 @@ function buildUserPrompt({ mergedText, chunks, catalogChunks, conversationHistor
     prompt += `KNOWLEDGE BASE (use this info to answer):\n`
     for (const chunk of chunks) {
       prompt += `---\n[${chunk.source}] ${chunk.title || ''}\n${chunk.content}\n`
+    }
+    prompt += '\n'
+  }
+
+  // Verified corrections from edited replies (higher priority than saved replies)
+  if (correctionChunks.length > 0) {
+    prompt += `VERIFIED CORRECTIONS (manually verified — if conflicting with above, trust these):\n`
+    for (const chunk of correctionChunks) {
+      prompt += `---\nQ: ${chunk.title}\nA: ${chunk.content}\n`
     }
     prompt += '\n'
   }
