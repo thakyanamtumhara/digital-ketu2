@@ -233,6 +233,24 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  // --- Check: Order ID / tracking number detection ---
+  // Long numeric strings (10+ digits) are order IDs, AWB numbers, or tracking numbers.
+  // The AI cannot look these up — defer to Ketu immediately.
+  const trimmedText = mergedText.trim()
+  const isOrderId = /^\d{10,}$/.test(trimmedText)
+  if (isOrderId) {
+    await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'DEFERRED',
+      deferReason: 'order_id_detected',
+      aiReply: settings.deferMessage,
+      processingMs: Date.now() - startTime,
+      sentViaWwbun: true,
+    })
+    console.log(`[OrderID] ${whatsappNumber} — detected order/tracking ID, deferred to Ketu`)
+    return
+  }
+
   // --- Check: Defer to Ketu list (skip for greetings) ---
   // If a correction exists (correctReply), use it directly instead of deferring
   if (!isGreeting) {
@@ -574,10 +592,8 @@ function filterChunksForMessage(allChunks, message, isGreeting, settings = {}, e
     }
   }
 
-  // If nothing specific matched, include catalog + policies (general product inquiry)
-  if (selected.length <= policies.length) {
-    selected.push(...catalog)
-  }
+  // If no keywords matched, don't dump the full catalog — the message isn't about products.
+  // Just send policies. Claude can [DEFER] if it doesn't have enough info.
 
   // Deduplicate
   const seen = new Set()
