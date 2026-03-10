@@ -5,7 +5,7 @@ import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage } from './process.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
-import { getEmbedding } from './embeddings.js'
+import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured } from './embeddings.js'
 
 const app = new Hono()
 const db = new PrismaClient()
@@ -263,6 +263,44 @@ app.delete('/api/defer-list/:id', async (c) => {
   const { id } = c.req.param()
   await db.deferToKetu.delete({ where: { id } })
   return c.json({ status: 'deleted' })
+})
+
+// ===========================================
+// Embedding Management
+// ===========================================
+
+// Check embedding status
+app.get('/api/embeddings/status', async (c) => {
+  const voyageConfigured = isVoyageConfigured()
+  const deferCount = await db.deferToKetu.count()
+  const chunkCount = await db.knowledgeChunk.count()
+  return c.json({
+    voyageConfigured,
+    embeddingModel: voyageConfigured ? 'voyage-3 (1024 dim)' : 'word-hash (basic)',
+    deferItems: deferCount,
+    knowledgeChunks: chunkCount,
+  })
+})
+
+// Re-embed all defer items + knowledge chunks with Voyage AI
+app.post('/api/embeddings/re-embed', async (c) => {
+  if (!isVoyageConfigured()) {
+    return c.json({ error: 'VOYAGE_API_KEY not configured. Add it to Railway env variables.' }, 400)
+  }
+
+  try {
+    const [deferResult, chunkResult] = await Promise.all([
+      reEmbedAllDeferItems(db, anthropic),
+      reEmbedAllChunks(db, anthropic),
+    ])
+    return c.json({
+      status: 'done',
+      deferItems: deferResult,
+      knowledgeChunks: chunkResult,
+    })
+  } catch (err) {
+    return c.json({ error: err.message }, 500)
+  }
 })
 
 // ===========================================
