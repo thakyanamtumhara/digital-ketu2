@@ -307,7 +307,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const catalogChunks = filteredChunks.filter(c => c.source === 'CATALOG')
   const otherChunks = filteredChunks.filter(c => c.source !== 'CATALOG')
 
-  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, styleGuide })
+  // Detect dispatch intent: buyer says payment done + wants dispatch
+  const dispatchKeywords = ['dispatch', 'nikal', 'bhej', 'ship', 'send', 'deliver', 'courier']
+  const paymentKeywords = ['payment', 'paid', 'pay', 'paisa', 'paise', 'amount', 'transfer']
+  const urgencyKeywords = ['abhi', 'aaj', 'now', 'today', 'jaldi', 'asap', 'urgent', 'turant']
+  const lowerMsg = mergedText.toLowerCase()
+  const hasDispatchIntent = (
+    dispatchKeywords.some(kw => lowerMsg.includes(kw)) ||
+    (paymentKeywords.some(kw => lowerMsg.includes(kw)) && urgencyKeywords.some(kw => lowerMsg.includes(kw)))
+  )
+
+  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, styleGuide, hasDispatchIntent })
   const userPrompt = buildUserPrompt({
     mergedText,
     chunks: otherChunks,
@@ -510,7 +520,7 @@ function filterChunksForMessage(allChunks, message, isGreeting) {
 // Prompt Building
 // ===========================================
 
-function buildSystemPrompt({ isFirstTime, settings, deferExamples, styleGuide }) {
+function buildSystemPrompt({ isFirstTime, settings, deferExamples, styleGuide, hasDispatchIntent }) {
   let prompt = `You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
 RULES:
@@ -524,9 +534,14 @@ RULES:
 - When buyer shows buying intent (asking about pricing, MOQ, how to order), guide them to buy from sale91.com and suggest ordering samples from the website.
 - Always share sale91.com when purchase intent is detected.
 - Never reveal you are an AI. You are Ketu's assistant.
-- Use natural greetings appropriate to the language (Namaste, Hello, Hi, etc.).
-- DISPATCH RULE: When buyer's intention is "payment done, please dispatch" or "abhi nikal do" or "aaj hi chahiye" — simply reassure them: "Abhi nikal raha hu sir, thoda time dijiye" (I will dispatch now, give me some time). Do NOT say "kal nikal jaayega" or give future dates. Just confirm immediate dispatch.
+- Use natural greetings appropriate to the language (Namaste, Hello, Hi, etc.).`
+
+  // Dispatch intent: only add dispatch rule when buyer is asking about dispatch/shipping after payment
+  if (hasDispatchIntent) {
+    prompt += `\n\nDISPATCH RULE (IMPORTANT — follow this strictly):
+- When buyer's intention is "payment done, please dispatch" or "abhi nikal do" or "aaj hi chahiye" — simply reassure them: "Abhi nikal raha hu sir, thoda time dijiye" (I will dispatch now, give me some time). Do NOT say "kal nikal jaayega" or give future dates. Just confirm immediate dispatch.
 - If buyer keeps asking too many follow-up questions about dispatch (tracking, exact time, repeated asking) — respond with [DEFER] so Ketu can handle it personally.`
+  }
 
   // Add Om's real reply style examples from defer-to-ketu corrections
   if (deferExamples && deferExamples.length > 0) {
