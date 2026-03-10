@@ -572,6 +572,10 @@ function DeferManager({ list, onDelete, settings, updateSetting }) {
   )
 }
 
+const DEFAULT_PRODUCT_KW = 'tshirt, t-shirt, t shirt, hoodie, sweatshirt, polo, round neck, oversize, oversized, drop shoulder, jacket, varsity, shorts, kids, cotton, polyester, gsm, fabric, sublimation, acid wash, acidwash, biowash, zip, jogger, bottom, price, rate, cost, kitna, kitne, kya rate, bhav, daam, color, colour, rang, size, sizes, catalog, catalogue, product, products, collection, range, sample, order, bulk, wholesale, moq, minimum, buy, kharidna, lena, chahiye, mangta, bhejo, ship'
+
+const DEFAULT_LOGISTICS_KW = 'delivery, shipping, dispatch, track, tracking, courier, payment, pay, upi, bank, account, prepaid, gst, bill, invoice, tax, return, exchange, refund, cancel, printer, printing, embroidery, custom, customize, pickup, tiruppur, address, location, where, discount, offer, deal, cod, cash on delivery, time, kitne din, kab, when'
+
 function SettingsPanel({ settings, updateSetting, onDownload }) {
   return (
     <div>
@@ -601,11 +605,11 @@ function SettingsPanel({ settings, updateSetting, onDownload }) {
 
       <h3 style={{ ...styles.sectionTitle, fontSize: '16px', marginTop: '24px' }}>Chunk Filter Keywords</h3>
       <p style={{ color: '#94a3b8', fontSize: 13, margin: '0 0 12px' }}>
-        These keywords decide which knowledge chunks are sent to Claude. Comma-separated. Leave empty for defaults.
+        These keywords decide which knowledge chunks are sent to Claude. Comma-separated. Add new keywords at the end.
       </p>
       <div style={styles.settingsGrid}>
-        <SettingTextarea label="Product Keywords (triggers catalog chunks)" value={settings.productKeywords || ''} onChange={v => updateSetting('productKeywords', v)} />
-        <SettingTextarea label="Logistics Keywords (triggers saved reply chunks)" value={settings.logisticsKeywords || ''} onChange={v => updateSetting('logisticsKeywords', v)} />
+        <SettingTextarea label="Product Keywords (triggers catalog chunks)" value={settings.productKeywords || DEFAULT_PRODUCT_KW} onChange={v => updateSetting('productKeywords', v)} rows={5} />
+        <SettingTextarea label="Logistics Keywords (triggers saved reply chunks)" value={settings.logisticsKeywords || DEFAULT_LOGISTICS_KW} onChange={v => updateSetting('logisticsKeywords', v)} rows={5} />
       </div>
 
       <div style={{ marginTop: '24px' }}>
@@ -643,11 +647,11 @@ function SettingRow({ label, type, value, onChange, step }) {
   )
 }
 
-function SettingTextarea({ label, value, onChange }) {
+function SettingTextarea({ label, value, onChange, rows = 3 }) {
   return (
     <div style={styles.settingRow}>
       <label style={styles.settingLabel}>{label}</label>
-      <textarea style={styles.textarea} value={value} onChange={e => onChange(e.target.value)} rows={3} />
+      <textarea style={styles.textarea} value={value} onChange={e => onChange(e.target.value)} rows={rows} />
     </div>
   )
 }
