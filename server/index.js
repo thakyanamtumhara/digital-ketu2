@@ -265,6 +265,231 @@ app.delete('/api/defer-list/:id', async (c) => {
   return c.json({ status: 'deleted' })
 })
 
+// ===========================================
+// Pre-AI Filters Stats
+// ===========================================
+
+app.get('/api/filters/stats', async (c) => {
+  const period = c.req.query('period') || 'today'
+  const now = new Date()
+  let since
+  if (period === 'today') {
+    since = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  } else if (period === 'week') {
+    since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+  } else {
+    since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+  }
+
+  const settings = await getSettings()
+
+  // Count messages blocked by each filter (deferReason field)
+  const [
+    offHours,
+    dailyLimit,
+    emojiReaction,
+    mediaOnly,
+    billDocument,
+    spam,
+    cooldown,
+    acknowledgment,
+    welcomeBypass,
+    deferToKetu,
+    emptyKb,
+    claudeDeferred,
+    totalReplied,
+    totalMessages,
+  ] = await Promise.all([
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'off_hours' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'daily_limit' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'emoji_reaction' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'media_only' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'bill_document' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'spam' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, status: 'COOLDOWN' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'acknowledgment' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'welcome_bypass' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'defer_to_ketu' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'empty_knowledge_base' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'claude_deferred' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, status: 'REPLIED', totalTokens: { gt: 0 } } }),
+    db.messageLog.count({ where: { createdAt: { gte: since } } }),
+  ])
+
+  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb
+
+  // Acknowledgment keywords list (same as process.js)
+  const ackPatterns = [
+    'ok', 'okay', 'fine', 'sure', 'thanks', 'thank you', 'alright',
+    'got it', 'noted', 'understood', 'no problem', 'np', 'cool',
+    'great', 'good', 'right', 'yes', 'yep', 'ya', 'yaa',
+    'theek hai', 'thik hai', 'accha', 'acha', 'sahi hai',
+    'ji', 'haan', 'ha', 'dhanyavaad', 'shukriya', 'bas',
+    'theek', 'thik', 'achchha', 'hmm', 'hm', 'k', 'kk',
+  ]
+
+  const greetingPatterns = [
+    'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
+    'helo', 'hllo', 'helloo', 'hellooo',
+    'namaste', 'namaskar', 'namaskaar',
+    'good morning', 'good afternoon', 'good evening',
+    'gm', 'morning', 'evening',
+    'hy', 'hye', 'hola', 'yo',
+  ]
+
+  return c.json({
+    period,
+    since,
+    totalMessages,
+    totalFiltered,
+    totalReachedClaude: totalReplied + claudeDeferred,
+    filters: [
+      {
+        id: 'system_active',
+        name: 'System ON/OFF',
+        description: 'AI is turned OFF — all messages skipped',
+        type: 'system',
+        currentState: settings.isActive ? 'Active (AI ON)' : 'Inactive (AI OFF)',
+        tokens: 0,
+        triggered: offHours,
+        action: 'Skip silently',
+      },
+      {
+        id: 'schedule',
+        name: 'Working Hours',
+        description: `Only process messages during ${settings.scheduleStart || 'N/A'} - ${settings.scheduleEnd || 'N/A'} IST`,
+        type: 'system',
+        currentState: settings.scheduleEnabled ? `${settings.scheduleStart} - ${settings.scheduleEnd}` : 'Disabled',
+        tokens: 0,
+        triggered: offHours,
+        action: 'Skip silently',
+      },
+      {
+        id: 'daily_budget',
+        name: 'Daily Budget Limit',
+        description: `Stop AI when daily spend reaches Rs ${settings.dailyBudgetInr}`,
+        type: 'system',
+        currentState: `Rs ${(settings.dailySpentUsd * 85).toFixed(0)} / Rs ${settings.dailyBudgetInr}`,
+        tokens: 0,
+        triggered: dailyLimit,
+        action: 'Skip silently',
+      },
+      {
+        id: 'emoji_reaction',
+        name: 'Emoji Reactions',
+        description: 'Skip reactions like thumbs up, heart, etc.',
+        type: 'message',
+        currentState: 'Always active',
+        tokens: 0,
+        triggered: emojiReaction,
+        action: 'Skip silently',
+      },
+      {
+        id: 'media_only',
+        name: 'Media-Only Messages',
+        description: 'Auto-reply to images, audio, video, documents',
+        type: 'message',
+        currentState: `Reply: "${settings.mediaMessage || 'N/A'}"`,
+        tokens: 0,
+        triggered: mediaOnly,
+        action: 'Auto-reply (media message)',
+      },
+      {
+        id: 'bill_document',
+        name: 'BillNo PDF Detection',
+        description: 'Detect invoice PDFs (BillNo*.pdf) and auto-acknowledge dispatch',
+        type: 'keyword',
+        currentState: 'Regex: [Document:.*BillNo.*\\.pdf]',
+        tokens: 0,
+        triggered: billDocument,
+        action: 'Auto-reply: "Ok noted sir, dispatching ASAP"',
+      },
+      {
+        id: 'empty_message',
+        name: 'Empty / Spam Messages',
+        description: 'Skip messages with no text content',
+        type: 'message',
+        currentState: 'Always active',
+        tokens: 0,
+        triggered: spam,
+        action: 'Skip silently',
+      },
+      {
+        id: 'cooldown',
+        name: 'Manual Intervention Cooldown',
+        description: `AI pauses for ${settings.cooldownMinutes} min after you reply manually`,
+        type: 'user',
+        currentState: `${settings.cooldownMinutes} min cooldown`,
+        tokens: 0,
+        triggered: cooldown,
+        action: 'Skip silently',
+      },
+      {
+        id: 'acknowledgment',
+        name: 'Acknowledgment Keywords',
+        description: 'Skip when buyer just says ok, thanks, hmm, etc.',
+        type: 'keyword',
+        currentState: `${ackPatterns.length} keywords active`,
+        keywords: ackPatterns,
+        tokens: 0,
+        triggered: acknowledgment,
+        action: 'Skip silently (AI stays quiet)',
+      },
+      {
+        id: 'greeting_detection',
+        name: 'Greeting Detection',
+        description: 'Detect greetings to skip defer-list check (still goes to Claude)',
+        type: 'keyword',
+        currentState: `${greetingPatterns.length} patterns`,
+        keywords: greetingPatterns,
+        tokens: 'Varies (Claude called)',
+        triggered: 'N/A (not a blocker)',
+        action: 'Passes to Claude (skips defer check)',
+      },
+      {
+        id: 'welcome_bypass',
+        name: 'Welcome Message Bypass',
+        description: 'First-time buyer or returning after 7+ days → send welcome directly',
+        type: 'auto-reply',
+        currentState: 'Active (7-day gap)',
+        tokens: 0,
+        triggered: welcomeBypass,
+        action: 'Auto-reply with welcome message',
+      },
+      {
+        id: 'defer_to_ketu',
+        name: 'Defer to Ketu (Vector Match)',
+        description: 'Questions matching defer list → use correction or defer',
+        type: 'ai-match',
+        currentState: `Threshold: ${settings.deferThreshold}`,
+        tokens: 0,
+        triggered: deferToKetu,
+        action: 'Auto-reply with correction OR defer message',
+      },
+      {
+        id: 'empty_kb',
+        name: 'Empty Knowledge Base',
+        description: 'If no knowledge synced yet, defer all messages',
+        type: 'system',
+        currentState: 'Safety check',
+        tokens: 0,
+        triggered: emptyKb,
+        action: 'Defer message',
+      },
+      {
+        id: 'claude_deferred',
+        name: 'Claude [DEFER] Marker',
+        description: 'Claude itself says it cannot answer — defers to you',
+        type: 'post-ai',
+        currentState: 'Active',
+        tokens: 'Yes (Claude called first)',
+        triggered: claudeDeferred,
+        action: 'Defer message (tokens consumed)',
+      },
+    ],
+  })
+})
+
 // Knowledge base download
 app.get('/api/knowledge/download', async (c) => {
   const [chunks, deferList, settings] = await Promise.all([

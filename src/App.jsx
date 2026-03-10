@@ -13,6 +13,8 @@ function App() {
   const [period, setPeriod] = useState('today')
   const [syncing, setSyncing] = useState(false)
   const [knowledge, setKnowledge] = useState(null)
+  const [filterStats, setFilterStats] = useState(null)
+  const [filterPeriod, setFilterPeriod] = useState('today')
 
   // Fetch data
   const fetchSettings = useCallback(async () => {
@@ -44,6 +46,11 @@ function App() {
     const res = await fetch(`${API}/knowledge/download`)
     if (res.ok) setKnowledge(await res.json())
   }, [])
+
+  const fetchFilterStats = useCallback(async () => {
+    const res = await fetch(`${API}/filters/stats?period=${filterPeriod}`)
+    if (res.ok) setFilterStats(await res.json())
+  }, [filterPeriod])
 
   useEffect(() => {
     fetchSettings()
@@ -109,7 +116,7 @@ function App() {
 
       {/* Tabs */}
       <nav style={styles.tabs}>
-        {['live', 'analytics', 'defer', 'settings', 'sync'].map(t => (
+        {['live', 'analytics', 'defer', 'filters', 'settings', 'sync'].map(t => (
           <button
             key={t}
             style={{ ...styles.tab, ...(tab === t ? styles.activeTab : {}) }}
@@ -118,9 +125,10 @@ function App() {
               if (t === 'defer') fetchDeferList()
               if (t === 'sync') { fetchSyncLogs(); fetchKnowledge() }
               if (t === 'analytics') fetchAnalytics()
+              if (t === 'filters') fetchFilterStats()
             }}
           >
-            {t === 'live' ? 'Live Monitor' : t === 'analytics' ? 'Analytics' : t === 'defer' ? 'Defer to Ketu' : t === 'settings' ? 'Settings' : 'Sync'}
+            {t === 'live' ? 'Live Monitor' : t === 'analytics' ? 'Analytics' : t === 'defer' ? 'Defer to Ketu' : t === 'filters' ? 'Pre-AI Filters' : t === 'settings' ? 'Settings' : 'Sync'}
           </button>
         ))}
       </nav>
@@ -133,6 +141,7 @@ function App() {
         {tab === 'live' && <LiveMonitor logs={logs} expandedLog={expandedLog} setExpandedLog={setExpandedLog} />}
         {tab === 'analytics' && <Analytics analytics={analytics} period={period} setPeriod={setPeriod} />}
         {tab === 'defer' && <DeferManager list={deferList} onDelete={deleteDefer} settings={settings} updateSetting={updateSetting} />}
+        {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={fetchFilterStats} />}
         {tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
         {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} onSync={triggerSync} syncing={syncing} knowledge={knowledge} />}
       </main>
@@ -630,6 +639,199 @@ function SettingTextarea({ label, value, onChange }) {
     <div style={styles.settingRow}>
       <label style={styles.settingLabel}>{label}</label>
       <textarea style={styles.textarea} value={value} onChange={e => onChange(e.target.value)} rows={3} />
+    </div>
+  )
+}
+
+function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
+  const [expandedFilter, setExpandedFilter] = useState(null)
+
+  useEffect(() => { onRefresh() }, [period])
+
+  const typeColors = {
+    system: '#3b82f6',
+    message: '#8b5cf6',
+    keyword: '#f59e0b',
+    user: '#10b981',
+    'auto-reply': '#06b6d4',
+    'ai-match': '#ec4899',
+    'post-ai': '#ef4444',
+  }
+
+  const typeLabels = {
+    system: 'System',
+    message: 'Message Type',
+    keyword: 'Keyword Match',
+    user: 'User Action',
+    'auto-reply': 'Auto Reply',
+    'ai-match': 'AI Match',
+    'post-ai': 'Post-AI',
+  }
+
+  if (!stats) return <div style={{ padding: 20, color: '#94a3b8' }}>Loading filter stats...</div>
+
+  const totalSaved = stats.totalFiltered
+  const totalMessages = stats.totalMessages
+  const savedPct = totalMessages > 0 ? ((totalSaved / totalMessages) * 100).toFixed(1) : '0'
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <h2 style={{ margin: 0, color: '#f1f5f9', fontSize: 18 }}>Pre-AI Filters</h2>
+          <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: 13 }}>
+            All rules that run BEFORE Claude is called — 0 tokens consumed
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {['today', 'week', 'month'].map(p => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
+              style={{
+                padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13,
+                background: period === p ? '#3b82f6' : '#334155', color: period === p ? '#fff' : '#94a3b8',
+              }}
+            >
+              {p === 'today' ? 'Today' : p === 'week' ? '7 Days' : '30 Days'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Summary Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+        <div style={{ background: '#1e293b', borderRadius: 10, padding: 16, textAlign: 'center' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#22c55e' }}>{totalSaved}</div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>Messages Filtered</div>
+          <div style={{ fontSize: 11, color: '#64748b' }}>(0 tokens used)</div>
+        </div>
+        <div style={{ background: '#1e293b', borderRadius: 10, padding: 16, textAlign: 'center' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#3b82f6' }}>{stats.totalReachedClaude}</div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>Reached Claude</div>
+          <div style={{ fontSize: 11, color: '#64748b' }}>(tokens consumed)</div>
+        </div>
+        <div style={{ background: '#1e293b', borderRadius: 10, padding: 16, textAlign: 'center' }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#f59e0b' }}>{savedPct}%</div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>Filtered Rate</div>
+          <div style={{ fontSize: 11, color: '#64748b' }}>({totalSaved} of {totalMessages})</div>
+        </div>
+      </div>
+
+      {/* Pipeline Flow */}
+      <div style={{ background: '#1e293b', borderRadius: 10, padding: 16, marginBottom: 20 }}>
+        <h3 style={{ margin: '0 0 12px', color: '#f1f5f9', fontSize: 14 }}>Message Pipeline Flow</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
+          <span style={{ background: '#334155', padding: '4px 10px', borderRadius: 6, color: '#f1f5f9' }}>Incoming Message</span>
+          <span style={{ color: '#64748b' }}>→</span>
+          {stats.filters.filter(f => f.type !== 'post-ai').map((f, i) => (
+            <React.Fragment key={f.id}>
+              <span style={{
+                background: f.triggered > 0 ? typeColors[f.type] + '22' : '#334155',
+                border: `1px solid ${typeColors[f.type] || '#475569'}`,
+                padding: '4px 10px', borderRadius: 6, color: typeColors[f.type] || '#94a3b8', fontSize: 11,
+              }}>
+                {f.name.length > 15 ? f.name.substring(0, 15) + '...' : f.name}
+                {typeof f.triggered === 'number' && f.triggered > 0 && (
+                  <span style={{ marginLeft: 4, background: typeColors[f.type], color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: 10 }}>{f.triggered}</span>
+                )}
+              </span>
+              {i < stats.filters.filter(f2 => f2.type !== 'post-ai').length - 1 && <span style={{ color: '#64748b' }}>→</span>}
+            </React.Fragment>
+          ))}
+          <span style={{ color: '#64748b' }}>→</span>
+          <span style={{ background: '#22c55e22', border: '1px solid #22c55e', padding: '4px 10px', borderRadius: 6, color: '#22c55e' }}>Claude AI</span>
+        </div>
+      </div>
+
+      {/* Filter List */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {stats.filters.map((filter) => (
+          <div
+            key={filter.id}
+            style={{
+              background: '#1e293b', borderRadius: 10, padding: '14px 16px', cursor: 'pointer',
+              border: expandedFilter === filter.id ? `1px solid ${typeColors[filter.type] || '#475569'}` : '1px solid transparent',
+            }}
+            onClick={() => setExpandedFilter(expandedFilter === filter.id ? null : filter.id)}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{
+                  background: typeColors[filter.type] || '#475569', color: '#fff', fontSize: 10,
+                  padding: '2px 8px', borderRadius: 10, fontWeight: 600, textTransform: 'uppercase',
+                }}>
+                  {typeLabels[filter.type] || filter.type}
+                </span>
+                <span style={{ color: '#f1f5f9', fontSize: 14, fontWeight: 500 }}>{filter.name}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <span style={{
+                  color: typeof filter.triggered === 'number' && filter.triggered > 0 ? '#f59e0b' : '#64748b',
+                  fontSize: 13, fontWeight: 600,
+                }}>
+                  {typeof filter.triggered === 'number' ? filter.triggered : filter.triggered}x
+                </span>
+                <span style={{
+                  color: filter.tokens === 0 ? '#22c55e' : '#ef4444', fontSize: 12,
+                  background: filter.tokens === 0 ? '#22c55e22' : '#ef444422',
+                  padding: '2px 8px', borderRadius: 6,
+                }}>
+                  {filter.tokens === 0 ? '0 tokens' : 'Uses tokens'}
+                </span>
+              </div>
+            </div>
+
+            {expandedFilter === filter.id && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #334155' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
+                  <div>
+                    <span style={{ color: '#64748b' }}>Description: </span>
+                    <span style={{ color: '#cbd5e1' }}>{filter.description}</span>
+                  </div>
+                  <div>
+                    <span style={{ color: '#64748b' }}>Current State: </span>
+                    <span style={{ color: '#cbd5e1' }}>{filter.currentState}</span>
+                  </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <span style={{ color: '#64748b' }}>Action: </span>
+                    <span style={{ color: '#cbd5e1' }}>{filter.action}</span>
+                  </div>
+                </div>
+                {filter.keywords && (
+                  <div style={{ marginTop: 10 }}>
+                    <span style={{ color: '#64748b', fontSize: 12 }}>Keywords: </span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                      {filter.keywords.map(kw => (
+                        <span key={kw} style={{
+                          background: '#334155', color: '#94a3b8', padding: '2px 8px',
+                          borderRadius: 4, fontSize: 11,
+                        }}>
+                          {kw}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Legend */}
+      <div style={{ marginTop: 20, background: '#1e293b', borderRadius: 10, padding: 14 }}>
+        <h4 style={{ margin: '0 0 8px', color: '#94a3b8', fontSize: 12, textTransform: 'uppercase' }}>Filter Types</h4>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+          {Object.entries(typeLabels).map(([type, label]) => (
+            <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', background: typeColors[type] }} />
+              <span style={{ color: '#94a3b8', fontSize: 12 }}>{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

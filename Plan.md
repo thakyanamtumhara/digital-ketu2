@@ -1,8 +1,8 @@
 # WhatsApp Auto-Reply System — Master Plan
 
 **Project Owner:** Om (BulkPlainTshirt.com / sale91.com)
-**Last Updated:** March 9, 2026
-**Status:** Planning Phase
+**Last Updated:** March 10, 2026
+**Status:** Live & Running
 
 ---
 
@@ -456,7 +456,37 @@ Each step shows timing (how many ms it took) and token/cost impact.
 - [x] Fix AI deferring all messages — ✅ Removed wasted Claude API call from embeddings, switched to send-all-chunks approach for MVP (KB is small)
 - [x] Auto-sync on startup — ✅ Server forces sync when knowledge base is empty
 - [ ] Upgrade to Voyage AI embeddings — When KB grows beyond ~100 chunks, switch to proper vector search
-- [ ] Edit button UI implementation on WhatsApp repo app (`thakyanamtumhara/wwbun`) — Claude Code will implement
+- [x] Edit button UI implementation on WhatsApp repo app (`thakyanamtumhara/wwbun`) — ✅ Implemented
+- [x] Smart chunk filtering — Only sends relevant chunks to Claude (~2000-3000 tokens vs ~8000)
+- [x] Style guide extraction from Om's real conversations — ✅ Compact ~200 word guide
+- [x] Dispatch intent detection — Reassures buyer about immediate dispatch
+- [x] Buying intent detection — Mentions sale91.com only once
+- [x] Price negotiation detection — Politely says prices are fixed
+- [x] BillNo PDF detection — Auto-acknowledges dispatch for invoice PDFs (0 tokens)
+- [x] Welcome message bypass — First-time or 7+ day gap buyers get welcome directly (0 tokens)
+- [x] Acknowledgment keyword skip — 29 words (ok, thanks, hmm, theek hai...) skip Claude (0 tokens)
+- [x] Pre-AI Filters dashboard tab — Dedicated tab showing all 14 pre-AI rules with live stats
+
+---
+
+## 14. Dashboard Tabs (6 Total)
+
+| Tab | Purpose |
+|-----|---------|
+| **Live Monitor** | Real-time message feed with expandable 5-step pipeline view per message |
+| **Analytics** | Aggregate stats: messages, tokens, costs, intervention rate (today/week/month) |
+| **Defer to Ketu** | View/manage Om's corrections, edit defer message, delete entries |
+| **Pre-AI Filters** | All 14 rules that run before Claude — 0 tokens consumed, with trigger counts and period filter |
+| **Settings** | AI ON/OFF, daily budget, schedule, confidence threshold, defer threshold, messages |
+| **Sync** | Full knowledge base viewer + sync controls + sync history |
+
+### Pre-AI Filters Tab Details
+Shows every check that runs before Claude is called:
+- **Summary cards**: Messages filtered, reached Claude, filter rate %
+- **Visual pipeline flow**: Message path through all 14 filters → Claude
+- **Expandable filter list**: Click any filter to see description, current state, action, keywords
+- **Period selector**: Today / 7 Days / 30 Days
+- **Color-coded types**: System (blue), Message (purple), Keyword (amber), User (green), AI Match (pink), Post-AI (red)
 
 ---
 
