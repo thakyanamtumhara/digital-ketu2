@@ -138,8 +138,8 @@ app.post('/api/intervention', async (c) => {
 
   await db.buyerConversation.upsert({
     where: { whatsappNumber },
-    update: { cooldownUntil },
-    create: { whatsappNumber, cooldownUntil },
+    update: { cooldownUntil, lastMessageAt: new Date() },
+    create: { whatsappNumber, cooldownUntil, lastMessageAt: new Date() },
   })
 
   console.log(`[Cooldown] ${whatsappNumber} — paused until ${cooldownUntil.toISOString()}`)
