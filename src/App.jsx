@@ -635,7 +635,7 @@ function SettingTextarea({ label, value, onChange }) {
 }
 
 function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
-  const [showSection, setShowSection] = useState({ instructions: true, policies: false, catalog: false, replies: false, styleGuide: false, stylePairs: false, deferList: false, history: false })
+  const [showSection, setShowSection] = useState({ instructions: true, conditionalRules: false, policies: false, catalog: false, replies: false, styleGuide: false, stylePairs: false, deferList: false, history: false })
   const toggle = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
 
   const catalogItems = knowledge?.chunks?.CATALOG || []
@@ -746,6 +746,58 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
                 <span style={{ color: '#64748b' }}>Media message:</span>
                 <div style={{ color: '#fbbf24', marginTop: '2px' }}>{kbSettings.mediaMessage || settings.mediaMessage}</div>
               </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Conditional Rules (situational — only sent when keywords match) */}
+      <div style={styles.kbSection}>
+        <div style={styles.kbHeader} onClick={() => toggle('conditionalRules')}>
+          <span style={styles.kbHeaderTitle}>Conditional Rules (Situational)</span>
+          <span style={{ color: '#64748b' }}>{showSection.conditionalRules ? '▼' : '▶'}</span>
+        </div>
+        {showSection.conditionalRules && (
+          <div style={styles.kbContent}>
+            <div style={{ padding: '8px 12px', background: '#1e293b', borderRadius: '6px', fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>
+              These rules are <strong style={{ color: '#f59e0b' }}>NOT sent with every message</strong>. They are only included when the buyer's message matches specific keywords.
+            </div>
+
+            <div style={styles.kbCard}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ fontWeight: '600', color: '#22c55e', fontSize: '13px' }}>DISPATCH RULE</div>
+                <div style={{ fontSize: '11px', color: '#64748b', background: '#1e293b', padding: '2px 8px', borderRadius: '4px' }}>Conditional</div>
+              </div>
+              <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
+                <div style={{ color: '#60a5fa', marginBottom: '4px' }}>Trigger keywords:</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
+                  {['dispatch', 'nikal', 'bhej', 'ship', 'send', 'deliver', 'courier'].map(kw => (
+                    <span key={kw} style={{ background: '#1e3a5f', color: '#93c5fd', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>
+                  ))}
+                </div>
+                <div style={{ color: '#60a5fa', marginBottom: '4px' }}>OR payment + urgency combo:</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '4px' }}>
+                  {['payment', 'paid', 'pay', 'paisa', 'paise', 'amount', 'transfer'].map(kw => (
+                    <span key={kw} style={{ background: '#3b2f1a', color: '#fbbf24', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>
+                  ))}
+                </div>
+                <div style={{ fontSize: '11px', color: '#64748b', margin: '2px 0' }}>+</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {['abhi', 'aaj', 'now', 'today', 'jaldi', 'asap', 'urgent', 'turant'].map(kw => (
+                    <span key={kw} style={{ background: '#3b1a1a', color: '#fca5a5', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>
+                  ))}
+                </div>
+              </div>
+              <div style={{ ...styles.promptBlock, marginTop: '8px' }}>
+                {`DISPATCH RULE (sent to Claude when triggered):
+- When buyer's intention is "payment done, please dispatch" or "abhi nikal do" or "aaj hi chahiye" → reassure: "Abhi nikal raha hu sir, thoda time dijiye"
+- Do NOT say "kal nikal jaayega" or give future dates. Just confirm immediate dispatch.
+- If buyer keeps asking too many follow-up dispatch questions → [DEFER] to Ketu.`}
+              </div>
+            </div>
+
+            <div style={{ padding: '8px 12px', background: '#422006', borderRadius: '6px', fontSize: '12px', color: '#fbbf24', marginTop: '8px' }}>
+              FIRST-TIME BUYER RULE: When buyer messages for the first time ever → "MUST include sale91.com/catalog link in reply" (always added for first-time buyers)
             </div>
           </div>
         )}
