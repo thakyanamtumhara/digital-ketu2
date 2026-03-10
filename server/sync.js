@@ -366,7 +366,7 @@ function buildProductDescription(product, catalogData) {
   if (product.colors?.length) lines.push(`Available colors: ${product.colors.join(', ')}`)
   if (product.sizes?.length) lines.push(`Available sizes: ${product.sizes.join(', ')}`)
   if (product.weightKg) lines.push(`Weight: ${product.weightKg} kg`)
-  if (catalogData.moq) lines.push(`Minimum order quantity (MOQ): ${catalogData.moq} pieces`)
+  if (catalogData.moq) lines.push(`Minimum order quantity (MOQ): ${catalogData.moq} pieces total (any mix of colors, sizes, or products for bulk rates). Less than ${catalogData.moq} pieces available at sample prices.`)
   if (catalogData.websiteDiscount) lines.push(`Extra ₹${catalogData.websiteDiscount} discount when ordering from website`)
   lines.push(`Order at: sale91.com/catalog`)
   return lines.join('\n')
@@ -375,7 +375,7 @@ function buildProductDescription(product, catalogData) {
 function buildPoliciesChunk(catalogData) {
   const lines = []
   lines.push(`Business: BulkPlainTshirt.com / sale91.com — Wholesale blank apparel supplier in India`)
-  if (catalogData.moq) lines.push(`Minimum Order Quantity (MOQ): ${catalogData.moq} pieces per color per size`)
+  if (catalogData.moq) lines.push(`Minimum Order Quantity (MOQ): ${catalogData.moq} pieces total — any mix of colors, sizes, or products. Below ${catalogData.moq} pieces, you can still order at sample prices (slightly higher per piece).`)
   if (catalogData.gstRate) lines.push(`GST: ${catalogData.gstRate}% (included in price)`)
   if (catalogData.paymentTerms) lines.push(`Payment terms: ${catalogData.paymentTerms}`)
   if (catalogData.websiteDiscount) lines.push(`Website discount: Extra ₹${catalogData.websiteDiscount}/pc off when ordering from sale91.com`)
