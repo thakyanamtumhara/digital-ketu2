@@ -524,7 +524,9 @@ RULES:
 - When buyer shows buying intent (asking about pricing, MOQ, how to order), guide them to buy from sale91.com and suggest ordering samples from the website.
 - Always share sale91.com when purchase intent is detected.
 - Never reveal you are an AI. You are Ketu's assistant.
-- Use natural greetings appropriate to the language (Namaste, Hello, Hi, etc.).`
+- Use natural greetings appropriate to the language (Namaste, Hello, Hi, etc.).
+- DISPATCH RULE: When buyer's intention is "payment done, please dispatch" or "abhi nikal do" or "aaj hi chahiye" — simply reassure them: "Abhi nikal raha hu sir, thoda time dijiye" (I will dispatch now, give me some time). Do NOT say "kal nikal jaayega" or give future dates. Just confirm immediate dispatch.
+- If buyer keeps asking too many follow-up questions about dispatch (tracking, exact time, repeated asking) — respond with [DEFER] so Ketu can handle it personally.`
 
   // Add Om's real reply style examples from defer-to-ketu corrections
   if (deferExamples && deferExamples.length > 0) {
