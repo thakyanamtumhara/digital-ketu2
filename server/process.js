@@ -317,7 +317,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     (paymentKeywords.some(kw => lowerMsg.includes(kw)) && urgencyKeywords.some(kw => lowerMsg.includes(kw)))
   )
 
-  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, styleGuide, hasDispatchIntent })
+  // Detect buying intent: buyer asking about price, ordering, MOQ, samples etc.
+  const buyingIntentKeywords = [
+    'price', 'rate', 'cost', 'kitna', 'kitne', 'kya rate', 'bhav', 'daam',
+    'order', 'buy', 'kharidna', 'lena', 'chahiye', 'mangta',
+    'moq', 'minimum', 'bulk', 'wholesale',
+    'sample', 'catalog', 'catalogue',
+    'how to order', 'kaise order', 'order kaise',
+  ]
+  const hasBuyingIntent = buyingIntentKeywords.some(kw => lowerMsg.includes(kw))
+
+  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent })
   const userPrompt = buildUserPrompt({
     mergedText,
     chunks: otherChunks,
@@ -520,7 +530,7 @@ function filterChunksForMessage(allChunks, message, isGreeting) {
 // Prompt Building
 // ===========================================
 
-function buildSystemPrompt({ isFirstTime, settings, deferExamples, styleGuide, hasDispatchIntent }) {
+function buildSystemPrompt({ isFirstTime, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent }) {
   let prompt = `You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
 RULES:
@@ -531,7 +541,6 @@ RULES:
 - Never make up information. Only use the knowledge provided below.
 - If you don't have enough info in the knowledge base to answer accurately, respond with EXACTLY: [DEFER]
 - Do NOT make up prices, product details, or policies. Only use info from the knowledge base provided.
-- Mention sale91.com ONLY ONCE in the conversation when buyer first shows buying intent. Check the conversation history — if sale91.com was already shared in a previous reply, do NOT repeat it. Just answer the buyer's question directly.
 - Never reveal you are an AI. You are Ketu's assistant.
 - Use natural greetings appropriate to the language (Namaste, Hello, Hi, etc.).`
 
@@ -540,6 +549,12 @@ RULES:
     prompt += `\n\nDISPATCH RULE (IMPORTANT — follow this strictly):
 - When buyer's intention is "payment done, please dispatch" or "abhi nikal do" or "aaj hi chahiye" — simply reassure them: "Abhi nikal raha hu sir, thoda time dijiye" (I will dispatch now, give me some time). Do NOT say "kal nikal jaayega" or give future dates. Just confirm immediate dispatch.
 - If buyer keeps asking too many follow-up questions about dispatch (tracking, exact time, repeated asking) — respond with [DEFER] so Ketu can handle it personally.`
+  }
+
+  // Buying intent: only add sale91 rule when buyer is asking about pricing/ordering
+  if (hasBuyingIntent) {
+    prompt += `\n\nSALE91 RULE:
+- Mention sale91.com ONLY ONCE. Check the conversation history — if sale91.com was already shared in a previous reply, do NOT repeat it. Just answer the buyer's question directly. Don't force it.`
   }
 
   // Add Om's real reply style examples from defer-to-ketu corrections

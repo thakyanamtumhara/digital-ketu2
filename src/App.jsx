@@ -686,7 +686,6 @@ RULES:
 - Never make up information. Only use the knowledge provided.
 - If not enough info → respond with EXACTLY: [DEFER]
 - Do NOT make up prices, product details, or policies.
-- Mention sale91.com ONLY ONCE when buyer first shows buying intent. If already shared, don't repeat — just answer questions.
 - Never reveal you are an AI. You are Ketu's assistant.
 - Natural greetings (Namaste, Hello, Hi, etc.).
 
@@ -793,6 +792,25 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
 - When buyer's intention is "payment done, please dispatch" or "abhi nikal do" or "aaj hi chahiye" → reassure: "Abhi nikal raha hu sir, thoda time dijiye"
 - Do NOT say "kal nikal jaayega" or give future dates. Just confirm immediate dispatch.
 - If buyer keeps asking too many follow-up dispatch questions → [DEFER] to Ketu.`}
+              </div>
+            </div>
+
+            <div style={styles.kbCard}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ fontWeight: '600', color: '#22c55e', fontSize: '13px' }}>SALE91 RULE</div>
+                <div style={{ fontSize: '11px', color: '#64748b', background: '#1e293b', padding: '2px 8px', borderRadius: '4px' }}>Conditional</div>
+              </div>
+              <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
+                <div style={{ color: '#60a5fa', marginBottom: '4px' }}>Trigger keywords (buying intent):</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {['price', 'rate', 'cost', 'kitna', 'kitne', 'bhav', 'daam', 'order', 'buy', 'kharidna', 'lena', 'chahiye', 'moq', 'minimum', 'bulk', 'wholesale', 'sample', 'catalog'].map(kw => (
+                    <span key={kw} style={{ background: '#1e3a5f', color: '#93c5fd', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>
+                  ))}
+                </div>
+              </div>
+              <div style={{ ...styles.promptBlock, marginTop: '8px' }}>
+                {`SALE91 RULE (sent to Claude when triggered):
+- Mention sale91.com ONLY ONCE. Check conversation history — if already shared in a previous reply, do NOT repeat it. Just answer the buyer's question directly. Don't force it.`}
               </div>
             </div>
 
