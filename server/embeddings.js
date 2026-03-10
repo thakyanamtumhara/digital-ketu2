@@ -28,35 +28,54 @@ export async function getEmbedding(anthropic, text) {
  * Generate real AI embedding using Voyage AI API
  */
 async function getVoyageEmbedding(text) {
-  const response = await fetch(VOYAGE_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${VOYAGE_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: VOYAGE_MODEL,
-      input: [text],
-      input_type: 'query',
-    }),
-  })
+  const results = await getVoyageEmbeddingsBatch([text])
+  return results[0]
+}
 
-  if (!response.ok) {
-    const err = await response.text()
-    console.error(`[Voyage AI] API error: ${response.status} — ${err}`)
-    // Fall back to hash-based if Voyage fails
-    return textToSimpleEmbedding(text)
+/**
+ * Batch embedding: send multiple texts in one API call (max 128 per call)
+ * Returns array of pgvector-compatible embedding strings
+ */
+async function getVoyageEmbeddingsBatch(texts) {
+  const BATCH_SIZE = 128
+  const allResults = []
+
+  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+    const batch = texts.slice(i, i + BATCH_SIZE)
+    const response = await fetch(VOYAGE_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${VOYAGE_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: VOYAGE_MODEL,
+        input: batch,
+        input_type: 'query',
+      }),
+    })
+
+    if (!response.ok) {
+      const err = await response.text()
+      console.error(`[Voyage AI] API error: ${response.status} — ${err}`)
+      // Fall back to hash-based for this batch
+      for (const text of batch) {
+        allResults.push(textToSimpleEmbedding(text))
+      }
+      continue
+    }
+
+    const data = await response.json()
+    if (data.usage) {
+      console.log(`[Voyage AI] Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${data.usage.total_tokens} tokens used`)
+    }
+
+    for (const item of data.data) {
+      allResults.push(`[${item.embedding.join(',')}]`)
+    }
   }
 
-  const data = await response.json()
-  const embedding = data.data[0].embedding
-
-  // Log token usage for monitoring
-  if (data.usage) {
-    console.log(`[Voyage AI] ${data.usage.total_tokens} tokens used for embedding`)
-  }
-
-  return `[${embedding.join(',')}]`
+  return allResults
 }
 
 /**
@@ -149,20 +168,27 @@ export async function reEmbedAllDeferItems(db, anthropic) {
     select: { id: true, buyerQuestion: true },
   })
 
+  if (items.length === 0) {
+    return { status: 'done', total: 0, updated: 0, failed: 0 }
+  }
+
+  // Batch embed all questions in one API call
+  const texts = items.map(item => item.buyerQuestion)
+  const embeddings = await getVoyageEmbeddingsBatch(texts)
+
   let updated = 0
   let failed = 0
 
-  for (const item of items) {
+  for (let i = 0; i < items.length; i++) {
     try {
-      const embedding = await getVoyageEmbedding(item.buyerQuestion)
       await db.$executeRaw`
         UPDATE "DeferToKetu"
-        SET embedding = ${embedding}::vector, "updatedAt" = NOW()
-        WHERE id = ${item.id}
+        SET embedding = ${embeddings[i]}::vector, "updatedAt" = NOW()
+        WHERE id = ${items[i].id}
       `
       updated++
     } catch (err) {
-      console.error(`[Re-embed] Failed for "${item.buyerQuestion.substring(0, 50)}...":`, err.message)
+      console.error(`[Re-embed] Failed for "${items[i].buyerQuestion.substring(0, 50)}...":`, err.message)
       failed++
     }
   }
@@ -183,20 +209,27 @@ export async function reEmbedAllChunks(db, anthropic) {
     select: { id: true, content: true, title: true },
   })
 
+  if (chunks.length === 0) {
+    return { status: 'done', total: 0, updated: 0, failed: 0 }
+  }
+
+  // Batch embed all chunks in one API call
+  const texts = chunks.map(chunk => chunk.content)
+  const embeddings = await getVoyageEmbeddingsBatch(texts)
+
   let updated = 0
   let failed = 0
 
-  for (const chunk of chunks) {
+  for (let i = 0; i < chunks.length; i++) {
     try {
-      const embedding = await getVoyageEmbedding(chunk.content)
       await db.$executeRaw`
         UPDATE "KnowledgeChunk"
-        SET embedding = ${embedding}::vector, "updatedAt" = NOW()
-        WHERE id = ${chunk.id}
+        SET embedding = ${embeddings[i]}::vector, "updatedAt" = NOW()
+        WHERE id = ${chunks[i].id}
       `
       updated++
     } catch (err) {
-      console.error(`[Re-embed] Failed for chunk "${chunk.title?.substring(0, 50)}...":`, err.message)
+      console.error(`[Re-embed] Failed for chunk "${chunks[i].title?.substring(0, 50)}...":`, err.message)
       failed++
     }
   }
