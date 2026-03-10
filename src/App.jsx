@@ -576,6 +576,8 @@ const DEFAULT_PRODUCT_KW = 'tshirt, t-shirt, t shirt, hoodie, sweatshirt, polo, 
 
 const DEFAULT_LOGISTICS_KW = 'delivery, shipping, dispatch, track, tracking, courier, payment, pay, upi, bank, account, prepaid, gst, bill, invoice, tax, return, exchange, refund, cancel, printer, printing, embroidery, custom, customize, pickup, tiruppur, address, location, where, discount, offer, deal, cod, cash on delivery, time, kitne din, kab, when'
 
+const DEFAULT_INFORMING_KW = 'just to inform, inform, batana tha, bata raha, bata rahi, plan hai, plan kar, planning, soch raha, soch rahi, socha hai, future mein, future me, aage, baad mein, baad me, winter mein, winter me, summer mein, summer me, this winter, this summer, next month, next year, coming winter, coming summer, coming month, will be buying, will buy, will order, will need, lene wala, lene wale, lenge, karenge, karunga, karungi, lunga, lungi, mangwaunga, mangwaungi, most probably, probably, shayad, video dekhi, video dekha, reel dekhi, reel dekha, interested, interest hai'
+
 function SettingsPanel({ settings, updateSetting, onDownload }) {
   return (
     <div>
@@ -610,6 +612,7 @@ function SettingsPanel({ settings, updateSetting, onDownload }) {
       <div style={styles.settingsGrid}>
         <SettingTextarea label="Product Keywords (triggers catalog chunks)" value={settings.productKeywords || DEFAULT_PRODUCT_KW} onChange={v => updateSetting('productKeywords', v)} rows={5} />
         <SettingTextarea label="Logistics Keywords (triggers saved reply chunks)" value={settings.logisticsKeywords || DEFAULT_LOGISTICS_KW} onChange={v => updateSetting('logisticsKeywords', v)} rows={5} />
+        <SettingTextarea label="Informing Keywords (skips catalog when buyer is sharing future plans)" value={settings.informingKeywords || DEFAULT_INFORMING_KW} onChange={v => updateSetting('informingKeywords', v)} rows={5} />
       </div>
 
       <div style={{ marginTop: '24px' }}>

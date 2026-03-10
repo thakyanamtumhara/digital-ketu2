@@ -130,6 +130,7 @@ model Settings {
   scheduleEnd         String?  @default("21:00")    // HH:MM IST
   productKeywords     String?                       // comma-separated keywords for catalog filtering
   logisticsKeywords   String?                       // comma-separated keywords for logistics/saved-reply filtering
+  informingKeywords   String?                       // comma-separated keywords for informing/future-intent detection
   lastSyncAt          DateTime?
   nextSyncAt          DateTime?
   createdAt           DateTime @default(now())

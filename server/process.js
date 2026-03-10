@@ -384,7 +384,8 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const hasPriceNegotiation = priceNegotiationKeywords.some(kw => lowerMsg.includes(kw))
 
   // Detect informing intent: buyer is sharing future plans, not inquiring
-  const hasInformingIntent = INFORMING_KEYWORDS.some(kw => lowerMsg.includes(kw))
+  const informingKws = parseKeywords(settings.informingKeywords, DEFAULT_INFORMING_KEYWORDS)
+  const hasInformingIntent = informingKws.some(kw => lowerMsg.includes(kw))
 
   const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent, hasPriceNegotiation, hasInformingIntent })
   const userPrompt = buildUserPrompt({
@@ -514,7 +515,7 @@ const DELIVERY_AVAILABILITY_KEYWORDS = [
 
 // Informing keywords — buyer is sharing plans/intent, not inquiring about products
 // e.g. "this winter I will be buying 5k hoodies" or "inform kar raha hu, aage lena hai"
-const INFORMING_KEYWORDS = [
+const DEFAULT_INFORMING_KEYWORDS = [
   'just to inform', 'inform', 'batana tha', 'bata raha', 'bata rahi',
   'plan hai', 'plan kar', 'planning', 'soch raha', 'soch rahi', 'socha hai',
   'future mein', 'future me', 'aage', 'baad mein', 'baad me',
@@ -579,7 +580,8 @@ function filterChunksForMessage(allChunks, message, isGreeting, settings = {}, e
   // If buyer is just INFORMING about future plans (not inquiring) — skip catalog
   // e.g. "this winter I will be buying 5k hoodies just to inform"
   if (needsCatalog) {
-    const hasInformingContext = INFORMING_KEYWORDS.some(kw => lower.includes(kw))
+    const informingKeywords = parseKeywords(settings.informingKeywords, DEFAULT_INFORMING_KEYWORDS)
+    const hasInformingContext = informingKeywords.some(kw => lower.includes(kw))
     if (hasInformingContext) {
       needsCatalog = false
       console.log(`[FILTER] Skipping catalog — buyer is informing, not inquiring (matched product kws: ${matchedProductKws.join(', ')})`)
