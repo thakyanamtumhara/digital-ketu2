@@ -188,7 +188,23 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // Only truly first-time if no conversation exists at all (no previousLastMessageAt)
   // If buyer has messaged before (has lastMessageAt), only send welcome if 7+ days gap
   const isFirstTime = !existingConversation
-  const shouldSendWelcome = isFirstTime || lastMessageAge > SEVEN_DAYS_MS
+  let shouldSendWelcome = isFirstTime || lastMessageAge > SEVEN_DAYS_MS
+
+  // Extra safety: check message logs too — if there are recent logs (within 7 days), don't send welcome
+  // This handles cases where lastMessageAt wasn't updated (e.g., AI was OFF when buyer messaged)
+  if (shouldSendWelcome && !isFirstTime) {
+    const recentLog = await db.messageLog.findFirst({
+      where: {
+        conversationId: conversation.id,
+        createdAt: { gt: new Date(Date.now() - SEVEN_DAYS_MS) },
+      },
+      select: { id: true },
+    })
+    if (recentLog) {
+      shouldSendWelcome = false
+      console.log(`[Welcome] ${whatsappNumber} — skipped: recent message log found despite old lastMessageAt`)
+    }
+  }
 
   if (shouldSendWelcome) {
     // Fetch the /welcome saved reply from knowledge base
@@ -327,7 +343,16 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   ]
   const hasBuyingIntent = buyingIntentKeywords.some(kw => lowerMsg.includes(kw))
 
-  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent })
+  // Detect price negotiation intent: buyer saying price is high, asking for discount
+  const priceNegotiationKeywords = [
+    'price jada', 'price zyada', 'price jyada', 'price high', 'mehnga', 'mehenga', 'costly',
+    'expensive', 'sasta', 'kam karo', 'discount', 'offer', 'deal',
+    'jada hai', 'jyada hai', 'zyada hai', 'bahut hai',
+    'kam kar', 'thoda kam', 'rate kam',
+  ]
+  const hasPriceNegotiation = priceNegotiationKeywords.some(kw => lowerMsg.includes(kw))
+
+  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent, hasPriceNegotiation })
   const userPrompt = buildUserPrompt({
     mergedText,
     chunks: otherChunks,
@@ -530,7 +555,7 @@ function filterChunksForMessage(allChunks, message, isGreeting) {
 // Prompt Building
 // ===========================================
 
-function buildSystemPrompt({ isFirstTime, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent }) {
+function buildSystemPrompt({ isFirstTime, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent, hasPriceNegotiation }) {
   let prompt = `You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
 RULES:
@@ -555,6 +580,15 @@ RULES:
   if (hasBuyingIntent) {
     prompt += `\n\nSALE91 RULE:
 - Mention sale91.com ONLY ONCE. Check the conversation history — if sale91.com was already shared in a previous reply, do NOT repeat it. Just answer the buyer's question directly. Don't force it.`
+  }
+
+  // Price negotiation: buyer says price is high, asking for discount
+  if (hasPriceNegotiation) {
+    prompt += `\n\nPRICE NEGOTIATION RULE:
+- Our prices are FIXED. We work on very low margins (kam margin pe kaam karte hai). Understand the buyer's intention and reply naturally.
+- Do NOT offer any discount or negotiate. Politely tell them price is fixed.
+- Example tone: "Sir, price hamara fix hota hai. Hum log kafi kam margin pe kaam karte hai."
+- Don't copy-paste this exact line every time — understand what the buyer is saying and reply naturally with this core message.`
   }
 
   // Add Om's real reply style examples from defer-to-ketu corrections

@@ -814,6 +814,28 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
               </div>
             </div>
 
+            <div style={styles.kbCard}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ fontWeight: '600', color: '#22c55e', fontSize: '13px' }}>PRICE NEGOTIATION RULE</div>
+                <div style={{ fontSize: '11px', color: '#64748b', background: '#1e293b', padding: '2px 8px', borderRadius: '4px' }}>Conditional</div>
+              </div>
+              <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
+                <div style={{ color: '#60a5fa', marginBottom: '4px' }}>Trigger keywords (price negotiation):</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {['price jada', 'price zyada', 'mehnga', 'costly', 'expensive', 'sasta', 'kam karo', 'discount', 'offer', 'deal', 'thoda kam', 'rate kam'].map(kw => (
+                    <span key={kw} style={{ background: '#3b1a1a', color: '#fca5a5', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>
+                  ))}
+                </div>
+              </div>
+              <div style={{ ...styles.promptBlock, marginTop: '8px' }}>
+                {`PRICE NEGOTIATION RULE (sent to Claude when triggered):
+- Prices are FIXED. We work on very low margins (kam margin pe kaam karte hai).
+- Do NOT offer any discount or negotiate. Politely tell them price is fixed.
+- Understand buyer's intention and reply naturally — don't copy-paste the same line.
+- Example tone: "Sir, price hamara fix hota hai. Hum log kafi kam margin pe kaam karte hai."`}
+              </div>
+            </div>
+
             <div style={{ padding: '8px 12px', background: '#422006', borderRadius: '6px', fontSize: '12px', color: '#fbbf24', marginTop: '8px' }}>
               FIRST-TIME BUYER RULE: When buyer messages for the first time ever → "MUST include sale91.com/catalog link in reply" (always added for first-time buyers)
             </div>
