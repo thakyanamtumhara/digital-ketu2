@@ -383,7 +383,10 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   ]
   const hasPriceNegotiation = priceNegotiationKeywords.some(kw => lowerMsg.includes(kw))
 
-  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent, hasPriceNegotiation })
+  // Detect informing intent: buyer is sharing future plans, not inquiring
+  const hasInformingIntent = INFORMING_KEYWORDS.some(kw => lowerMsg.includes(kw))
+
+  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent, hasPriceNegotiation, hasInformingIntent })
   const userPrompt = buildUserPrompt({
     mergedText,
     chunks: otherChunks,
@@ -509,6 +512,23 @@ const DELIVERY_AVAILABILITY_KEYWORDS = [
   'ready hai', 'ready ho jayega', 'taiyaar',
 ]
 
+// Informing keywords — buyer is sharing plans/intent, not inquiring about products
+// e.g. "this winter I will be buying 5k hoodies" or "inform kar raha hu, aage lena hai"
+const INFORMING_KEYWORDS = [
+  'just to inform', 'inform', 'batana tha', 'bata raha', 'bata rahi',
+  'plan hai', 'plan kar', 'planning', 'soch raha', 'soch rahi', 'socha hai',
+  'future mein', 'future me', 'aage', 'baad mein', 'baad me',
+  'winter mein', 'winter me', 'summer mein', 'summer me',
+  'this winter', 'this summer', 'next month', 'next year',
+  'coming winter', 'coming summer', 'coming month',
+  'will be buying', 'will buy', 'will order', 'will need',
+  'lene wala', 'lene wale', 'lenge', 'karenge', 'karunga', 'karungi',
+  'lunga', 'lungi', 'mangwaunga', 'mangwaungi',
+  'most probably', 'probably', 'shayad',
+  'video dekhi', 'video dekha', 'reel dekhi', 'reel dekha',
+  'interested', 'interest hai',
+]
+
 const DEFAULT_LOGISTICS_KEYWORDS = [
   'delivery', 'shipping', 'dispatch', 'track', 'tracking', 'courier',
   'payment', 'pay', 'upi', 'bank', 'account', 'prepaid',
@@ -553,6 +573,16 @@ function filterChunksForMessage(allChunks, message, isGreeting, settings = {}, e
     if (allMatchedAreGeneric && hasDeliveryContext) {
       needsCatalog = false
       console.log(`[FILTER] Skipping catalog — delivery/availability question (matched: ${matchedProductKws.join(', ')})`)
+    }
+  }
+
+  // If buyer is just INFORMING about future plans (not inquiring) — skip catalog
+  // e.g. "this winter I will be buying 5k hoodies just to inform"
+  if (needsCatalog) {
+    const hasInformingContext = INFORMING_KEYWORDS.some(kw => lower.includes(kw))
+    if (hasInformingContext) {
+      needsCatalog = false
+      console.log(`[FILTER] Skipping catalog — buyer is informing, not inquiring (matched product kws: ${matchedProductKws.join(', ')})`)
     }
   }
 
@@ -642,13 +672,13 @@ function filterChunksForMessage(allChunks, message, isGreeting, settings = {}, e
 // Prompt Building
 // ===========================================
 
-function buildSystemPrompt({ isFirstTime, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent, hasPriceNegotiation }) {
+function buildSystemPrompt({ isFirstTime, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent, hasPriceNegotiation, hasInformingIntent }) {
   let prompt = `You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
 RULES:
 - Reply in the buyer's language. If they write Hindi, reply in Hindi. If English, reply in English. If Hinglish, reply in Hinglish.
 - Be friendly, professional, and helpful. Sound like a real person, not a robot.
-- Keep replies SHORT — max 10-15 words. WhatsApp replies should be quick, direct, and to the point. No long paragraphs.
+- Keep replies SHORT — STRICT MAX 10-15 words. This is a hard limit, not a suggestion. Count your words before replying. If your reply exceeds 15 words, shorten it. WhatsApp replies must be quick and to the point. No long paragraphs, no listing multiple products, no URLs unless specifically asked.
 - Match Ketu's style: casual, friendly, uses simple words. Look at the STYLE EXAMPLES below.
 - HINDI POLITENESS (CRITICAL): Always use polite "aap" verb forms with customers. NEVER use informal "tu/tum" forms.
   WRONG: "bata", "kar", "de", "bhej", "dekh", "bol", "sun", "le", "ja", "aa", "ruk", "baith"
@@ -687,6 +717,15 @@ RULES:
 - Do NOT offer any discount or negotiate. Politely tell them price is fixed.
 - Example tone: "Sir, price hamara fix hota hai. Hum log kafi kam margin pe kaam karte hai."
 - Don't copy-paste this exact line every time — understand what the buyer is saying and reply naturally with this core message.`
+  }
+
+  // Informing intent: buyer sharing future plans, not asking questions
+  if (hasInformingIntent) {
+    prompt += `\n\nINFORMING RULE (buyer is sharing plans, NOT inquiring):
+- The buyer is just INFORMING you about their future plans or interest. They are NOT asking for product details, prices, or catalog.
+- Simply ACKNOWLEDGE briefly. Examples: "Noted sir, best rates de denge", "Ji sir, noted. Jab bhi ready ho bataaiye", "Zaroor sir, winter mein yaad dilaaiye".
+- Do NOT list products, prices, colors, sizes, or links. Do NOT share catalog or sale91.com. Just acknowledge their plan.
+- Keep it under 10 words. Be warm and brief.`
   }
 
   // Add Om's real reply style examples from defer-to-ketu corrections
