@@ -148,8 +148,11 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   // --- Check: Acknowledgment messages — always skip ---
   // If buyer just says ok/okay/hmm etc., AI should stay silent regardless of context
+  // Strip trailing honorifics (sir, ji, bhai, boss) before matching
   const normalizedText = mergedText.trim().toLowerCase()
     .replace(/[.!?,।]+$/g, '')
+    .trim()
+    .replace(/\s+(sir|ji|bhai|boss|bro|sahab|saheb|g)$/i, '')
     .trim()
 
   const ackPatterns = [
@@ -159,6 +162,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     'theek hai', 'thik hai', 'accha', 'acha', 'sahi hai',
     'ji', 'haan', 'ha', 'dhanyavaad', 'shukriya', 'bas',
     'theek', 'thik', 'achchha', 'hmm', 'hm', 'k', 'kk',
+    'done', 'bilkul', 'zaroor', 'thx', 'ty',
   ]
 
   if (ackPatterns.includes(normalizedText)) {
