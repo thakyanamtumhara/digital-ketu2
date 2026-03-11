@@ -1601,22 +1601,25 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
       </div>
 
       {/* Reset manual pairs for re-review */}
-      {stats.stats.pendingManualPairs === 0 && stats.stats.totalManualReviewed > 0 && (
-        <div style={{ marginBottom: 12 }}>
+      {stats.stats.totalManualReviewed > 0 && (
+        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
           <button
             onClick={async () => {
-              if (!confirm(`Reset ${stats.stats.totalManualReviewed} reviewed manual pairs for re-review with Sonnet?`)) return
+              if (!confirm(`Reset ${stats.stats.totalManualReviewed} reviewed manual pairs for re-review with Sonnet 4.6?`)) return
               const res = await fetch(`${API}/learning/reset-manual-pairs`, { method: 'POST' })
               if (res.ok) {
                 const data = await res.json()
                 alert(data.message)
                 onRefresh()
+              } else {
+                alert('Failed to reset pairs')
               }
             }}
             style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #f59e0b', background: 'transparent', color: '#f59e0b', cursor: 'pointer', fontSize: 12 }}
           >
-            Reset {stats.stats.totalManualReviewed} Manual Pairs for Re-review
+            Reset {stats.stats.totalManualReviewed} Reviewed Pairs for Re-review
           </button>
+          <span style={{ color: '#64748b', fontSize: 11 }}>Pairs reviewed by wrong model can be re-reviewed with Sonnet 4.6</span>
         </div>
       )}
 
