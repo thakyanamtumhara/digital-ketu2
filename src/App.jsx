@@ -286,6 +286,35 @@ function DailyBudgetBar({ settings }) {
 }
 
 function LiveMonitor({ logs, expandedLog, setExpandedLog }) {
+  const [editingId, setEditingId] = useState(null)
+  const [editDraft, setEditDraft] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [editedReplies, setEditedReplies] = useState({})
+
+  const startEdit = (log) => {
+    setEditingId(log.id)
+    setEditDraft(log.aiReply || '')
+  }
+  const saveEdit = async (log) => {
+    setEditSaving(true)
+    try {
+      await fetch('/api/correction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          buyerQuestion: log.buyerMessage,
+          aiWrongReply: log.aiReply || '',
+          correctReply: editDraft,
+        }),
+      })
+      setEditedReplies(prev => ({ ...prev, [log.id]: editDraft }))
+      setEditingId(null)
+    } catch (err) {
+      alert('Failed to save correction: ' + err.message)
+    }
+    setEditSaving(false)
+  }
+
   return (
     <div>
       <h2 style={styles.sectionTitle}>Live Message Log</h2>
@@ -307,7 +336,29 @@ function LiveMonitor({ logs, expandedLog, setExpandedLog }) {
           </div>
           <div style={styles.logBody}>
             <div style={styles.logMessage}><strong>Buyer:</strong> {log.buyerMessage}</div>
-            {log.aiReply && <div style={styles.logReply}><strong>AI Reply:</strong> {log.aiReply}</div>}
+            {editingId === log.id ? (
+              <div style={{ marginTop: '6px' }}>
+                <textarea style={{ ...styles.textarea, fontSize: '13px', width: '100%' }} value={editDraft} onChange={e => setEditDraft(e.target.value)} rows={3} />
+                <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                  <button style={{ ...styles.btnPrimary, padding: '4px 12px', fontSize: '12px' }} onClick={() => saveEdit(log)} disabled={editSaving}>
+                    {editSaving ? 'Saving...' : 'Save Correction'}
+                  </button>
+                  <button style={{ ...styles.btnSecondary, padding: '4px 12px', fontSize: '12px' }} onClick={() => setEditingId(null)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                <div style={styles.logReply}>
+                  <strong>AI Reply:</strong> {editedReplies[log.id] || log.aiReply}
+                  {editedReplies[log.id] && <span style={{ color: '#22c55e', fontSize: '11px', marginLeft: '6px' }}>(corrected)</span>}
+                </div>
+                {log.aiReply && (
+                  <button style={{ ...styles.btnSecondary, padding: '2px 8px', fontSize: '11px', whiteSpace: 'nowrap', flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); startEdit(log) }}>
+                    Edit
+                  </button>
+                )}
+              </div>
+            )}
           </div>
           {expandedLog === log.id && <ProcessPipeline log={log} />}
         </div>
