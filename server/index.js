@@ -1347,8 +1347,8 @@ async function runScheduledReview() {
   }
 }
 
-// Check every hour if review is due
-setInterval(runScheduledReview, 60 * 60 * 1000)
+// Auto-review disabled — Ketu reviews manually via "Run Now" button
+// setInterval(runScheduledReview, 60 * 60 * 1000)
 
 // ===========================================
 // Serve Dashboard (Static Frontend)
