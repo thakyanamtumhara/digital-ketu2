@@ -166,6 +166,16 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  // --- Check: Cooldown (Om intervened) — must be before media check ---
+  if (conversation.cooldownUntil && new Date() < new Date(conversation.cooldownUntil)) {
+    await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
+      status: 'COOLDOWN',
+      deferReason: 'cooldown',
+      processingMs: Date.now() - startTime,
+    })
+    return
+  }
+
   // --- Check: Media-only message (actual image/audio/video/document) ---
   if (hasMediaOnly) {
     // Bill/invoice PDFs from website orders → acknowledge dispatch
@@ -214,16 +224,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       processingMs: Date.now() - startTime,
     })
     console.log(`[Repeat] ${whatsappNumber} — same message already replied to within 5 min, skipping`)
-    return
-  }
-
-  // --- Check: Cooldown (Om intervened) ---
-  if (conversation.cooldownUntil && new Date() < new Date(conversation.cooldownUntil)) {
-    await createLog(db, conversation.id, mergedText, messageIds, {
-      status: 'COOLDOWN',
-      deferReason: 'cooldown',
-      processingMs: Date.now() - startTime,
-    })
     return
   }
 
