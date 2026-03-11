@@ -363,7 +363,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       where: { source: 'SAVED_REPLY', sourceId: 'welcome' },
       select: { content: true },
     })
-    const welcomeMessage = welcomeChunk?.content || 'https://sale91.com/catalog\n\nCheck rates, color and buy 👆'
+    // Strip shortcut prefix (e.g. "/welcome: ") from stored content
+    let welcomeMessage = welcomeChunk?.content || 'https://sale91.com/catalog\n\nCheck rates, color and buy 👆'
+    welcomeMessage = welcomeMessage.replace(/^\/\w+:\s*/, '')
     await sendReplyViaWwbun(whatsappNumber, welcomeMessage)
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'REPLIED',
