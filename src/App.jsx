@@ -1745,18 +1745,18 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
     <div>
       <h2 style={styles.sectionTitle}>Knowledge Base</h2>
 
-      {/* Sync Info */}
+      {/* Catalog Sync Info */}
       <div style={styles.syncInfo}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
           <div>
-            <p style={{ margin: '0 0 4px' }}><strong>Last sync:</strong> {settings.lastSyncAt ? new Date(settings.lastSyncAt).toLocaleString('en-IN') : 'Never'}</p>
-            <p style={{ margin: '0 0 4px' }}><strong>Next sync:</strong> {settings.nextSyncAt ? new Date(settings.nextSyncAt).toLocaleString('en-IN') : 'Not scheduled'}</p>
+            <p style={{ margin: '0 0 4px' }}><strong>Catalog last sync:</strong> {settings.lastSyncAt ? new Date(settings.lastSyncAt).toLocaleString('en-IN') : 'Never'}</p>
+            <p style={{ margin: '0 0 4px' }}><strong>Next auto-sync:</strong> {settings.nextSyncAt ? new Date(settings.nextSyncAt).toLocaleString('en-IN') : 'Not scheduled'}</p>
             <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>
-              <strong>Total:</strong> {catalogItems.length} products, {REPLY_TEMPLATES.length} saved replies, {STYLE_PAIRS.length} style pairs
+              <strong>Total:</strong> {catalogItems.length} products (auto-syncs every 2 days) | {REPLY_TEMPLATES.length} saved replies, {STYLE_PAIRS.length} style pairs (fixed)
             </p>
           </div>
           <button style={styles.btnPrimary} onClick={onSync} disabled={syncing}>
-            {syncing ? 'Syncing...' : 'Sync Now'}
+            {syncing ? 'Syncing Catalog...' : 'Sync Catalog'}
           </button>
         </div>
       </div>
