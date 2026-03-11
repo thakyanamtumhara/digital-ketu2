@@ -112,19 +112,11 @@ function App() {
 
   // Dynamic Pre-AI filter management
   const [dbFilters, setDbFilters] = useState([])
-  const [discovered, setDiscovered] = useState({ pending: [], autoAdded: [] })
 
   const fetchDbFilters = useCallback(async () => {
     try {
       const res = await fetch(`${API}/filters`)
       if (res.ok) setDbFilters(await res.json())
-    } catch { /* DB might not be ready */ }
-  }, [])
-
-  const fetchDiscovered = useCallback(async () => {
-    try {
-      const res = await fetch(`${API}/filters/discovered`)
-      if (res.ok) setDiscovered(await res.json())
     } catch { /* DB might not be ready */ }
   }, [])
 
@@ -247,7 +239,7 @@ function App() {
               if (t === 'defer') fetchDeferList()
               if (t === 'sync') { fetchSyncLogs(); fetchKnowledge() }
               if (t === 'analytics') fetchAnalytics()
-              if (t === 'filters') { fetchFilterStats(); fetchDbFilters(); fetchDiscovered() }
+              if (t === 'filters') { fetchFilterStats(); fetchDbFilters() }
               if (t === 'learning') fetchLearningStats()
               if (t === 'knowledge') { fetchKbStats(); fetchKbChunks('', 1, '') }
             }}
@@ -266,7 +258,7 @@ function App() {
         {tab === 'knowledge' && <KnowledgeBasePanel stats={kbStats} chunks={kbChunks} source={kbSource} page={kbPage} search={kbSearch} onSourceChange={(s) => { setKbSource(s); setKbPage(1); fetchKbChunks(s, 1, kbSearch) }} onPageChange={(p) => { setKbPage(p); fetchKbChunks(kbSource, p, kbSearch) }} onSearch={(s) => { setKbSearch(s); setKbPage(1); fetchKbChunks(kbSource, 1, s) }} onRefresh={() => { fetchKbStats(); fetchKbChunks(kbSource, kbPage, kbSearch) }} />}
         {tab === 'analytics' && <Analytics analytics={analytics} period={period} setPeriod={setPeriod} />}
         {tab === 'defer' && <DeferManager list={deferList} onDelete={deleteDefer} settings={settings} updateSetting={updateSetting} />}
-        {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={() => { fetchFilterStats(); fetchDbFilters(); fetchDiscovered() }} dbFilters={dbFilters} discovered={discovered} />}
+        {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={() => { fetchFilterStats(); fetchDbFilters() }} dbFilters={dbFilters} />}
         {tab === 'learning' && <LearningPanel stats={learningStats} settings={settings} onRun={triggerLearningRun} running={learningRunning} onToggle={toggleLearning} onRefresh={fetchLearningStats} onBacklog={triggerBacklog} backlogProgress={backlogProgress} onHistoryPull={triggerHistoryPull} historyPullProgress={historyPullProgress} />}
 {tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
         {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} onSync={triggerSync} syncing={syncing} knowledge={knowledge} />}
@@ -473,7 +465,7 @@ function ProcessPipeline({ log }) {
                     Best match: <span style={{ color: log.similarityScore >= 0.85 ? '#22c55e' : '#f59e0b', fontWeight: 600 }}>
                       {(log.similarityScore * 100).toFixed(1)}%
                     </span>
-                    {log.similarityScore >= 0.85 ? ' (Zone 1 — AI answered)' : ' (below threshold — deferred)'}
+                    {log.similarityScore >= (0.80) ? ' — AI answered' : ' — below threshold, deferred'}
                   </div>
                 )}
                 {chunks.length > 0 && (
@@ -892,8 +884,7 @@ function SettingsPanel({ settings, updateSetting, onDownload }) {
       <div style={styles.settingsGrid}>
         <SettingRow label="AI Active" type="toggle" value={settings.isActive} onChange={v => updateSetting('isActive', v)} />
         <SettingRow label="Daily Budget (INR)" type="number" value={settings.dailyBudgetInr} onChange={v => updateSetting('dailyBudgetInr', Number(v))} />
-        <SettingRow label="Confidence Threshold (Zone 1 cutoff)" type="number" value={settings.confidenceThreshold} onChange={v => updateSetting('confidenceThreshold', Number(v))} step="0.05" />
-        <SettingRow label="Defer Threshold" type="number" value={settings.deferThreshold} onChange={v => updateSetting('deferThreshold', Number(v))} step="0.05" />
+        <SettingRow label="Match Threshold (≥ this → AI answers, below → defer)" type="number" value={settings.confidenceThreshold} onChange={v => updateSetting('confidenceThreshold', Number(v))} step="0.05" />
         <SettingRow label="Message Merge Window (ms)" type="number" value={settings.mergeWindowMs} onChange={v => updateSetting('mergeWindowMs', Number(v))} />
         <SettingRow label="Cooldown Minutes" type="number" value={settings.cooldownMinutes} onChange={v => updateSetting('cooldownMinutes', Number(v))} />
         <SettingRow label="Learning Budget (INR)" type="number" value={Math.round((settings.learningDailyBudgetUsd || 0) * 85)} onChange={v => updateSetting('learningDailyBudgetUsd', Number(v) / 85)} />
@@ -914,24 +905,17 @@ function SettingsPanel({ settings, updateSetting, onDownload }) {
 
       <h3 style={{ ...styles.sectionTitle, fontSize: '16px', marginTop: '24px' }}>Vector Search</h3>
       <p style={{ color: '#94a3b8', fontSize: 13, margin: '0 0 12px' }}>
-        Knowledge retrieval uses vector search (Voyage AI). The confidence threshold controls when AI answers vs defers.
+        One simple rule: if the best vector match is ≥ {Math.round((settings.confidenceThreshold || 0.80) * 100)}%, AI answers. Below that, defer to Ketu.
       </p>
       <div style={{ background: '#1e293b', borderRadius: 10, padding: 16, marginBottom: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, fontSize: 13, textAlign: 'center' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13, textAlign: 'center' }}>
           <div style={{ background: '#14532d', borderRadius: 8, padding: 12 }}>
-            <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 16 }}>Zone 1</div>
-            <div style={{ color: '#86efac' }}>{'>'}= {Math.round((settings.confidenceThreshold || 0.85) * 100)}% match</div>
-            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>AI answers automatically</div>
-          </div>
-          <div style={{ background: '#422006', borderRadius: 8, padding: 12 }}>
-            <div style={{ color: '#f59e0b', fontWeight: 700, fontSize: 16 }}>Zone 2</div>
-            <div style={{ color: '#fbbf24' }}>50-{Math.round((settings.confidenceThreshold || 0.85) * 100) - 1}% match</div>
-            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Defer to Ketu</div>
+            <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 18 }}>≥ {Math.round((settings.confidenceThreshold || 0.80) * 100)}%</div>
+            <div style={{ color: '#86efac', marginTop: 4 }}>AI answers → sends to Claude</div>
           </div>
           <div style={{ background: '#450a0a', borderRadius: 8, padding: 12 }}>
-            <div style={{ color: '#ef4444', fontWeight: 700, fontSize: 16 }}>Zone 3</div>
-            <div style={{ color: '#fca5a5' }}>{'<'} 50% match</div>
-            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Defer to Ketu</div>
+            <div style={{ color: '#ef4444', fontWeight: 700, fontSize: 18 }}>{'<'} {Math.round((settings.confidenceThreshold || 0.80) * 100)}%</div>
+            <div style={{ color: '#fca5a5', marginTop: 4 }}>Defer to Ketu (0 tokens)</div>
           </div>
         </div>
       </div>
@@ -980,12 +964,9 @@ function SettingTextarea({ label, value, onChange, rows = 3 }) {
   )
 }
 
-function PreAIFilters({ stats, period, setPeriod, onRefresh, dbFilters, discovered }) {
+function PreAIFilters({ stats, period, setPeriod, onRefresh, dbFilters }) {
   const [expandedFilter, setExpandedFilter] = useState(null)
   const [newKeyword, setNewKeyword] = useState('')
-  const [aiDiscovering, setAiDiscovering] = useState(null)
-  const [addCategoryMode, setAddCategoryMode] = useState(null) // category name being added
-  const [newCategoryForm, setNewCategoryForm] = useState({ displayName: '', matchType: 'partial', action: 'skip', autoReplyText: '' })
 
   useEffect(() => { onRefresh() }, [period])
 
@@ -1035,71 +1016,11 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh, dbFilters, discover
     onRefresh()
   }
 
-  const aiDiscover = async (filterId) => {
-    setAiDiscovering(filterId)
-    try {
-      const res = await fetch(`${API}/filters/${filterId}/ai-discover`, { method: 'POST' })
-      const result = await res.json()
-      if (result.error) alert(result.error + (result.count !== undefined ? ` (only ${result.count} pairs available, need ${result.needed})` : ''))
-      else alert(`Found ${result.total} keywords: ${result.autoAdded} auto-added, ${result.pending} need your review`)
-      onRefresh()
-    } catch (err) {
-      alert('AI discover failed: ' + err.message)
-    } finally {
-      setAiDiscovering(null)
-    }
-  }
-
-  const approveDiscovered = async (discoveredId, filterId) => {
-    await fetch(`${API}/filters/discovered/${discoveredId}/approve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filterId }),
-    })
-    onRefresh()
-  }
-
-  const dismissDiscovered = async (discoveredId) => {
-    await fetch(`${API}/filters/discovered/${discoveredId}/dismiss`, { method: 'POST' })
-    onRefresh()
-  }
-
-  const createCategory = async (categoryName) => {
-    const res = await fetch(`${API}/filters`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: categoryName,
-        displayName: newCategoryForm.displayName || categoryName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-        matchType: newCategoryForm.matchType,
-        action: newCategoryForm.action,
-        autoReplyText: newCategoryForm.action === 'auto_reply' ? newCategoryForm.autoReplyText : null,
-      }),
-    })
-    if (res.ok) {
-      setAddCategoryMode(null)
-      setNewCategoryForm({ displayName: '', matchType: 'partial', action: 'skip', autoReplyText: '' })
-      onRefresh()
-    }
-  }
-
-  const deleteFilter = async (filterId) => {
-    if (!confirm('Delete this filter category?')) return
-    await fetch(`${API}/filters/${filterId}`, { method: 'DELETE' })
-    onRefresh()
-  }
-
   if (!stats) return <div style={{ padding: 20, color: '#94a3b8' }}>Loading filter stats...</div>
 
   const totalSaved = stats.totalFiltered
   const totalMessages = stats.totalMessages
   const savedPct = totalMessages > 0 ? ((totalSaved / totalMessages) * 100).toFixed(1) : '0'
-
-  // Group discovered by: new categories vs existing categories
-  const existingFilterNames = dbFilters.map(f => f.name)
-  const pendingForExisting = discovered.pending?.filter(d => existingFilterNames.includes(d.category)) || []
-  const pendingNewCategories = discovered.pending?.filter(d => !existingFilterNames.includes(d.category)) || []
-  const newCategoryNames = [...new Set(pendingNewCategories.map(d => d.category))]
 
   return (
     <div>
@@ -1251,17 +1172,6 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh, dbFilters, discover
                   <div style={{ marginTop: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ color: '#64748b', fontSize: 12 }}>Keywords ({filter.keywords.length}): </span>
-                      <button
-                        onClick={() => aiDiscover(filter.dbFilterId)}
-                        disabled={aiDiscovering === filter.dbFilterId}
-                        style={{
-                          padding: '4px 12px', borderRadius: 6, border: '1px solid #7c3aed', cursor: 'pointer',
-                          background: aiDiscovering === filter.dbFilterId ? '#7c3aed44' : 'transparent',
-                          color: '#a78bfa', fontSize: 11, fontWeight: 600,
-                        }}
-                      >
-                        {aiDiscovering === filter.dbFilterId ? 'Discovering...' : 'AI Discover'}
-                      </button>
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
                       {filter.keywords.map(kw => (
@@ -1333,185 +1243,12 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh, dbFilters, discover
                   </div>
                 )}
 
-                {/* Delete button for custom (non-system) filters */}
-                {isDbFilter && filter.isSystem === false && (
-                  <div style={{ marginTop: 12, textAlign: 'right' }}>
-                    <button
-                      onClick={() => deleteFilter(filter.dbFilterId)}
-                      style={{ background: '#ef444433', color: '#ef4444', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 11, cursor: 'pointer' }}
-                    >Delete Category</button>
-                  </div>
-                )}
               </div>
             )}
           </div>
         )})}
       </div>
 
-      {/* === DISCOVERED FROM LEARNING === */}
-      {(discovered.autoAdded?.length > 0 || discovered.pending?.length > 0) && (
-        <div style={{ marginTop: 24, background: '#1e293b', borderRadius: 10, padding: 16, border: '1px solid #334155' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <h3 style={{ margin: 0, color: '#f1f5f9', fontSize: 15 }}>Discovered from Learning</h3>
-            <button onClick={onRefresh} style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}>Refresh</button>
-          </div>
-
-          {/* Auto-Added (last 7 days) */}
-          {discovered.autoAdded?.length > 0 && (
-            <div style={{ marginBottom: 16 }}>
-              <h4 style={{ margin: '0 0 8px', color: '#22c55e', fontSize: 12, textTransform: 'uppercase' }}>Auto-Added (last 7 days)</h4>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {discovered.autoAdded.map(d => (
-                  <span key={d.id} style={{
-                    background: '#22c55e15', border: '1px solid #22c55e33', color: '#86efac',
-                    padding: '3px 10px', borderRadius: 6, fontSize: 11,
-                  }}>
-                    "{d.keyword}" → {d.category.replace(/_/g, ' ')}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Pending: Keywords for existing categories */}
-          {pendingForExisting.length > 0 && (
-            <div style={{ marginBottom: 16 }}>
-              <h4 style={{ margin: '0 0 8px', color: '#f59e0b', fontSize: 12, textTransform: 'uppercase' }}>Needs Your Review</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {pendingForExisting.map(d => {
-                  const targetFilter = dbFilters.find(f => f.name === d.category)
-                  return (
-                    <div key={d.id} style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      background: '#0f172a', padding: '6px 12px', borderRadius: 6,
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ color: '#f1f5f9', fontSize: 13 }}>"{d.keyword}"</span>
-                        <span style={{ color: '#64748b', fontSize: 11 }}>→ {d.category.replace(/_/g, ' ')}</span>
-                        <span style={{ color: '#64748b', fontSize: 10 }}>({Math.round(d.confidence * 100)}%)</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        {targetFilter && (
-                          <button
-                            onClick={() => approveDiscovered(d.id, targetFilter.id)}
-                            style={{ background: '#22c55e33', color: '#22c55e', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 11, cursor: 'pointer' }}
-                          >+ Add</button>
-                        )}
-                        <button
-                          onClick={() => dismissDiscovered(d.id)}
-                          style={{ background: '#ef444433', color: '#ef4444', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 11, cursor: 'pointer' }}
-                        >x Dismiss</button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Pending: New categories */}
-          {newCategoryNames.length > 0 && (
-            <div>
-              <h4 style={{ margin: '0 0 8px', color: '#a78bfa', fontSize: 12, textTransform: 'uppercase' }}>New Categories Discovered</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {newCategoryNames.map(catName => {
-                  const catKeywords = pendingNewCategories.filter(d => d.category === catName)
-                  return (
-                    <div key={catName} style={{ background: '#0f172a', borderRadius: 8, padding: 12, border: '1px solid #7c3aed33' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <div>
-                          <span style={{ color: '#f1f5f9', fontSize: 14, fontWeight: 500 }}>
-                            {catName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                          </span>
-                          <span style={{ color: '#64748b', fontSize: 11, marginLeft: 8 }}>({catKeywords.length} keywords)</span>
-                        </div>
-                        {addCategoryMode !== catName ? (
-                          <button
-                            onClick={() => setAddCategoryMode(catName)}
-                            style={{ background: '#7c3aed33', color: '#a78bfa', border: '1px solid #7c3aed', borderRadius: 6, padding: '4px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
-                          >+ Add Category</button>
-                        ) : (
-                          <button
-                            onClick={() => setAddCategoryMode(null)}
-                            style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '4px 14px', fontSize: 12, cursor: 'pointer' }}
-                          >Cancel</button>
-                        )}
-                      </div>
-
-                      {/* Keywords preview */}
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: addCategoryMode === catName ? 12 : 0 }}>
-                        {catKeywords.map(d => (
-                          <span key={d.id} style={{
-                            background: '#334155', color: '#94a3b8', padding: '2px 8px', borderRadius: 4, fontSize: 11,
-                          }}>
-                            {d.keyword} ({Math.round(d.confidence * 100)}%)
-                          </span>
-                        ))}
-                      </div>
-
-                      {/* Add category form */}
-                      {addCategoryMode === catName && (
-                        <div style={{ background: '#1e293b', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            <div style={{ flex: 1 }}>
-                              <label style={{ color: '#64748b', fontSize: 11 }}>Display Name</label>
-                              <input
-                                type="text"
-                                value={newCategoryForm.displayName || catName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                                onChange={(e) => setNewCategoryForm(f => ({ ...f, displayName: e.target.value }))}
-                                style={{ width: '100%', background: '#0f172a', color: '#f1f5f9', border: '1px solid #475569', borderRadius: 4, padding: '4px 8px', fontSize: 13 }}
-                              />
-                            </div>
-                            <div>
-                              <label style={{ color: '#64748b', fontSize: 11 }}>Match Type</label>
-                              <select
-                                value={newCategoryForm.matchType}
-                                onChange={(e) => setNewCategoryForm(f => ({ ...f, matchType: e.target.value }))}
-                                style={{ background: '#0f172a', color: '#f1f5f9', border: '1px solid #475569', borderRadius: 4, padding: '4px 8px', fontSize: 13 }}
-                              >
-                                <option value="partial">Partial (message contains keyword)</option>
-                                <option value="exact">Exact (message IS the keyword)</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label style={{ color: '#64748b', fontSize: 11 }}>Action</label>
-                              <select
-                                value={newCategoryForm.action}
-                                onChange={(e) => setNewCategoryForm(f => ({ ...f, action: e.target.value }))}
-                                style={{ background: '#0f172a', color: '#f1f5f9', border: '1px solid #475569', borderRadius: 4, padding: '4px 8px', fontSize: 13 }}
-                              >
-                                <option value="skip">Skip silently</option>
-                                <option value="defer">Defer to Ketu</option>
-                                <option value="auto_reply">Auto-reply</option>
-                              </select>
-                            </div>
-                          </div>
-                          {newCategoryForm.action === 'auto_reply' && (
-                            <div>
-                              <label style={{ color: '#64748b', fontSize: 11 }}>Auto-reply text</label>
-                              <input
-                                type="text"
-                                value={newCategoryForm.autoReplyText}
-                                onChange={(e) => setNewCategoryForm(f => ({ ...f, autoReplyText: e.target.value }))}
-                                placeholder="e.g., Ok noted sir"
-                                style={{ width: '100%', background: '#0f172a', color: '#f1f5f9', border: '1px solid #475569', borderRadius: 4, padding: '4px 8px', fontSize: 13 }}
-                              />
-                            </div>
-                          )}
-                          <button
-                            onClick={() => createCategory(catName)}
-                            style={{ background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 16px', fontSize: 13, cursor: 'pointer', fontWeight: 600, alignSelf: 'flex-end' }}
-                          >Create Filter Category</button>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Legend */}
       <div style={{ marginTop: 20, background: '#1e293b', borderRadius: 10, padding: 14 }}>
@@ -1529,22 +1266,9 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh, dbFilters, discover
   )
 }
 
-const CATEGORY_COLORS = {
-  order_issue: '#ef4444', payment: '#f59e0b', delivery: '#3b82f6', complaint: '#dc2626',
-  pricing: '#8b5cf6', product_inquiry: '#06b6d4', website: '#64748b', greeting: '#22c55e',
-  informing: '#a3e635', other: '#94a3b8',
-}
+// (PulledPairsPanel removed — old keyword-based system)
 
-const CATEGORY_LABELS = {
-  order_issue: 'Order Issues', payment: 'Payment', delivery: 'Delivery', complaint: 'Complaints',
-  pricing: 'Pricing', product_inquiry: 'Product Inquiry', website: 'Website', greeting: 'Greetings',
-  informing: 'Informing', other: 'Other',
-}
-
-const RESULT_LABELS = { correction_added: 'AI Would Fail → Correction Added', ai_would_handle: 'AI Would Handle', skipped: 'Skipped' }
-const RESULT_COLORS = { correction_added: '#ef4444', ai_would_handle: '#22c55e', skipped: '#64748b' }
-
-function PulledPairsPanel({ data, page, filter, onPageChange, onFilterChange }) {
+function _PulledPairsPanelRemoved() {
   const [view, setView] = useState('summary')
 
   if (!data) return <div style={{ padding: 20, color: '#94a3b8' }}>Loading pulled pairs...</div>
@@ -2214,7 +1938,7 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
                 <div>Check 7: Post-defer ack? → skip "ok/thanks/theek hai" after defer</div>
                 <div style={{ color: '#93c5fd', fontWeight: '600' }}>Check 8: WELCOME BYPASS → first-time or 7+ days inactive → send /welcome directly (0 tokens!)</div>
                 <div>Check 9: Greeting? → skip defer check for hi/hello</div>
-                <div>Check 10: Defer-to-Ketu match? → defer if similarity {'>'} {(settings.deferThreshold * 100).toFixed(0)}%</div>
+                <div>Check 10: Defer-to-Ketu match? → use correction or defer (threshold: {Math.round((settings.confidenceThreshold || 0.80) * 100)}%)</div>
                 <div>Check 11: KB empty? → defer if no knowledge</div>
                 <div style={{ color: '#475569' }}>  ↓</div>
                 <div style={{ color: '#22c55e' }}>Smart filtering: only relevant chunks sent (~2-3K tokens instead of 8K)</div>

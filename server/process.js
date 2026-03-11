@@ -4,7 +4,7 @@
 // Vector-based system (v2):
 // 1. Buyer message → Voyage AI embedding
 // 2. Vector search ALL 3 sources (style pairs, templates, catalog)
-// 3. Best match ≥ 85% (confidenceThreshold) → send top 5 to Claude → reply
+// 3. Best match ≥ 80% (confidenceThreshold) → send top 5 to Claude → reply
 // 4. Best match < 85% → defer to Ketu (not enough knowledge)
 
 import { vectorSearch, vectorSearchDeferList } from './embeddings.js'
@@ -396,7 +396,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // If a correction exists (correctReply), use it directly instead of deferring
   if (!isGreeting) {
     const deferMatch = await vectorSearchDeferList(db, anthropic, mergedText, {
-      threshold: settings.deferThreshold,
+      threshold: settings.confidenceThreshold || 0.80,
     })
     if (deferMatch) {
       // Increment trigger count
@@ -463,7 +463,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   console.log(`[Vector] ${whatsappNumber} — ${knowledgeResults.length} knowledge + ${stylePairResults.length} style pairs, best: ${(bestSimilarity * 100).toFixed(1)}%`)
 
   // --- CONFIDENCE CHECK: Zone 1 (≥85%) → answer, Zone 2/3 (<85%) → defer ---
-  const confidenceThreshold = settings.confidenceThreshold || 0.85
+  const confidenceThreshold = settings.confidenceThreshold || 0.80
 
   if (bestSimilarity < confidenceThreshold) {
     // Below threshold — not enough knowledge to answer accurately

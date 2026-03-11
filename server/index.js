@@ -861,7 +861,7 @@ app.get('/api/filters/stats', async (c) => {
       name: 'Defer to Ketu (Vector Match)',
       description: 'Questions matching defer list → use correction or defer',
       type: 'ai-match',
-      currentState: `Threshold: ${settings.deferThreshold}`,
+      currentState: `Threshold: ${Math.round((settings.confidenceThreshold || 0.80) * 100)}%`,
       tokens: 0,
       triggered: deferToKetu,
       action: 'Auto-reply with correction OR defer message',
@@ -1267,7 +1267,6 @@ app.get('/api/knowledge/download', async (c) => {
     deferToKetuList: deferList,
     settings: {
       confidenceThreshold: settings.confidenceThreshold,
-      deferThreshold: settings.deferThreshold,
       deferMessage: settings.deferMessage,
       mediaMessage: settings.mediaMessage,
     },
