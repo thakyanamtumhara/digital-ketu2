@@ -357,6 +357,7 @@ app.get('/api/filters/stats', async (c) => {
   const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb
 
   // Acknowledgment keywords list (same as process.js)
+  // Also strips trailing honorifics (sir, ji, bhai, boss, bro, sahab, saheb, g) before matching
   const ackPatterns = [
     'ok', 'okay', 'fine', 'sure', 'thanks', 'thank you', 'alright',
     'got it', 'noted', 'understood', 'no problem', 'np', 'cool',
@@ -364,7 +365,9 @@ app.get('/api/filters/stats', async (c) => {
     'theek hai', 'thik hai', 'accha', 'acha', 'sahi hai',
     'ji', 'haan', 'ha', 'dhanyavaad', 'shukriya', 'bas',
     'theek', 'thik', 'achchha', 'hmm', 'hm', 'k', 'kk',
+    'done', 'bilkul', 'zaroor', 'thx', 'ty',
   ]
+  const honorificSuffixes = ['sir', 'ji', 'bhai', 'boss', 'bro', 'sahab', 'saheb', 'g']
 
   const greetingPatterns = [
     'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
@@ -465,10 +468,11 @@ app.get('/api/filters/stats', async (c) => {
       {
         id: 'acknowledgment',
         name: 'Acknowledgment Keywords',
-        description: 'Skip when buyer just says ok, thanks, hmm, etc.',
+        description: 'Skip when buyer just says ok, thanks, hmm, etc. Also strips trailing honorifics before matching.',
         type: 'keyword',
         currentState: `${ackPatterns.length} keywords active`,
         keywords: ackPatterns,
+        honorificSuffixes,
         tokens: 0,
         triggered: acknowledgment,
         action: 'Skip silently (AI stays quiet)',

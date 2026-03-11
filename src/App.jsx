@@ -830,6 +830,21 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
                     </div>
                   </div>
                 )}
+                {filter.honorificSuffixes && (
+                  <div style={{ marginTop: 8 }}>
+                    <span style={{ color: '#64748b', fontSize: 12 }}>Also matches with trailing: </span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                      {filter.honorificSuffixes.map(s => (
+                        <span key={s} style={{
+                          background: '#3b2f1e', color: '#f59e0b', padding: '2px 8px',
+                          borderRadius: 4, fontSize: 11,
+                        }}>
+                          + {s}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
