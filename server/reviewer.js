@@ -633,12 +633,24 @@ export async function runReviewJob(db) {
   const aiResult = await reviewAiReplies(db)
   const manualResult = await reviewManualPairs(db)
 
-  const totalCost = aiResult.costUsd + manualResult.costUsd
+  let totalCost = aiResult.costUsd + manualResult.costUsd
+
+  // Extract keywords from reviewed pairs (same as history pull)
+  let keywordsDiscovered = { autoAdded: 0, pending: 0, total: 0 }
+  if (manualResult.reviewed > 0) {
+    try {
+      keywordsDiscovered = await extractKeywordsFromReviewedPairs(db)
+      console.log(`[RunNow] Keywords: ${keywordsDiscovered.total} discovered, ${keywordsDiscovered.autoAdded} auto-added, ${keywordsDiscovered.pending} pending`)
+    } catch (err) {
+      console.error(`[RunNow] Keyword extraction failed (non-fatal):`, err.message)
+    }
+  }
 
   return {
     aiReplies: aiResult,
     manualPairs: manualResult,
     totalCostUsd: totalCost,
+    keywordsDiscovered,
   }
 }
 
