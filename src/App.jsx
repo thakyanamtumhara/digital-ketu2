@@ -1757,7 +1757,7 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
 }
 
 function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
-  const [showSection, setShowSection] = useState({ rules: false, catalog: false, replies: false, stylePairs: false })
+  const [showSection, setShowSection] = useState({ rules: false, catalog: false, replies: false, stylePairs: false, syncHistory: false })
   const toggle = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
   const [replyTemplates, setReplyTemplates] = useState(REPLY_TEMPLATES)
   const deleteReplyTemplate = async (index) => {
@@ -1793,6 +1793,21 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
     }
     setImporting(false)
   }
+
+  // Sync history state
+  const [syncHistory, setSyncHistory] = useState([])
+  const [loadingSyncHistory, setLoadingSyncHistory] = useState(false)
+  const [premiumExportRunning, setPremiumExportRunning] = useState(false)
+  const fetchSyncHistory = async () => {
+    setLoadingSyncHistory(true)
+    try {
+      const res = await fetch('/api/sync/logs')
+      const data = await res.json()
+      setSyncHistory(data)
+    } catch (err) { console.error('Failed to fetch sync history:', err) }
+    setLoadingSyncHistory(false)
+  }
+  useEffect(() => { fetchSyncHistory() }, [])
 
   // Export premium pairs state
   const [exportFromDate, setExportFromDate] = useState('')
@@ -1864,15 +1879,48 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
 
       {/* Export Premium Style Pairs */}
       <div style={{ ...styles.syncInfo, marginTop: '12px', borderColor: '#854d0e' }}>
-        <div style={{ fontWeight: '600', color: '#fbbf24', fontSize: '14px', marginBottom: '8px' }}>Export Premium Style Pairs</div>
-        <p style={{ margin: '0 0 8px', color: '#94a3b8', fontSize: '12px' }}>Extract high-quality buyer→Om reply pairs (Rules 1-4: thought bundling, 4+ words, non-context, permanent only). Downloads as text file.</p>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <div style={{ fontWeight: '600', color: '#fbbf24', fontSize: '14px' }}>Export Premium Style Pairs</div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <span style={{ fontSize: '11px', color: settings.premiumExportEnabled ? '#4ade80' : '#f87171' }}>
+              Auto-export: {settings.premiumExportEnabled ? 'ON' : 'OFF'} (every {settings.premiumExportIntervalDays || 7} days)
+            </span>
+            <button
+              style={{ background: 'none', border: '1px solid #475569', borderRadius: '4px', padding: '2px 8px', fontSize: '11px', color: settings.premiumExportEnabled ? '#f87171' : '#4ade80', cursor: 'pointer' }}
+              onClick={async () => {
+                try {
+                  await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ premiumExportEnabled: !settings.premiumExportEnabled }) })
+                  window.location.reload()
+                } catch (err) { console.error(err) }
+              }}
+            >{settings.premiumExportEnabled ? 'Disable' : 'Enable'}</button>
+          </div>
+        </div>
+        <p style={{ margin: '0 0 4px', color: '#94a3b8', fontSize: '12px' }}>Extract high-quality buyer→Om reply pairs (Rules 1-4: thought bundling, 4+ words, non-context, permanent only). Auto-imports into AI knowledge base.</p>
+        {settings.lastPremiumExportAt && <p style={{ margin: '0 0 4px', color: '#60a5fa', fontSize: '11px' }}>Last auto-export: {new Date(settings.lastPremiumExportAt).toLocaleString('en-IN')} ({settings.lastPremiumExportPairs || 0} pairs) | Next: {settings.nextPremiumExportAt ? new Date(settings.nextPremiumExportAt).toLocaleString('en-IN') : 'Pending'}</p>}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '8px' }}>
+          <label style={{ color: '#94a3b8', fontSize: '12px' }}>Manual export:</label>
           <label style={{ color: '#94a3b8', fontSize: '12px' }}>From:</label>
           <input type="date" value={exportFromDate} onChange={e => setExportFromDate(e.target.value)} style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '4px', padding: '4px 8px', fontSize: '13px' }} />
           <label style={{ color: '#94a3b8', fontSize: '12px' }}>To:</label>
           <input type="date" value={exportToDate} onChange={e => setExportToDate(e.target.value)} style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '4px', padding: '4px 8px', fontSize: '13px' }} />
           <button style={{ ...styles.btnPrimary, background: '#854d0e' }} onClick={handleExportPairs} disabled={exporting || !exportFromDate}>{exporting ? 'Exporting...' : 'Export Pairs'}</button>
           {exportResult && <button style={{ ...styles.btnPrimary, background: '#166534' }} onClick={downloadExport}>Download ({exportResult.totalPremium} pairs)</button>}
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '6px' }}>
+          <button style={{ ...styles.btnPrimary, background: '#6b21a8', fontSize: '12px', padding: '4px 12px' }} onClick={async () => {
+            setPremiumExportRunning(true)
+            try {
+              const res = await fetch('/api/premium-export/run', { method: 'POST' })
+              const data = await res.json()
+              if (!res.ok) throw new Error(data.error || 'Export failed')
+              alert(`Premium export complete! ${data.imported} pairs imported (${data.total} mechanical, ${data.skipped} skipped)`)
+              fetchSyncHistory()
+              window.location.reload()
+            } catch (err) { alert('Export failed: ' + err.message) }
+            setPremiumExportRunning(false)
+          }} disabled={premiumExportRunning}>{premiumExportRunning ? 'Running...' : 'Run Auto-Export Now'}</button>
+          <span style={{ fontSize: '11px', color: '#94a3b8' }}>Triggers weekly export + Opus judging + auto-import to knowledge base</span>
         </div>
         {exportResult && <p style={{ margin: '8px 0 0', color: '#4ade80', fontSize: '12px' }}>{exportResult.totalMechanical} mechanical pairs → {exportResult.totalPremium} premium (skipped {exportResult.totalSkipped} context/temporary)</p>}
         {exportError && <p style={{ margin: '8px 0 0', color: '#f87171', fontSize: '12px' }}>{exportError}</p>}
@@ -1901,6 +1949,46 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
         </div>
         {templateResult && <p style={{ margin: '8px 0 0', color: '#4ade80', fontSize: '12px' }}>{templateResult.totalClean} cleaned templates ready for download</p>}
         {templateError && <p style={{ margin: '8px 0 0', color: '#f87171', fontSize: '12px' }}>{templateError}</p>}
+      </div>
+
+      {/* Sync History */}
+      <div style={styles.kbSection}>
+        <div style={styles.kbHeader} onClick={() => toggle('syncHistory')}>
+          <span style={styles.kbHeaderTitle}>Sync History</span>
+          <span style={{ color: '#64748b' }}>{showSection.syncHistory ? '\u25BC' : '\u25B6'}</span>
+        </div>
+        {showSection.syncHistory && (
+          <div style={styles.kbContent}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <span style={{ fontSize: '12px', color: '#94a3b8' }}>Last {syncHistory.length} sync operations</span>
+              <button style={{ background: 'none', border: '1px solid #334155', borderRadius: '4px', padding: '2px 8px', fontSize: '11px', color: '#60a5fa', cursor: 'pointer' }} onClick={fetchSyncHistory} disabled={loadingSyncHistory}>{loadingSyncHistory ? 'Loading...' : 'Refresh'}</button>
+            </div>
+            {syncHistory.length === 0 && <p style={{ color: '#64748b', fontSize: '12px' }}>No sync logs yet</p>}
+            {syncHistory.map((log, i) => {
+              const isPremium = log.syncType === 'premium_export'
+              const typeColors = { premium_export: '#fbbf24', catalog: '#60a5fa', saved_replies: '#a78bfa', style_pairs: '#f472b6' }
+              const typeColor = typeColors[log.syncType] || '#94a3b8'
+              const typeLabels = { premium_export: 'Premium Export', catalog: 'Catalog', saved_replies: 'Saved Replies', style_pairs: 'Style Pairs' }
+              const typeLabel = typeLabels[log.syncType] || log.syncType
+              return (
+                <div key={log.id || i} style={{ padding: '8px 12px', marginBottom: '6px', background: isPremium ? '#1c1305' : '#0f172a', borderRadius: '6px', borderLeft: `3px solid ${typeColor}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <span style={{ fontSize: '12px', fontWeight: '600', color: typeColor }}>{typeLabel}</span>
+                      <span style={{ fontSize: '11px', color: log.status === 'success' ? '#4ade80' : '#f87171', background: log.status === 'success' ? '#052e16' : '#450a0a', padding: '1px 6px', borderRadius: '3px' }}>{log.status}</span>
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#64748b' }}>{new Date(log.createdAt).toLocaleString('en-IN')}</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
+                    Found: {log.itemsFound} | New: {log.itemsNew} | Updated: {log.itemsUpdated}
+                    {log.durationMs && <span> | {(log.durationMs / 1000).toFixed(1)}s</span>}
+                  </div>
+                  {log.error && <div style={{ fontSize: '11px', color: '#f87171', marginTop: '2px' }}>{log.error}</div>}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {/* AI System Prompt (exact copy from server/process.js) */}

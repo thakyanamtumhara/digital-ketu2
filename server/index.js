@@ -5,7 +5,7 @@ import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage } from './process.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
-import { getEmbedding, getVoyageBatch, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured } from './embeddings.js'
+import { getEmbedding, getVoyageBatch, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
 import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
 
 const app = new Hono()
@@ -1493,6 +1493,154 @@ async function runScheduledSync() {
 
 // Check every hour if sync is due
 setInterval(runScheduledSync, 60 * 60 * 1000)
+
+// ===========================================
+// Weekly Premium Export Scheduler
+// ===========================================
+
+async function runScheduledPremiumExport() {
+  try {
+    const settings = await getSettings()
+    if (!settings.premiumExportEnabled) return
+
+    // Check if it's time to export
+    if (settings.nextPremiumExportAt && new Date() < new Date(settings.nextPremiumExportAt)) return
+
+    console.log('[PremiumExport] Running scheduled weekly premium export...')
+    const result = await executePremiumExport(settings)
+    console.log(`[PremiumExport] Complete — ${result.imported} pairs imported into knowledge base`)
+  } catch (err) {
+    console.error('[PremiumExport] Scheduled export failed:', err.message)
+  }
+}
+
+async function executePremiumExport(settings) {
+  const startTime = Date.now()
+  const WWBUN_API_URL = settings.wwbunApiUrl || process.env.WWBUN_API_URL
+  const DIGITAL_KETU_SECRET = settings.digitalKetuSecret || process.env.DIGITAL_KETU_SECRET
+
+  if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) {
+    throw new Error('WWBUN_API_URL or DIGITAL_KETU_SECRET not configured')
+  }
+
+  // Date range: last export to now (or last 7 days if first run)
+  const intervalDays = settings.premiumExportIntervalDays || 7
+  const fromDate = settings.lastPremiumExportAt
+    ? new Date(settings.lastPremiumExportAt).toISOString().split('T')[0]
+    : new Date(Date.now() - intervalDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  const toDate = new Date().toISOString().split('T')[0]
+
+  // Step 1: Fetch mechanical pairs from wwbun
+  const url = `${WWBUN_API_URL}/api/messages/export-style-pairs?limit=5000&fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}`
+  const response = await fetch(url, {
+    headers: { 'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET },
+  })
+
+  if (!response.ok) {
+    const errText = await response.text()
+    throw new Error(`wwbun API error: ${response.status} — ${errText}`)
+  }
+
+  const mechanicalPairs = await response.json()
+  console.log(`[PremiumExport] Fetched ${mechanicalPairs.length} mechanical pairs (${fromDate} to ${toDate})`)
+
+  if (mechanicalPairs.length === 0) {
+    await db.syncLog.create({
+      data: { syncType: 'premium_export', status: 'success', itemsFound: 0, itemsNew: 0, itemsUpdated: 0, durationMs: Date.now() - startTime },
+    })
+    await db.settings.update({
+      where: { id: 'default' },
+      data: {
+        lastPremiumExportAt: new Date(),
+        nextPremiumExportAt: new Date(Date.now() + intervalDays * 24 * 60 * 60 * 1000),
+        lastPremiumExportPairs: 0,
+      },
+    })
+    return { imported: 0, total: 0, skipped: 0 }
+  }
+
+  // Step 2: Opus 4.6 judges Rules 3 & 4
+  const classifications = await classifyPairsWithClaude(mechanicalPairs)
+
+  const kept = []
+  for (const cls of classifications) {
+    const pair = mechanicalPairs[cls.index]
+    if (!pair) continue
+    if (cls.verdict === 'KEEP') {
+      kept.push({ ...pair, classifyReason: cls.reason })
+    }
+  }
+
+  console.log(`[PremiumExport] Opus classified: ${kept.length} KEEP, ${mechanicalPairs.length - kept.length} SKIP`)
+
+  // Step 3: Import KEEP pairs into KnowledgeChunk as PREMIUM_PAIR
+  let imported = 0
+  for (const pair of kept) {
+    try {
+      // Use hash of buyer message as sourceId for de-duplication
+      const sourceId = `premium_${Buffer.from(pair.buyerMessage).toString('base64url').substring(0, 40)}`
+      const content = `Buyer: ${pair.buyerMessage}\nOm: ${pair.omReply}`
+      const title = pair.buyerMessage.substring(0, 80)
+
+      await storeChunkWithEmbedding(db, anthropic, {
+        source: 'PREMIUM_PAIR',
+        sourceId,
+        title,
+        content,
+        metadata: {
+          buyerMessage: pair.buyerMessage,
+          omReply: pair.omReply,
+          classifyReason: pair.classifyReason,
+          exportedAt: new Date().toISOString(),
+        },
+      })
+      imported++
+    } catch (err) {
+      console.error(`[PremiumExport] Failed to import pair: ${err.message}`)
+    }
+  }
+
+  const durationMs = Date.now() - startTime
+
+  // Step 4: Log and update settings
+  await db.syncLog.create({
+    data: {
+      syncType: 'premium_export',
+      status: 'success',
+      itemsFound: mechanicalPairs.length,
+      itemsNew: imported,
+      itemsUpdated: 0,
+      durationMs,
+    },
+  })
+
+  await db.settings.update({
+    where: { id: 'default' },
+    data: {
+      lastPremiumExportAt: new Date(),
+      nextPremiumExportAt: new Date(Date.now() + intervalDays * 24 * 60 * 60 * 1000),
+      lastPremiumExportPairs: imported,
+    },
+  })
+
+  console.log(`[PremiumExport] ${imported} pairs imported in ${(durationMs / 1000).toFixed(1)}s`)
+  return { imported, total: mechanicalPairs.length, skipped: mechanicalPairs.length - kept.length }
+}
+
+// Check every hour if premium export is due
+setInterval(runScheduledPremiumExport, 60 * 60 * 1000)
+
+// Manual trigger endpoint
+app.post('/api/premium-export/run', async (c) => {
+  try {
+    const settings = await getSettings()
+    const result = await executePremiumExport(settings)
+    return c.json({ status: 'success', ...result })
+  } catch (err) {
+    console.error('[PremiumExport] Manual trigger failed:', err.message)
+    return c.json({ error: err.message }, 500)
+  }
+})
 
 // ===========================================
 // Self-Learning Scheduler

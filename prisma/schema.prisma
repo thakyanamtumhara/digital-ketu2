@@ -34,6 +34,7 @@ enum ChunkSource {
   FAQ             // extracted FAQ pairs
   POLICY          // shipping, payment, MOQ policies
   CORRECTION      // Om's corrections — buyer question + correct reply (from Defer to Ketu edits)
+  PREMIUM_PAIR    // weekly auto-exported premium pairs (Opus-judged, non-context + permanent)
 }
 
 // --- Defer to Ketu ---
@@ -148,6 +149,12 @@ model Settings {
   learningDailyBudgetUsd Float @default(0.59)         // max daily spend on review calls (~Rs 50) — enough for history pull + daily reviews
   learningDailySpentUsd  Float @default(0)            // today's spend on review
   learningSpentResetAt   DateTime @default(now())     // when learning counter was last reset
+  // Weekly premium export settings
+  premiumExportEnabled       Boolean  @default(true)
+  premiumExportIntervalDays  Int      @default(7)
+  lastPremiumExportAt        DateTime?
+  nextPremiumExportAt        DateTime?
+  lastPremiumExportPairs     Int      @default(0)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }
