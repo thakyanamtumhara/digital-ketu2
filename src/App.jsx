@@ -1357,7 +1357,7 @@ function PulledPairsPanel({ data, page, filter, onPageChange, onFilterChange }) 
 
       {summary.totalPulled === 0 ? (
         <div style={{ color: '#64748b', fontSize: 14, padding: 40, textAlign: 'center', background: '#1e293b', borderRadius: 8 }}>
-          No pairs pulled yet. Go to the Learning tab and click "Pull 500 Pairs" first.
+          No pairs pulled yet. Go to the Learning tab and click "Test 20 Pairs" first to verify, then "Pull 1000 Pairs" for full analysis.
         </div>
       ) : view === 'summary' ? (
         /* ===== SUMMARY VIEW ===== */
@@ -1675,18 +1675,30 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <div>
             <div style={{ color: '#f1f5f9', fontSize: 14, fontWeight: 600 }}>Pull History from WhatsApp</div>
-            <div style={{ color: '#64748b', fontSize: 12 }}>One-time pull of 500 buyer→Ketu reply pairs from wwbun. Sonnet reviews each pair and auto-adds corrections. ~Rs 29 cost.</div>
+            <div style={{ color: '#64748b', fontSize: 12 }}>Uses Opus 4.6 (best model) for reviewing pairs + cross-validates keywords across multiple messages.</div>
           </div>
-          <button
-            onClick={() => onHistoryPull(500)}
-            disabled={historyPullProgress?.status === 'running'}
-            style={{
-              padding: '8px 16px', borderRadius: 6, border: 'none', cursor: historyPullProgress?.status === 'running' ? 'wait' : 'pointer',
-              background: '#0ea5e9', color: '#fff', fontSize: 13, opacity: historyPullProgress?.status === 'running' ? 0.6 : 1,
-            }}
-          >
-            {historyPullProgress?.status === 'running' ? 'Pulling...' : 'Pull 500 Pairs'}
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => onHistoryPull(20)}
+              disabled={historyPullProgress?.status === 'running'}
+              style={{
+                padding: '8px 12px', borderRadius: 6, border: '1px solid #f59e0b', cursor: historyPullProgress?.status === 'running' ? 'wait' : 'pointer',
+                background: 'transparent', color: '#f59e0b', fontSize: 12, opacity: historyPullProgress?.status === 'running' ? 0.6 : 1,
+              }}
+            >
+              Test 20 Pairs
+            </button>
+            <button
+              onClick={() => onHistoryPull(1000)}
+              disabled={historyPullProgress?.status === 'running'}
+              style={{
+                padding: '8px 16px', borderRadius: 6, border: 'none', cursor: historyPullProgress?.status === 'running' ? 'wait' : 'pointer',
+                background: '#0ea5e9', color: '#fff', fontSize: 13, opacity: historyPullProgress?.status === 'running' ? 0.6 : 1,
+              }}
+            >
+              {historyPullProgress?.status === 'running' ? 'Pulling...' : 'Pull 1000 Pairs'}
+            </button>
+          </div>
         </div>
         {historyPullProgress && (
           <div style={{ background: '#0f172a', borderRadius: 6, padding: 10, marginTop: 8 }}>

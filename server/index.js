@@ -271,7 +271,8 @@ app.get('/api/learning/backlog/progress', async (c) => {
   return c.json(backlogProgress)
 })
 
-// One-time history pull — fetch 500 pairs from wwbun + review them
+// One-time history pull — fetch pairs from wwbun + review with Opus 4.6
+// Default: 1000 pairs. Send { limit: 20 } for a quick test run.
 let historyPullRunning = false
 let historyPullProgress = null
 
@@ -281,7 +282,7 @@ app.post('/api/learning/history-pull', async (c) => {
   }
 
   const body = await c.req.json().catch(() => ({}))
-  const limit = Math.min(Math.max(parseInt(body.limit) || 500, 1), 1000) // 1-1000, default 500
+  const limit = Math.min(Math.max(parseInt(body.limit) || 1000, 1), 2000) // 1-2000, default 1000
 
   historyPullRunning = true
   historyPullProgress = { status: 'running', phase: 'fetching', fetched: 0, stored: 0, reviewed: 0, corrections: 0, costUsd: 0 }
