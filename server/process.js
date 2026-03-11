@@ -1,13 +1,13 @@
 // Core message processing pipeline
-// Handles: merge → dedup → media check → cooldown → defer check → vector search → Claude → reply
+// Handles: merge → dedup → media check → cooldown → vector search → Claude → reply
 //
 // Vector-based system (v2):
 // 1. Buyer message → Voyage AI embedding
-// 2. Single vector search across ALL 3 sources (catalog, reply templates, 337 style pairs) → top 5
+// 2. Single vector search across ALL 4 sources (catalog, reply templates, 337 style pairs, corrections) → top 5
 // 3. Best match ≥ 80% (confidenceThreshold) → send top 5 to Claude → reply
 // 4. Best match < 80% → defer to Ketu (not enough knowledge)
 
-import { vectorSearch, vectorSearchDeferList } from './embeddings.js'
+import { vectorSearch } from './embeddings.js'
 
 // ===========================================
 // Dynamic Pre-AI Filter Cache
@@ -392,54 +392,8 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
-  // --- Check: Defer to Ketu list (skip for greetings) ---
-  // If a correction exists (correctReply), use it directly instead of deferring
-  if (!isGreeting) {
-    const deferMatch = await vectorSearchDeferList(db, anthropic, mergedText, {
-      threshold: settings.confidenceThreshold || 0.80,
-    })
-    if (deferMatch) {
-      // Increment trigger count
-      await db.deferToKetu.update({
-        where: { id: deferMatch.id },
-        data: { triggerCount: { increment: 1 } },
-      })
-
-      // If Om provided a corrected reply, use it directly (no defer, no Claude call)
-      if (deferMatch.correctReply) {
-        await sendReplyViaWwbun(whatsappNumber, deferMatch.correctReply)
-        await createLog(db, conversation.id, mergedText, messageIds, {
-          status: 'REPLIED',
-          deferReason: null,
-          similarityScore: deferMatch.similarity,
-          aiReply: deferMatch.correctReply,
-          processingMs: Date.now() - startTime,
-          sentViaWwbun: true,
-          promptTokens: 0,
-          completionTokens: 0,
-          totalTokens: 0,
-          costUsd: 0,
-        })
-        console.log(`[CorrectedReply] ${whatsappNumber} — used Om's correction, 0 tokens`)
-        return
-      }
-
-      // No corrected reply — defer to Ketu
-      await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
-      await createLog(db, conversation.id, mergedText, messageIds, {
-        status: 'DEFERRED',
-        deferReason: 'defer_to_ketu',
-        similarityScore: deferMatch.similarity,
-        aiReply: settings.deferMessage,
-        processingMs: Date.now() - startTime,
-        sentViaWwbun: true,
-      })
-      return
-    }
-  }
-
-  // --- VECTOR SEARCH: Single search across all 3 knowledge sources ---
-  // Catalog + Reply Templates + Style Pairs (337 quality Q&A pairs) — top 5 overall
+  // --- VECTOR SEARCH: Single search across all 4 knowledge sources ---
+  // Catalog + Reply Templates + Style Pairs (337 Q&A pairs) + Corrections (Om's edits) — top 5 overall
   // Style Guide excluded (it's a compact summary, not a searchable chunk)
   const allVectorResults = await vectorSearch(db, anthropic, mergedText, {
     limit: 5,

@@ -33,6 +33,7 @@ enum ChunkSource {
   STYLE_PAIR      // individual buyer→Om reply pairs for vector matching
   FAQ             // extracted FAQ pairs
   POLICY          // shipping, payment, MOQ policies
+  CORRECTION      // Om's corrections — buyer question + correct reply (from Defer to Ketu edits)
 }
 
 // --- Defer to Ketu ---

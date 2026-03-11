@@ -163,12 +163,20 @@ app.post('/api/intervention', async (c) => {
   if (isQualityPair && isIntervention && buyerMessage && ketuReply) {
     try {
       const embedding = await getEmbedding(anthropic, buyerMessage)
+      const deferId = crypto.randomUUID()
       await db.$executeRaw`
         INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")
-        VALUES (${crypto.randomUUID()}, ${buyerMessage}, ${aiReply}, ${ketuReply}, ${embedding}::vector, 0, NOW(), NOW())
+        VALUES (${deferId}, ${buyerMessage}, ${aiReply}, ${ketuReply}, ${embedding}::vector, 0, NOW(), NOW())
+      `
+      // Also add to KnowledgeChunk as CORRECTION source (4th vector search source)
+      const content = `Buyer: ${buyerMessage}\nCorrect reply: ${ketuReply}`
+      const chunkId = crypto.randomUUID()
+      await db.$executeRaw`
+        INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
+        VALUES (${chunkId}, 'CORRECTION', ${deferId}, ${buyerMessage.substring(0, 80)}, ${content}, ${embedding}::vector, ${JSON.stringify({ aiWrongReply: aiReply || '', correctReply: ketuReply })}::jsonb, NOW(), NOW())
       `
       learned = 'intervention_correction'
-      console.log(`[AutoLearn] Intervention — added correction: "${buyerMessage.substring(0, 50)}..."`)
+      console.log(`[AutoLearn] Intervention — added correction to knowledge base: "${buyerMessage.substring(0, 50)}..."`)
     } catch (err) {
       console.error('[AutoLearn] Failed to add intervention correction:', err.message)
     }
@@ -204,12 +212,22 @@ app.post('/api/correction', async (c) => {
   // Generate embedding for the buyer question
   const embedding = await getEmbedding(anthropic, buyerQuestion)
 
+  // Store in DeferToKetu table (for dashboard display)
+  const deferId = crypto.randomUUID()
   await db.$executeRaw`
     INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")
-    VALUES (${crypto.randomUUID()}, ${buyerQuestion}, ${aiWrongReply || ''}, ${correctReply}, ${embedding}::vector, 0, NOW(), NOW())
+    VALUES (${deferId}, ${buyerQuestion}, ${aiWrongReply || ''}, ${correctReply}, ${embedding}::vector, 0, NOW(), NOW())
   `
 
-  console.log(`[Defer to Ketu] Added: "${buyerQuestion.substring(0, 50)}..."`)
+  // Also add to KnowledgeChunk as CORRECTION source (4th vector search source)
+  const content = `Buyer: ${buyerQuestion}\nCorrect reply: ${correctReply}`
+  const chunkId = crypto.randomUUID()
+  await db.$executeRaw`
+    INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
+    VALUES (${chunkId}, 'CORRECTION', ${deferId}, ${buyerQuestion.substring(0, 80)}, ${content}, ${embedding}::vector, ${JSON.stringify({ aiWrongReply: aiWrongReply || '', correctReply })}::jsonb, NOW(), NOW())
+  `
+
+  console.log(`[Correction] Added to knowledge base: "${buyerQuestion.substring(0, 50)}..."`)
   return c.json({ status: 'saved' })
 })
 
@@ -600,7 +618,11 @@ app.get('/api/defer-list', async (c) => {
 
 app.delete('/api/defer-list/:id', async (c) => {
   const { id } = c.req.param()
-  await db.deferToKetu.delete({ where: { id } })
+  // Delete from both DeferToKetu and the corresponding KnowledgeChunk (CORRECTION source)
+  await Promise.all([
+    db.deferToKetu.delete({ where: { id } }),
+    db.knowledgeChunk.deleteMany({ where: { source: 'CORRECTION', sourceId: id } }),
+  ])
   return c.json({ status: 'deleted' })
 })
 
@@ -1709,5 +1731,19 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
 
 // Run initial sync check on startup
 runScheduledSync().catch(err => console.error('[Sync] Startup sync check failed:', err.message))
+
+// One-time cleanup: clear old DeferToKetu data (corrections now go through unified vector search as CORRECTION source)
+;(async () => {
+  try {
+    const count = await db.deferToKetu.count()
+    if (count > 0) {
+      await db.deferToKetu.deleteMany()
+      await db.knowledgeChunk.deleteMany({ where: { source: 'CORRECTION' } })
+      console.log(`[Cleanup] Cleared ${count} old DeferToKetu entries — corrections now use KnowledgeChunk (CORRECTION source)`)
+    }
+  } catch (err) {
+    console.error('[Cleanup] Failed to clear old defer data:', err.message)
+  }
+})()
 
 export { db, anthropic, getSettings }

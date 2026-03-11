@@ -1308,7 +1308,7 @@ function _PulledPairsPanelRemoved() {
                 Out of <strong style={{ color: '#f1f5f9' }}>{summary.totalPulled}</strong> buyer→Ketu pairs pulled from WhatsApp history:
               </p>
               <ul style={{ margin: '0 0 8px', paddingLeft: 20 }}>
-                <li><strong style={{ color: '#ef4444' }}>{summary.corrections}</strong> pairs — AI would NOT have handled correctly. These have been added to <strong style={{ color: '#f1f5f9' }}>Defer to Ketu</strong> as corrections, so next time a similar question comes, your correct reply is used directly.</li>
+                <li><strong style={{ color: '#ef4444' }}>{summary.corrections}</strong> pairs — AI would NOT have handled correctly. These have been added as <strong style={{ color: '#f1f5f9' }}>corrections</strong> to the knowledge base, so next time a similar question comes, Claude uses this as reference.</li>
                 <li><strong style={{ color: '#22c55e' }}>{summary.aiHandled}</strong> pairs — AI already knows how to handle these correctly. No action needed.</li>
                 {summary.skipped > 0 && <li><strong style={{ color: '#64748b' }}>{summary.skipped}</strong> pairs — skipped (too short or unclear to review).</li>}
               </ul>
@@ -1861,14 +1861,15 @@ RULES:
               <div style={{ fontSize: '12px', color: '#94a3b8', lineHeight: '1.8' }}>
                 <div>1. Buyer message received from WhatsApp</div>
                 <div>2. Message converted to vector (Voyage AI embedding)</div>
-                <div>3. Single vector search across ALL 3 knowledge sources:</div>
+                <div>3. Single vector search across ALL 4 knowledge sources:</div>
                 <div style={{ paddingLeft: '16px', color: '#93c5fd' }}>- Catalog ({catalogItems.length} products)</div>
                 <div style={{ paddingLeft: '16px', color: '#93c5fd' }}>- Reply Templates ({REPLY_TEMPLATES.length} saved replies)</div>
                 <div style={{ paddingLeft: '16px', color: '#93c5fd' }}>- Style Pairs ({STYLE_PAIRS.length} buyer→Om Q&A pairs)</div>
+                <div style={{ paddingLeft: '16px', color: '#93c5fd' }}>- Corrections (Om's edits — grows over time)</div>
                 <div>4. Top 5 matches (regardless of source) selected</div>
                 <div>5. If best match &gt;= {Math.round((settings.confidenceThreshold || 0.80) * 100)}% → send to Claude with:</div>
                 <div style={{ paddingLeft: '16px' }}>- System prompt (above) + Om's style guide</div>
-                <div style={{ paddingLeft: '16px' }}>- Top 5 knowledge matches (catalog + templates + style pairs) + conversation history (last 5)</div>
+                <div style={{ paddingLeft: '16px' }}>- Top 5 knowledge matches (all 4 sources) + conversation history (last 5)</div>
                 <div>6. If best match &lt; {Math.round((settings.confidenceThreshold || 0.80) * 100)}% → defer to Ketu</div>
                 <div>7. If Claude says [DEFER] → defer to Ketu</div>
                 <div style={{ color: '#22c55e', marginTop: '4px' }}>Result: AI reply sent via WhatsApp</div>
