@@ -1809,6 +1809,9 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
   const [exporting, setExporting] = useState(false)
   const [exportResult, setExportResult] = useState(null)
   const [exportError, setExportError] = useState(null)
+  const [templateExporting, setTemplateExporting] = useState(false)
+  const [templateResult, setTemplateResult] = useState(null)
+  const [templateError, setTemplateError] = useState(null)
 
   const handleExportPairs = async () => {
     if (!exportFromDate || !exportToDate) return
@@ -1897,6 +1900,45 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
           </p>
         )}
         {exportError && <p style={{ margin: '8px 0 0', color: '#f87171', fontSize: '12px' }}>{exportError}</p>}
+      </div>
+
+      {/* Export Cleaned Reply Templates */}
+      <div style={{ ...styles.syncInfo, marginTop: '12px', borderColor: '#166534' }}>
+        <div style={{ fontWeight: '600', color: '#4ade80', fontSize: '14px', marginBottom: '8px' }}>Export Cleaned Reply Templates</div>
+        <p style={{ margin: '0 0 8px', color: '#94a3b8', fontSize: '12px' }}>
+          Saved reply templates cleaned for AI: removes catalog-redundant links, duplicates, temporary content. Each template tagged with category.
+        </p>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button style={{ ...styles.btnPrimary, background: '#166534' }} onClick={async () => {
+            setTemplateExporting(true); setTemplateError(null); setTemplateResult(null)
+            try {
+              const res = await fetch('/api/export/cleaned-templates')
+              const data = await res.json()
+              if (!res.ok) throw new Error(data.error || 'Export failed')
+              setTemplateResult(data)
+            } catch (err) { setTemplateError(err.message) }
+            finally { setTemplateExporting(false) }
+          }} disabled={templateExporting}>
+            {templateExporting ? 'Exporting...' : 'Export Templates'}
+          </button>
+          {templateResult && (
+            <button style={{ ...styles.btnPrimary, background: '#854d0e' }} onClick={() => {
+              const blob = new Blob([templateResult.textExport], { type: 'text/plain' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a'); a.href = url
+              a.download = `reply-templates-clean-${new Date().toISOString().split('T')[0]}.txt`
+              a.click(); URL.revokeObjectURL(url)
+            }}>
+              Download ({templateResult.totalClean} templates)
+            </button>
+          )}
+        </div>
+        {templateResult && (
+          <p style={{ margin: '8px 0 0', color: '#4ade80', fontSize: '12px' }}>
+            {templateResult.totalClean} cleaned templates ready for download
+          </p>
+        )}
+        {templateError && <p style={{ margin: '8px 0 0', color: '#f87171', fontSize: '12px' }}>{templateError}</p>}
       </div>
 
       {/* AI Instructions (System Prompt) */}

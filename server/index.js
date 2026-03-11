@@ -1662,6 +1662,62 @@ app.post('/api/export/premium-pairs', async (c) => {
 })
 
 // ===========================================
+// Export Cleaned Reply Templates
+// ===========================================
+
+app.get('/api/export/cleaned-templates', async (c) => {
+  try {
+    const settings = await getSettings()
+    const WWBUN_API_URL = settings.wwbunApiUrl || process.env.WWBUN_API_URL
+    const DIGITAL_KETU_SECRET = settings.digitalKetuSecret || process.env.DIGITAL_KETU_SECRET
+
+    if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) {
+      return c.json({ error: 'WWBUN_API_URL or DIGITAL_KETU_SECRET not configured' }, 500)
+    }
+
+    const response = await fetch(`${WWBUN_API_URL}/api/templates/export`, {
+      headers: { 'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET },
+    })
+
+    if (!response.ok) {
+      return c.json({ error: `wwbun API error: ${response.status}` }, 502)
+    }
+
+    const templates = await response.json()
+
+    // Build text export grouped by category
+    const byCategory = {}
+    for (const t of templates) {
+      const cat = t.category || 'general'
+      if (!byCategory[cat]) byCategory[cat] = []
+      byCategory[cat].push(t)
+    }
+
+    let text = `CLEANED REPLY TEMPLATES — BulkPlainTshirt.com\n`
+    text += `${'='.repeat(70)}\n`
+    text += `Exported: ${new Date().toISOString()}\n`
+    text += `Total: ${templates.length} templates (cleaned from DB)\n`
+    text += `Removed: catalog product links, duplicates, temporary, internal-only\n`
+    text += `${'='.repeat(70)}\n\n`
+
+    for (const [category, items] of Object.entries(byCategory).sort()) {
+      text += `--- ${category.toUpperCase().replace(/_/g, ' ')} ${'---'.repeat(15)}\n\n`
+      for (const t of items) {
+        text += `/${t.shortcut}${t.mediaType ? ` [${t.mediaType}]` : ''}:\n`
+        text += `${t.content}\n\n`
+      }
+    }
+
+    text += `${'='.repeat(70)}\nEND — ${templates.length} templates\n`
+
+    return c.json({ totalClean: templates.length, templates, textExport: text })
+  } catch (err) {
+    console.error('[Export] Cleaned templates failed:', err)
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// ===========================================
 // Serve Dashboard (Static Frontend)
 // ===========================================
 
