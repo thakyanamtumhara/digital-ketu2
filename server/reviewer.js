@@ -274,3 +274,47 @@ export async function runReviewJob(db) {
     totalCostUsd: totalCost,
   }
 }
+
+// ===========================
+// Backlog Review (one-time)
+// ===========================
+// Reviews ALL past AI replies that haven't been reviewed yet.
+// Processes in batches of 20 with progress tracking.
+
+export async function reviewBacklog(db, onProgress) {
+  let totalReviewed = 0, totalCorrections = 0, totalFlagged = 0, totalCostUsd = 0
+  let batchNumber = 0
+
+  while (true) {
+    batchNumber++
+    const result = await reviewAiReplies(db)
+
+    totalReviewed += result.reviewed
+    totalCorrections += result.corrections
+    totalFlagged += result.flagged
+    totalCostUsd += result.costUsd
+
+    // Report progress
+    if (onProgress) {
+      onProgress({
+        batchNumber,
+        totalReviewed,
+        totalCorrections,
+        totalFlagged,
+        totalCostUsd,
+        batchReviewed: result.reviewed,
+      })
+    }
+
+    console.log(`[Backlog] Batch ${batchNumber}: +${result.reviewed} reviewed, +${result.corrections} corrections, total cost $${totalCostUsd.toFixed(4)}`)
+
+    // Stop when no more unreviewed messages
+    if (result.reviewed === 0) break
+
+    // Small delay between batches to avoid rate limiting
+    await new Promise(r => setTimeout(r, 2000))
+  }
+
+  console.log(`[Backlog] Complete: ${totalReviewed} reviewed, ${totalCorrections} corrections, ${totalFlagged} flagged, $${totalCostUsd.toFixed(4)} total cost`)
+  return { totalReviewed, totalCorrections, totalFlagged, totalCostUsd, batches: batchNumber - 1 }
+}

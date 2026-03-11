@@ -69,6 +69,27 @@ function App() {
     }
   }
 
+  const [backlogProgress, setBacklogProgress] = useState(null)
+
+  const triggerBacklog = async () => {
+    const res = await fetch(`${API}/learning/backlog`, { method: 'POST' })
+    if (res.ok) {
+      setBacklogProgress({ status: 'running', batchNumber: 0, totalReviewed: 0, totalCorrections: 0 })
+      // Poll for progress every 5 seconds
+      const poll = setInterval(async () => {
+        const pRes = await fetch(`${API}/learning/backlog/progress`)
+        if (pRes.ok) {
+          const progress = await pRes.json()
+          setBacklogProgress(progress)
+          if (progress.status === 'complete' || progress.status === 'failed') {
+            clearInterval(poll)
+            fetchLearningStats()
+          }
+        }
+      }, 5000)
+    }
+  }
+
   const toggleLearning = async (enabled) => {
     await fetch(`${API}/learning/toggle`, {
       method: 'PUT',
@@ -170,7 +191,7 @@ function App() {
         {tab === 'analytics' && <Analytics analytics={analytics} period={period} setPeriod={setPeriod} />}
         {tab === 'defer' && <DeferManager list={deferList} onDelete={deleteDefer} settings={settings} updateSetting={updateSetting} />}
         {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={fetchFilterStats} />}
-        {tab === 'learning' && <LearningPanel stats={learningStats} settings={settings} onRun={triggerLearningRun} running={learningRunning} onToggle={toggleLearning} onRefresh={fetchLearningStats} />}
+        {tab === 'learning' && <LearningPanel stats={learningStats} settings={settings} onRun={triggerLearningRun} running={learningRunning} onToggle={toggleLearning} onRefresh={fetchLearningStats} onBacklog={triggerBacklog} backlogProgress={backlogProgress} />}
         {tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
         {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} onSync={triggerSync} syncing={syncing} knowledge={knowledge} />}
       </main>
@@ -896,7 +917,7 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
   )
 }
 
-function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh }) {
+function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, onBacklog, backlogProgress }) {
   if (!stats) return <div style={{ padding: 20, color: '#94a3b8' }}>Loading learning stats...</div>
 
   const costInr = (stats.dailyCost.spent * 85).toFixed(1)
@@ -1000,6 +1021,41 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh })
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Backlog review */}
+      <div style={{ background: '#1e293b', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div>
+            <div style={{ color: '#f1f5f9', fontSize: 14, fontWeight: 600 }}>Review All Past Replies</div>
+            <div style={{ color: '#64748b', fontSize: 12 }}>One-time review of your entire message history. Bootstraps corrections instantly.</div>
+          </div>
+          <button
+            onClick={onBacklog}
+            disabled={backlogProgress?.status === 'running'}
+            style={{
+              padding: '8px 16px', borderRadius: 6, border: 'none', cursor: backlogProgress?.status === 'running' ? 'wait' : 'pointer',
+              background: '#8b5cf6', color: '#fff', fontSize: 13, opacity: backlogProgress?.status === 'running' ? 0.6 : 1,
+            }}
+          >
+            {backlogProgress?.status === 'running' ? 'Running...' : 'Start Backlog Review'}
+          </button>
+        </div>
+        {backlogProgress && (
+          <div style={{ background: '#0f172a', borderRadius: 6, padding: 10, marginTop: 8 }}>
+            <div style={{ color: backlogProgress.status === 'complete' ? '#22c55e' : backlogProgress.status === 'failed' ? '#ef4444' : '#f59e0b', fontSize: 13, marginBottom: 4 }}>
+              {backlogProgress.status === 'running' ? `Batch ${backlogProgress.batchNumber} processing...` :
+               backlogProgress.status === 'complete' ? 'Backlog review complete!' :
+               `Failed: ${backlogProgress.error}`}
+            </div>
+            <div style={{ display: 'flex', gap: 16, color: '#94a3b8', fontSize: 12 }}>
+              <span>Reviewed: {backlogProgress.totalReviewed}</span>
+              <span>Corrections: {backlogProgress.totalCorrections}</span>
+              <span>Cost: Rs {((backlogProgress.totalCostUsd || 0) * 85).toFixed(1)}</span>
+              {backlogProgress.batches && <span>Batches: {backlogProgress.batches}</span>}
+            </div>
           </div>
         )}
       </div>

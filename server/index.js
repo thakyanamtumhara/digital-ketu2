@@ -6,7 +6,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage } from './process.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured } from './embeddings.js'
-import { runReviewJob } from './reviewer.js'
+import { runReviewJob, reviewBacklog } from './reviewer.js'
 
 const app = new Hono()
 const db = new PrismaClient()
@@ -231,6 +231,44 @@ app.post('/api/learning/run', async (c) => {
     console.error('[Learning] Manual run failed:', err.message)
     return c.json({ error: err.message }, 500)
   }
+})
+
+// One-time backlog review — review ALL past AI replies
+let backlogRunning = false
+let backlogProgress = null
+
+app.post('/api/learning/backlog', async (c) => {
+  if (backlogRunning) {
+    return c.json({ error: 'Backlog review already running', progress: backlogProgress }, 409)
+  }
+
+  backlogRunning = true
+  backlogProgress = { status: 'running', batchNumber: 0, totalReviewed: 0, totalCorrections: 0, totalCostUsd: 0 }
+
+  // Run in background (don't block the request)
+  reviewBacklog(db, (progress) => {
+    backlogProgress = { status: 'running', ...progress }
+  }).then(result => {
+    backlogProgress = { status: 'complete', ...result }
+    backlogRunning = false
+    // Update learning cost
+    db.settings.update({
+      where: { id: 'default' },
+      data: { learningDailySpentUsd: { increment: result.totalCostUsd } },
+    }).catch(() => {})
+    console.log(`[Backlog] Done: ${result.totalReviewed} reviewed, ${result.totalCorrections} corrections, $${result.totalCostUsd.toFixed(4)}`)
+  }).catch(err => {
+    backlogProgress = { status: 'failed', error: err.message }
+    backlogRunning = false
+    console.error('[Backlog] Failed:', err.message)
+  })
+
+  return c.json({ status: 'started', message: 'Backlog review started. Check /api/learning/backlog/progress for updates.' })
+})
+
+app.get('/api/learning/backlog/progress', async (c) => {
+  if (!backlogProgress) return c.json({ status: 'not_started' })
+  return c.json(backlogProgress)
 })
 
 // Learning stats for dashboard
