@@ -143,7 +143,7 @@ model Settings {
   learningEnabled     Boolean  @default(true)        // toggle learning on/off
   learningIntervalHours Int    @default(2)            // run review every N hours (aggressive for first weeks)
   lastReviewAt        DateTime?
-  learningDailyBudgetUsd Float @default(0.50)         // max daily spend on review calls (~Rs 42) — higher for initial learning phase
+  learningDailyBudgetUsd Float @default(0.59)         // max daily spend on review calls (~Rs 50) — enough for history pull + daily reviews
   learningDailySpentUsd  Float @default(0)            // today's spend on review
   learningSpentResetAt   DateTime @default(now())     // when learning counter was last reset
   createdAt           DateTime @default(now())

@@ -664,6 +664,7 @@ function SettingsPanel({ settings, updateSetting, onDownload }) {
         <SettingRow label="Defer Threshold" type="number" value={settings.deferThreshold} onChange={v => updateSetting('deferThreshold', Number(v))} step="0.05" />
         <SettingRow label="Message Merge Window (ms)" type="number" value={settings.mergeWindowMs} onChange={v => updateSetting('mergeWindowMs', Number(v))} />
         <SettingRow label="Cooldown Minutes" type="number" value={settings.cooldownMinutes} onChange={v => updateSetting('cooldownMinutes', Number(v))} />
+        <SettingRow label="Learning Budget (INR)" type="number" value={Math.round((settings.learningDailyBudgetUsd || 0) * 85)} onChange={v => updateSetting('learningDailyBudgetUsd', Number(v) / 85)} />
         <SettingRow label="Schedule Enabled" type="toggle" value={settings.scheduleEnabled} onChange={v => updateSetting('scheduleEnabled', v)} />
         {settings.scheduleEnabled && (
           <>
