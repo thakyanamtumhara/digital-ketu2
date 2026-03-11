@@ -229,7 +229,7 @@ function App() {
 
       {/* Tabs */}
       <nav style={styles.tabs}>
-        {['live', 'knowledge', 'analytics', 'defer', 'filters', 'learning', 'settings', 'sync', 'catalog', 'replies', 'stylepairs'].map(t => (
+        {['live', 'knowledge', 'analytics', 'defer', 'filters', 'learning', 'settings', 'sync'].map(t => (
           <button
             key={t}
             data-tab={t}
@@ -244,7 +244,7 @@ function App() {
               if (t === 'knowledge') { fetchKbStats(); fetchKbChunks('', 1, '') }
             }}
           >
-            {{live:'Live Monitor', knowledge:'Knowledge Base', analytics:'Analytics', defer:'Defer to Ketu', filters:'Pre-AI Filters', learning:'Learning', settings:'Settings', sync:'Sync', catalog:'Catalog', replies:'Replies', stylepairs:'Style Pairs'}[t]}
+            {{live:'Live Monitor', knowledge:'Knowledge Base', analytics:'Analytics', defer:'Defer to Ketu', filters:'Pre-AI Filters', learning:'Learning', settings:'Settings', sync:'Sync'}[t]}
           </button>
         ))}
       </nav>
@@ -262,9 +262,6 @@ function App() {
         {tab === 'learning' && <LearningPanel stats={learningStats} settings={settings} onRun={triggerLearningRun} running={learningRunning} onToggle={toggleLearning} onRefresh={fetchLearningStats} onBacklog={triggerBacklog} backlogProgress={backlogProgress} onHistoryPull={triggerHistoryPull} historyPullProgress={historyPullProgress} />}
 {tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
         {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} onSync={triggerSync} syncing={syncing} knowledge={knowledge} />}
-        {tab === 'catalog' && <CatalogTab />}
-        {tab === 'replies' && <ReplyTemplatesTab />}
-        {tab === 'stylepairs' && <StylePairsTab />}
       </main>
     </div>
   )
@@ -1741,7 +1738,7 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
 }
 
 function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
-  const [showSection, setShowSection] = useState({ instructions: true, conditionalRules: false, policies: false, catalog: false, replies: false, styleGuide: false, stylePairs: false, deferList: false, history: false })
+  const [showSection, setShowSection] = useState({ rules: false, catalog: false, replies: false, stylePairs: false })
   const toggle = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
 
   // Export premium pairs state
@@ -1756,55 +1753,38 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
 
   const handleExportPairs = async () => {
     if (!exportFromDate || !exportToDate) return
-    setExporting(true)
-    setExportError(null)
-    setExportResult(null)
+    setExporting(true); setExportError(null); setExportResult(null)
     try {
-      const res = await fetch('/api/export/premium-pairs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromDate: exportFromDate, toDate: exportToDate }),
-      })
+      const res = await fetch('/api/export/premium-pairs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromDate: exportFromDate, toDate: exportToDate }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Export failed')
       setExportResult(data)
-    } catch (err) {
-      setExportError(err.message)
-    } finally {
-      setExporting(false)
-    }
+    } catch (err) { setExportError(err.message) }
+    finally { setExporting(false) }
   }
 
   const downloadExport = () => {
     if (!exportResult?.textExport) return
     const blob = new Blob([exportResult.textExport], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `premium-pairs-${exportFromDate}-to-${exportToDate}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
+    const a = document.createElement('a'); a.href = url
+    a.download = `premium-pairs-${exportFromDate}-to-${exportToDate}.txt`; a.click(); URL.revokeObjectURL(url)
   }
 
   const catalogItems = knowledge?.chunks?.CATALOG || []
-  const savedReplies = knowledge?.chunks?.SAVED_REPLY || []
-  const policies = knowledge?.chunks?.POLICY || []
-  const stylePairs = knowledge?.chunks?.STYLE_PAIR || []
-  const styleGuides = knowledge?.chunks?.STYLE_GUIDE || []
-  const deferItems = knowledge?.deferToKetuList || []
-  const kbSettings = knowledge?.settings || {}
 
   return (
     <div>
-      <h2 style={styles.sectionTitle}>Complete Knowledge Base</h2>
+      <h2 style={styles.sectionTitle}>Knowledge Base</h2>
 
+      {/* Sync Info */}
       <div style={styles.syncInfo}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
           <div>
             <p style={{ margin: '0 0 4px' }}><strong>Last sync:</strong> {settings.lastSyncAt ? new Date(settings.lastSyncAt).toLocaleString('en-IN') : 'Never'}</p>
             <p style={{ margin: '0 0 4px' }}><strong>Next sync:</strong> {settings.nextSyncAt ? new Date(settings.nextSyncAt).toLocaleString('en-IN') : 'Not scheduled'}</p>
             <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>
-              <strong>Total:</strong> {knowledge?.totalChunks || 0} chunks — {catalogItems.length} products, {savedReplies.length} saved replies, {styleGuides.length > 0 ? '1 style guide' : '0 style guide'} ({stylePairs.length} pairs), {policies.length} policies, {deferItems.length} defer rules
+              <strong>Total:</strong> {catalogItems.length} products, {REPLY_TEMPLATES.length} saved replies, {STYLE_PAIRS.length} style pairs
             </p>
           </div>
           <button style={styles.btnPrimary} onClick={onSync} disabled={syncing}>
@@ -1813,42 +1793,26 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
         </div>
       </div>
 
-      {/* Export Premium Pairs */}
+      {/* Export Premium Style Pairs */}
       <div style={{ ...styles.syncInfo, marginTop: '12px', borderColor: '#854d0e' }}>
         <div style={{ fontWeight: '600', color: '#fbbf24', fontSize: '14px', marginBottom: '8px' }}>Export Premium Style Pairs</div>
-        <p style={{ margin: '0 0 8px', color: '#94a3b8', fontSize: '12px' }}>
-          Extract high-quality buyer→Om reply pairs (Rules 1-4: thought bundling, 4+ words, non-context, permanent only). Downloads as text file.
-        </p>
+        <p style={{ margin: '0 0 8px', color: '#94a3b8', fontSize: '12px' }}>Extract high-quality buyer→Om reply pairs (Rules 1-4: thought bundling, 4+ words, non-context, permanent only). Downloads as text file.</p>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <label style={{ color: '#94a3b8', fontSize: '12px' }}>From:</label>
-          <input type="date" value={exportFromDate} onChange={e => setExportFromDate(e.target.value)}
-            style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '4px', padding: '4px 8px', fontSize: '13px' }} />
+          <input type="date" value={exportFromDate} onChange={e => setExportFromDate(e.target.value)} style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '4px', padding: '4px 8px', fontSize: '13px' }} />
           <label style={{ color: '#94a3b8', fontSize: '12px' }}>To:</label>
-          <input type="date" value={exportToDate} onChange={e => setExportToDate(e.target.value)}
-            style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '4px', padding: '4px 8px', fontSize: '13px' }} />
-          <button style={{ ...styles.btnPrimary, background: '#854d0e' }} onClick={handleExportPairs} disabled={exporting || !exportFromDate}>
-            {exporting ? 'Exporting...' : 'Export Pairs'}
-          </button>
-          {exportResult && (
-            <button style={{ ...styles.btnPrimary, background: '#166534' }} onClick={downloadExport}>
-              Download ({exportResult.totalPremium} pairs)
-            </button>
-          )}
+          <input type="date" value={exportToDate} onChange={e => setExportToDate(e.target.value)} style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '4px', padding: '4px 8px', fontSize: '13px' }} />
+          <button style={{ ...styles.btnPrimary, background: '#854d0e' }} onClick={handleExportPairs} disabled={exporting || !exportFromDate}>{exporting ? 'Exporting...' : 'Export Pairs'}</button>
+          {exportResult && <button style={{ ...styles.btnPrimary, background: '#166534' }} onClick={downloadExport}>Download ({exportResult.totalPremium} pairs)</button>}
         </div>
-        {exportResult && (
-          <p style={{ margin: '8px 0 0', color: '#4ade80', fontSize: '12px' }}>
-            {exportResult.totalMechanical} mechanical pairs → {exportResult.totalPremium} premium (skipped {exportResult.totalSkipped} context/temporary)
-          </p>
-        )}
+        {exportResult && <p style={{ margin: '8px 0 0', color: '#4ade80', fontSize: '12px' }}>{exportResult.totalMechanical} mechanical pairs → {exportResult.totalPremium} premium (skipped {exportResult.totalSkipped} context/temporary)</p>}
         {exportError && <p style={{ margin: '8px 0 0', color: '#f87171', fontSize: '12px' }}>{exportError}</p>}
       </div>
 
       {/* Export Cleaned Reply Templates */}
       <div style={{ ...styles.syncInfo, marginTop: '12px', borderColor: '#166534' }}>
         <div style={{ fontWeight: '600', color: '#4ade80', fontSize: '14px', marginBottom: '8px' }}>Export Cleaned Reply Templates</div>
-        <p style={{ margin: '0 0 8px', color: '#94a3b8', fontSize: '12px' }}>
-          Saved reply templates cleaned for AI: removes catalog-redundant links, duplicates, temporary content. Each template tagged with category.
-        </p>
+        <p style={{ margin: '0 0 8px', color: '#94a3b8', fontSize: '12px' }}>Saved reply templates cleaned for AI: removes catalog-redundant links, duplicates, temporary content. Each template tagged with category.</p>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <button style={{ ...styles.btnPrimary, background: '#166534' }} onClick={async () => {
             setTemplateExporting(true); setTemplateError(null); setTemplateResult(null)
@@ -1859,124 +1823,45 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
               setTemplateResult(data)
             } catch (err) { setTemplateError(err.message) }
             finally { setTemplateExporting(false) }
-          }} disabled={templateExporting}>
-            {templateExporting ? 'Exporting...' : 'Export Templates'}
-          </button>
-          {templateResult && (
-            <button style={{ ...styles.btnPrimary, background: '#854d0e' }} onClick={() => {
-              const blob = new Blob([templateResult.textExport], { type: 'text/plain' })
-              const url = URL.createObjectURL(blob)
-              const a = document.createElement('a'); a.href = url
-              a.download = `reply-templates-clean-${new Date().toISOString().split('T')[0]}.txt`
-              a.click(); URL.revokeObjectURL(url)
-            }}>
-              Download ({templateResult.totalClean} templates)
-            </button>
-          )}
+          }} disabled={templateExporting}>{templateExporting ? 'Exporting...' : 'Export Templates'}</button>
+          {templateResult && <button style={{ ...styles.btnPrimary, background: '#854d0e' }} onClick={() => {
+            const blob = new Blob([templateResult.textExport], { type: 'text/plain' })
+            const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url
+            a.download = `reply-templates-clean-${new Date().toISOString().split('T')[0]}.txt`; a.click(); URL.revokeObjectURL(url)
+          }}>Download ({templateResult.totalClean} templates)</button>}
         </div>
-        {templateResult && (
-          <p style={{ margin: '8px 0 0', color: '#4ade80', fontSize: '12px' }}>
-            {templateResult.totalClean} cleaned templates ready for download
-          </p>
-        )}
+        {templateResult && <p style={{ margin: '8px 0 0', color: '#4ade80', fontSize: '12px' }}>{templateResult.totalClean} cleaned templates ready for download</p>}
         {templateError && <p style={{ margin: '8px 0 0', color: '#f87171', fontSize: '12px' }}>{templateError}</p>}
       </div>
 
-      {/* AI Instructions (System Prompt) */}
+      {/* AI Rules & System Prompt (Conditional Rules + System Prompt merged) */}
       <div style={styles.kbSection}>
-        <div style={styles.kbHeader} onClick={() => toggle('instructions')}>
-          <span style={styles.kbHeaderTitle}>AI Instructions (System Prompt)</span>
-          <span style={{ color: '#64748b' }}>{showSection.instructions ? '▼' : '▶'}</span>
+        <div style={styles.kbHeader} onClick={() => toggle('rules')}>
+          <span style={styles.kbHeaderTitle}>AI Rules & System Prompt</span>
+          <span style={{ color: '#64748b' }}>{showSection.rules ? '\u25BC' : '\u25B6'}</span>
         </div>
-        {showSection.instructions && (
+        {showSection.rules && (
           <div style={styles.kbContent}>
+            {/* System Prompt */}
             <div style={styles.kbCard}>
-              <div style={{ fontWeight: '600', color: '#f59e0b', fontSize: '13px', marginBottom: '8px' }}>SYSTEM PROMPT — sent with every message to Claude</div>
-              <div style={styles.promptBlock}>
-                {`You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
+              <div style={{ fontWeight: '600', color: '#f59e0b', fontSize: '13px', marginBottom: '8px' }}>SYSTEM PROMPT -- sent with every message to Claude</div>
+              <div style={styles.promptBlock}>{`You are Ketu's assistant -- an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
 RULES:
-- Reply in the buyer's language. Hindi → Hindi, English → English, Hinglish → Hinglish.
+- Reply in the buyer's language. Hindi -> Hindi, English -> English, Hinglish -> Hinglish.
 - Be friendly, professional, and helpful. Sound like a real person, not a robot.
-- Keep replies SHORT — max 10-15 words. Quick, direct, to the point.
-- Match Ketu's style from STYLE EXAMPLES (pulled from Defer-to-Ketu corrections).
+- Keep replies SHORT -- max 10-15 words. Quick, direct, to the point.
+- Match Ketu's style from STYLE EXAMPLES.
 - Never make up information. Only use the knowledge provided.
-- If not enough info → respond with EXACTLY: [DEFER]
+- If not enough info -> respond with EXACTLY: [DEFER]
 - Do NOT make up prices, product details, or policies.
 - Never reveal you are an AI. You are Ketu's assistant.
-- Natural greetings (Namaste, Hello, Hi, etc.).
-
-STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
-(up to 10 real examples of how Ketu replies, teaching tone + length + word choice)`}
-              </div>
-              <div style={{ marginTop: '8px', padding: '8px', background: '#422006', borderRadius: '4px', fontSize: '12px', color: '#fbbf24' }}>
-                For first-time buyers: MUST include sale91.com/catalog link in reply
-              </div>
+- Natural greetings (Namaste, Hello, Hi, etc.).`}</div>
             </div>
 
-            <div style={styles.kbCard}>
-              <div style={{ fontWeight: '600', color: '#a78bfa', fontSize: '13px', marginBottom: '8px' }}>HOW KNOWLEDGE IS SENT (OPTIMIZED)</div>
-              <div style={{ fontSize: '12px', color: '#94a3b8', lineHeight: '1.6' }}>
-                <div style={{ marginBottom: '4px', color: '#93c5fd' }}>0. First-time / 7-day inactive → welcome message sent directly (0 tokens!)</div>
-                <div style={{ marginBottom: '4px' }}>1. Smart filtering picks only relevant chunks (~2-3K tokens instead of 8K)</div>
-                <div style={{ marginBottom: '4px' }}>2. Product keywords → sends catalog + policies</div>
-                <div style={{ marginBottom: '4px' }}>3. Logistics keywords → sends matching saved replies + policies</div>
-                <div style={{ marginBottom: '4px' }}>4. Policies always included (small, always relevant)</div>
-                <div style={{ marginBottom: '4px' }}>5. Last 5 conversation messages included for context</div>
-                <div style={{ marginBottom: '4px' }}>6. Om's style examples (from corrections) included in system prompt</div>
-              </div>
-            </div>
-
-            <div style={styles.kbCard}>
-              <div style={{ fontWeight: '600', color: '#f87171', fontSize: '13px', marginBottom: '8px' }}>PROCESSING PIPELINE</div>
-              <div style={{ fontSize: '12px', color: '#94a3b8', lineHeight: '1.8' }}>
-                <div>Message received from WhatsApp (via wwbun)</div>
-                <div style={{ color: '#475569' }}>  ↓ 3-sec merge window (multiple messages = one thought)</div>
-                <div>Check 1: Is system ON? → skip if OFF</div>
-                <div>Check 2: Working hours? → skip if outside {settings.scheduleStart || '09:00'}-{settings.scheduleEnd || '21:00'} IST</div>
-                <div>Check 3: Daily budget? → skip if over Rs.{settings.dailyBudgetInr}</div>
-                <div>Check 4: Media only? → send media message</div>
-                <div>Check 5: Empty/spam? → skip</div>
-                <div>Check 6: Cooldown? → skip if Om intervened (last {settings.cooldownMinutes} min)</div>
-                <div>Check 7: Post-defer ack? → skip "ok/thanks/theek hai" after defer</div>
-                <div style={{ color: '#93c5fd', fontWeight: '600' }}>Check 8: WELCOME BYPASS → first-time or 7+ days inactive → send /welcome directly (0 tokens!)</div>
-                <div>Check 9: Greeting? → skip defer check for hi/hello</div>
-                <div>Check 10: Defer-to-Ketu match? → use correction or defer (threshold: {Math.round((settings.confidenceThreshold || 0.80) * 100)}%)</div>
-                <div>Check 11: KB empty? → defer if no knowledge</div>
-                <div style={{ color: '#475569' }}>  ↓</div>
-                <div style={{ color: '#22c55e' }}>Smart filtering: only relevant chunks sent (~2-3K tokens instead of 8K)</div>
-                <div style={{ color: '#22c55e' }}>+ system prompt + style examples + conversation history → Claude Haiku 4.5</div>
-                <div style={{ color: '#475569' }}>  ↓</div>
-                <div>If [DEFER] in reply → send defer message to buyer</div>
-                <div style={{ color: '#22c55e' }}>Otherwise → send AI reply via wwbun → log tokens + cost</div>
-              </div>
-            </div>
-
-            <div style={styles.kbCard}>
-              <div style={{ fontWeight: '600', color: '#60a5fa', fontSize: '13px', marginBottom: '8px' }}>CONFIGURED MESSAGES</div>
-              <div style={{ fontSize: '12px', marginBottom: '6px' }}>
-                <span style={{ color: '#64748b' }}>Defer message:</span>
-                <div style={{ color: '#fbbf24', marginTop: '2px' }}>{kbSettings.deferMessage || settings.deferMessage}</div>
-              </div>
-              <div style={{ fontSize: '12px' }}>
-                <span style={{ color: '#64748b' }}>Media message:</span>
-                <div style={{ color: '#fbbf24', marginTop: '2px' }}>{kbSettings.mediaMessage || settings.mediaMessage}</div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Conditional Rules (situational — only sent when keywords match) */}
-      <div style={styles.kbSection}>
-        <div style={styles.kbHeader} onClick={() => toggle('conditionalRules')}>
-          <span style={styles.kbHeaderTitle}>Conditional Rules (Situational)</span>
-          <span style={{ color: '#64748b' }}>{showSection.conditionalRules ? '▼' : '▶'}</span>
-        </div>
-        {showSection.conditionalRules && (
-          <div style={styles.kbContent}>
-            <div style={{ padding: '8px 12px', background: '#1e293b', borderRadius: '6px', fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>
-              These rules are <strong style={{ color: '#f59e0b' }}>NOT sent with every message</strong>. They are only included when the buyer's message matches specific keywords.
+            {/* Conditional Rules */}
+            <div style={{ padding: '8px 12px', background: '#1e293b', borderRadius: '6px', fontSize: '12px', color: '#94a3b8', margin: '12px 0' }}>
+              Below rules are <strong style={{ color: '#f59e0b' }}>NOT sent with every message</strong>. Only included when buyer's message matches specific keywords.
             </div>
 
             <div style={styles.kbCard}>
@@ -1986,30 +1871,14 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
               </div>
               <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
                 <div style={{ color: '#60a5fa', marginBottom: '4px' }}>Trigger keywords:</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
-                  {['dispatch', 'nikal', 'bhej', 'ship', 'send', 'deliver', 'courier'].map(kw => (
-                    <span key={kw} style={{ background: '#1e3a5f', color: '#93c5fd', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>
-                  ))}
-                </div>
-                <div style={{ color: '#60a5fa', marginBottom: '4px' }}>OR payment + urgency combo:</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '4px' }}>
-                  {['payment', 'paid', 'pay', 'paisa', 'paise', 'amount', 'transfer'].map(kw => (
-                    <span key={kw} style={{ background: '#3b2f1a', color: '#fbbf24', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>
-                  ))}
-                </div>
-                <div style={{ fontSize: '11px', color: '#64748b', margin: '2px 0' }}>+</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                  {['abhi', 'aaj', 'now', 'today', 'jaldi', 'asap', 'urgent', 'turant'].map(kw => (
-                    <span key={kw} style={{ background: '#3b1a1a', color: '#fca5a5', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>
-                  ))}
+                  {['dispatch', 'nikal', 'bhej', 'ship', 'send', 'deliver', 'courier'].map(kw => <span key={kw} style={{ background: '#1e3a5f', color: '#93c5fd', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>)}
                 </div>
               </div>
-              <div style={{ ...styles.promptBlock, marginTop: '8px' }}>
-                {`DISPATCH RULE (sent to Claude when triggered):
-- When buyer's intention is "payment done, please dispatch" or "abhi nikal do" or "aaj hi chahiye" → reassure: "Abhi nikal raha hu sir, thoda time dijiye"
+              <div style={styles.promptBlock}>{`DISPATCH RULE:
+- "payment done, please dispatch" or "abhi nikal do" -> reassure: "Abhi nikal raha hu sir, thoda time dijiye"
 - Do NOT say "kal nikal jaayega" or give future dates. Just confirm immediate dispatch.
-- If buyer keeps asking too many follow-up dispatch questions → [DEFER] to Ketu.`}
-              </div>
+- If buyer keeps asking too many follow-up dispatch questions -> [DEFER] to Ketu.`}</div>
             </div>
 
             <div style={styles.kbCard}>
@@ -2020,15 +1889,11 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
               <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
                 <div style={{ color: '#60a5fa', marginBottom: '4px' }}>Trigger keywords (buying intent):</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                  {['price', 'rate', 'cost', 'kitna', 'kitne', 'bhav', 'daam', 'order', 'buy', 'kharidna', 'lena', 'chahiye', 'moq', 'minimum', 'bulk', 'wholesale', 'sample', 'catalog'].map(kw => (
-                    <span key={kw} style={{ background: '#1e3a5f', color: '#93c5fd', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>
-                  ))}
+                  {['price', 'rate', 'cost', 'kitna', 'kitne', 'order', 'buy', 'bulk', 'wholesale', 'sample', 'catalog'].map(kw => <span key={kw} style={{ background: '#1e3a5f', color: '#93c5fd', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>)}
                 </div>
               </div>
-              <div style={{ ...styles.promptBlock, marginTop: '8px' }}>
-                {`SALE91 RULE (sent to Claude when triggered):
-- Mention sale91.com ONLY ONCE. Check conversation history — if already shared in a previous reply, do NOT repeat it. Just answer the buyer's question directly. Don't force it.`}
-              </div>
+              <div style={styles.promptBlock}>{`SALE91 RULE:
+- Mention sale91.com ONLY ONCE. Check conversation history -- if already shared, do NOT repeat it.`}</div>
             </div>
 
             <div style={styles.kbCard}>
@@ -2037,58 +1902,29 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
                 <div style={{ fontSize: '11px', color: '#64748b', background: '#1e293b', padding: '2px 8px', borderRadius: '4px' }}>Conditional</div>
               </div>
               <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
-                <div style={{ color: '#60a5fa', marginBottom: '4px' }}>Trigger keywords (price negotiation):</div>
+                <div style={{ color: '#60a5fa', marginBottom: '4px' }}>Trigger keywords:</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                  {['price jada', 'price zyada', 'mehnga', 'costly', 'expensive', 'sasta', 'kam karo', 'discount', 'offer', 'deal', 'thoda kam', 'rate kam'].map(kw => (
-                    <span key={kw} style={{ background: '#3b1a1a', color: '#fca5a5', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>
-                  ))}
+                  {['mehnga', 'costly', 'expensive', 'sasta', 'kam karo', 'discount', 'offer', 'deal'].map(kw => <span key={kw} style={{ background: '#3b1a1a', color: '#fca5a5', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>)}
                 </div>
               </div>
-              <div style={{ ...styles.promptBlock, marginTop: '8px' }}>
-                {`PRICE NEGOTIATION RULE (sent to Claude when triggered):
-- Prices are FIXED. We work on very low margins (kam margin pe kaam karte hai).
+              <div style={styles.promptBlock}>{`PRICE NEGOTIATION RULE:
+- Prices are FIXED. We work on very low margins.
 - Do NOT offer any discount or negotiate. Politely tell them price is fixed.
-- Understand buyer's intention and reply naturally — don't copy-paste the same line.
-- Example tone: "Sir, price hamara fix hota hai. Hum log kafi kam margin pe kaam karte hai."`}
-              </div>
+- Example tone: "Sir, price hamara fix hota hai. Hum log kafi kam margin pe kaam karte hai."`}</div>
             </div>
 
             <div style={{ padding: '8px 12px', background: '#422006', borderRadius: '6px', fontSize: '12px', color: '#fbbf24', marginTop: '8px' }}>
-              FIRST-TIME BUYER RULE: When buyer messages for the first time ever → "MUST include sale91.com/catalog link in reply" (always added for first-time buyers)
+              FIRST-TIME BUYER RULE: When buyer messages for first time ever -> MUST include sale91.com/catalog link in reply
             </div>
           </div>
         )}
       </div>
 
-      {/* Business Policies */}
-      <div style={styles.kbSection}>
-        <div style={styles.kbHeader} onClick={() => toggle('policies')}>
-          <span style={styles.kbHeaderTitle}>Business Policies ({policies.length})</span>
-          <span style={{ color: '#64748b' }}>{showSection.policies ? '▼' : '▶'}</span>
-        </div>
-        {showSection.policies && (
-          <div style={styles.kbContent}>
-            {policies.length === 0 && <p style={styles.empty}>No policies synced yet</p>}
-            {policies.map((item, i) => (
-              <div key={i} style={styles.kbCard}>
-                <div style={{ fontWeight: '600', color: '#f8fafc', fontSize: '14px', marginBottom: '8px' }}>{item.title}</div>
-                <div style={{ fontSize: '13px', color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>
-                  {item.content}
-                </div>
-                <div style={{ marginTop: '4px', fontSize: '11px', color: '#475569' }}>
-                  Synced: {new Date(item.updatedAt).toLocaleString('en-IN')}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Synced Catalog */}
+      {/* Synced Catalog (from DB) */}
       <div style={styles.kbSection}>
         <div style={styles.kbHeader} onClick={() => toggle('catalog')}>
           <span style={styles.kbHeaderTitle}>Synced Catalog ({catalogItems.length} products)</span>
-          <span style={{ color: '#64748b' }}>{showSection.catalog ? '▼' : '▶'}</span>
+          <span style={{ color: '#64748b' }}>{showSection.catalog ? '\u25BC' : '\u25B6'}</span>
         </div>
         {showSection.catalog && (
           <div style={styles.kbContent}>
@@ -2098,8 +1934,8 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ fontWeight: '600', color: '#f8fafc', fontSize: '14px' }}>{item.title}</div>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    {item.metadata?.bulkPrice && <span style={styles.priceBadge}>Bulk ₹{item.metadata.bulkPrice}</span>}
-                    {item.metadata?.samplePrice && <span style={{ ...styles.priceBadge, background: '#1e3a5f' }}>Sample ₹{item.metadata.samplePrice}</span>}
+                    {item.metadata?.bulkPrice && <span style={styles.priceBadge}>Bulk \u20B9{item.metadata.bulkPrice}</span>}
+                    {item.metadata?.samplePrice && <span style={{ ...styles.priceBadge, background: '#1e3a5f' }}>Sample \u20B9{item.metadata.samplePrice}</span>}
                   </div>
                 </div>
                 {item.metadata?.gsm && <div style={styles.kbMeta}>{item.metadata.gsm}gsm | {item.metadata.category || ''}</div>}
@@ -2127,134 +1963,46 @@ STYLE EXAMPLES — dynamically loaded from Om's Defer-to-Ketu corrections
         )}
       </div>
 
-      {/* Synced Saved Replies */}
+      {/* Saved Reply Templates (static data) */}
       <div style={styles.kbSection}>
         <div style={styles.kbHeader} onClick={() => toggle('replies')}>
-          <span style={styles.kbHeaderTitle}>Synced Saved Replies ({savedReplies.length})</span>
-          <span style={{ color: '#64748b' }}>{showSection.replies ? '▼' : '▶'}</span>
+          <span style={styles.kbHeaderTitle}>Saved Reply Templates ({REPLY_TEMPLATES.length})</span>
+          <span style={{ color: '#64748b' }}>{showSection.replies ? '\u25BC' : '\u25B6'}</span>
         </div>
         {showSection.replies && (
           <div style={styles.kbContent}>
-            {savedReplies.length === 0 && <p style={styles.empty}>No saved replies synced yet</p>}
-            {savedReplies.map((item, i) => (
+            {REPLY_TEMPLATES.map((t, i) => (
               <div key={i} style={styles.kbCard}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: '600', color: '#60a5fa', fontSize: '14px' }}>{item.title}</span>
-                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                    {item.metadata?.mediaType && <span style={styles.mediaBadge}>{item.metadata.mediaType}</span>}
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                  <span style={{ padding: '2px 10px', borderRadius: '4px', background: '#3b82f6', color: '#fff', fontSize: '12px', fontWeight: '600' }}>/{t.shortcut}</span>
+                  {t.mediaType && <span style={styles.mediaBadge}>{t.mediaType}</span>}
+                  <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#475569', background: '#0f172a', padding: '2px 8px', borderRadius: '3px' }}>{t.category.replace(/_/g, ' ')}</span>
                 </div>
-                <div style={{ marginTop: '6px', fontSize: '13px', color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: '1.4' }}>
-                  {item.content}
-                </div>
-                <div style={{ marginTop: '4px', fontSize: '11px', color: '#475569' }}>
-                  Synced: {new Date(item.updatedAt).toLocaleString('en-IN')}
-                </div>
+                <div style={{ fontSize: '13px', color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{t.content}</div>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* Om's Style Guide (extracted from real replies — this is what Claude uses) */}
-      <div style={styles.kbSection}>
-        <div style={styles.kbHeader} onClick={() => toggle('styleGuide')}>
-          <span style={styles.kbHeaderTitle}>Om's Style Guide {styleGuides.length > 0 ? '(Active)' : '(Not extracted yet)'}</span>
-          <span style={{ color: '#64748b' }}>{showSection.styleGuide ? '▼' : '▶'}</span>
-        </div>
-        {showSection.styleGuide && (
-          <div style={styles.kbContent}>
-            {styleGuides.length === 0 && <p style={styles.empty}>No style guide yet — click "Sync Now" to extract from WhatsApp conversations</p>}
-            <div style={{ marginBottom: '8px', padding: '8px', background: '#1a1a2e', borderRadius: '6px', fontSize: '12px', color: '#94a3b8' }}>
-              Compact style guide extracted by AI from {styleGuides[0]?.metadata?.pairsAnalyzed || 0} real WhatsApp reply pairs. This is injected into every Claude prompt (~150-200 tokens instead of sending raw pairs).
-            </div>
-            {styleGuides.map((item, i) => (
-              <div key={i} style={styles.kbCard}>
-                <div style={{ fontWeight: '600', color: '#f59e0b', fontSize: '13px', marginBottom: '8px' }}>STYLE GUIDE — sent with every message to Claude</div>
-                <div style={styles.promptBlock}>{item.content}</div>
-                {item.metadata?.extractedAt && (
-                  <div style={{ marginTop: '6px', fontSize: '11px', color: '#475569' }}>
-                    Extracted: {new Date(item.metadata.extractedAt).toLocaleString('en-IN')} | Based on {item.metadata.pairsAnalyzed} pairs | {item.metadata.extractionTokens} tokens used for extraction
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Om's Real WhatsApp Reply Pairs (raw data — for monitoring) */}
+      {/* Style Pairs (static data) */}
       <div style={styles.kbSection}>
         <div style={styles.kbHeader} onClick={() => toggle('stylePairs')}>
-          <span style={styles.kbHeaderTitle}>Om's Real Replies ({stylePairs.length})</span>
-          <span style={{ color: '#64748b' }}>{showSection.stylePairs ? '▼' : '▶'}</span>
+          <span style={styles.kbHeaderTitle}>Style Pairs ({STYLE_PAIRS.length})</span>
+          <span style={{ color: '#64748b' }}>{showSection.stylePairs ? '\u25BC' : '\u25B6'}</span>
         </div>
         {showSection.stylePairs && (
           <div style={styles.kbContent}>
-            {stylePairs.length === 0 && <p style={styles.empty}>No style pairs synced yet — click "Sync Now" to export from WhatsApp</p>}
-            <div style={{ marginBottom: '8px', padding: '8px', background: '#1a1a2e', borderRadius: '6px', fontSize: '12px', color: '#94a3b8' }}>
-              Raw buyer→Om reply pairs from WhatsApp. These were analyzed to create the Style Guide above. Shown here for your monitoring.
+            <div style={{ marginBottom: '8px', padding: '8px', background: '#0f172a', borderRadius: '6px', fontSize: '12px', color: '#94a3b8' }}>
+              Buyer question → Om reply pairs. These define how Ketu should respond to common queries.
             </div>
-            {stylePairs.map((item, i) => (
+            {STYLE_PAIRS.map((p, i) => (
               <div key={i} style={styles.kbCard}>
                 <div style={{ fontSize: '13px', marginBottom: '4px' }}>
-                  <span style={{ color: '#60a5fa' }}>Buyer:</span> {item.metadata?.buyerMessage || item.content?.split('\n')[0]?.replace('Buyer: "', '').replace('"', '')}
+                  <span style={{ color: '#f87171', fontWeight: '600' }}>Buyer:</span> <span style={{ color: '#e2e8f0' }}>{p.buyer}</span>
                 </div>
-                <div style={{ fontSize: '13px', color: '#86efac' }}>
-                  <span style={{ color: '#22c55e' }}>Om:</span> {item.metadata?.omReply || item.content?.split('\n')[1]?.replace("Om's reply: \"", '').replace('"', '')}
-                </div>
-                {item.metadata?.timestamp && (
-                  <div style={{ marginTop: '4px', fontSize: '11px', color: '#475569' }}>
-                    {new Date(item.metadata.timestamp).toLocaleDateString('en-IN')}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Defer-to-Ketu Rules */}
-      <div style={styles.kbSection}>
-        <div style={styles.kbHeader} onClick={() => toggle('deferList')}>
-          <span style={styles.kbHeaderTitle}>Defer-to-Ketu Rules ({deferItems.length})</span>
-          <span style={{ color: '#64748b' }}>{showSection.deferList ? '▼' : '▶'}</span>
-        </div>
-        {showSection.deferList && (
-          <div style={styles.kbContent}>
-            {deferItems.length === 0 && <p style={styles.empty}>No defer rules yet (Om hasn't corrected any replies)</p>}
-            {deferItems.map((item, i) => (
-              <div key={i} style={styles.kbCard}>
-                <div style={{ fontSize: '13px', marginBottom: '4px' }}><span style={{ color: '#f87171' }}>Q:</span> {item.buyerQuestion}</div>
-                <div style={{ fontSize: '13px', color: '#86efac' }}><span style={{ color: '#22c55e' }}>Correct:</span> {item.correctReply}</div>
-                <div style={{ marginTop: '4px', fontSize: '11px', color: '#475569' }}>
-                  Added: {new Date(item.createdAt).toLocaleDateString('en-IN')}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Sync History */}
-      <div style={styles.kbSection}>
-        <div style={styles.kbHeader} onClick={() => toggle('history')}>
-          <span style={styles.kbHeaderTitle}>Sync History</span>
-          <span style={{ color: '#64748b' }}>{showSection.history ? '▼' : '▶'}</span>
-        </div>
-        {showSection.history && (
-          <div style={styles.kbContent}>
-            {logs.length === 0 && <p style={styles.empty}>No sync history yet</p>}
-            {logs.map(log => (
-              <div key={log.id} style={{ ...styles.logCard, borderLeft: `4px solid ${log.status === 'success' ? '#22c55e' : '#ef4444'}` }}>
-                <div style={styles.logHeader}>
-                  <span><strong>{log.syncType}</strong> — {log.status}</span>
-                  <span>{new Date(log.createdAt).toLocaleString('en-IN')}</span>
-                </div>
-                <div style={styles.logBody}>
-                  {log.itemsFound > 0 && <span>Found: {log.itemsFound} | New: {log.itemsNew} | Updated: {log.itemsUpdated}</span>}
-                  {log.durationMs && <span> | {log.durationMs}ms</span>}
-                  {log.error && <div style={styles.errorText}>{log.error}</div>}
+                <div style={{ fontSize: '13px' }}>
+                  <span style={{ color: '#22c55e', fontWeight: '600' }}>Om:</span> <span style={{ color: '#86efac' }}>{p.om}</span>
                 </div>
               </div>
             ))}
@@ -2292,8 +2040,8 @@ const styles = {
   headerControls: { display: 'flex', alignItems: 'center', gap: '8px' },
   statusDot: { width: '10px', height: '10px', borderRadius: '50%', display: 'inline-block' },
   toggleBtn: { padding: '8px 20px', border: 'none', borderRadius: '6px', color: '#fff', fontWeight: '600', cursor: 'pointer', fontSize: '14px' },
-  tabs: { display: 'flex', gap: '4px', marginTop: '16px', borderBottom: '1px solid #1e293b', paddingBottom: '0', overflowX: 'auto', whiteSpace: 'nowrap' },
-  tab: { padding: '10px 16px', border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '14px', borderBottom: '2px solid transparent', flexShrink: 0 },
+  tabs: { display: 'flex', gap: '4px', marginTop: '16px', borderBottom: '1px solid #1e293b', paddingBottom: '0', overflowX: 'auto' },
+  tab: { padding: '10px 16px', border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '14px', borderBottom: '2px solid transparent', whiteSpace: 'nowrap' },
   activeTab: { color: '#3b82f6', borderBottom: '2px solid #3b82f6' },
   main: { marginTop: '20px' },
   loading: { display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: '#94a3b8' },
@@ -2422,33 +2170,6 @@ const REPLY_TEMPLATES = [
 ]
 
 // ===========================================
-// Static Data: Catalog Products
-// ===========================================
-const CATALOG_PRODUCTS = [
-  { name: "Oversize 210gsm", category: "Oversized Tees", gsm: "210gsm", description: "Oversized Drop Shoulder 210gsm, Terry Cotton Loopknit Heavy Gauge, 100% Cotton Supercombed Red Lable Premium Fabric", bulk: 175, sample: 210, colors: ["Black","White","Lavender","Beige","Red","Sage Green","Brown","Off-white","Orange","Navy"], sizes: "S, M, L, XL, XXL" },
-  { name: "Oversize 240gsm", category: "Oversized Tees", gsm: "240gsm", description: "Oversized Drop-shoulder, 240gsm, Terry cotton/Loopknit Heavy Gauge, 100% Cotton Premium Quality Biowash Fabric", bulk: 180, sample: 222, colors: ["Black","White","Red","Maroon","Off-white","Beige","Lavender","Brown","Rose Pink","Charcoal","Army Green","Powder Blue"], sizes: "XS, S, M, L, XL, XXL" },
-  { name: "Oversize 180gsm", category: "Oversized Tees", gsm: "180gsm", description: "Oversized Drop-shoulder 180gsm, 100% Cotton Supercombed Premium Quality Red Lable Fabric", bulk: 165, sample: 198, colors: ["Black","White"], sizes: "S, M, L, XL, XXL" },
-  { name: "Boxy Fit", category: "Oversized Tees", gsm: "180gsm", description: "Boxy Fit Drop-shoulder Tshirt, 180gsm, 100% Cotton Supercombed Premium Quality Red Lable Fabric", bulk: 175, sample: 204, colors: ["Black","White"], sizes: "XS, S, M, L, XL, XXL" },
-  { name: "AcidWash Oversize", category: "Oversized Tees", gsm: "240gsm", description: "AcidWash OS (Oversize Fit), 240gsm, 100% cotton Biowash French Terry Loopknit", bulk: 220, sample: 264, colors: ["Black"], sizes: "XS, S, M, L, XL, XXL" },
-  { name: "True Biowash Round Neck", category: "Round Neck Tees", gsm: "180gsm", description: "Regular Fit, True Biowash Round neck, 180gsm, 100% Cotton Supercombed Premium Quality Red Lable Fabric", bulk: 140, sample: 174, colors: ["Black","White","Maroon","Navy","Mustard Yellow","Red","Bottle Green","Beige","Royal Blue","Lavender","Sky","Grey","Bhagwa"], sizes: "36, 38, 40, 42, 44, 46" },
-  { name: "Biowash Round Neck", category: "Round Neck Tees", gsm: "180gsm", description: "Regular Fit, Biowash Round neck, 180gsm, 100% Cotton Premium Quality Fabric", bulk: 130, sample: 162, colors: ["Black","White","Navy","Red","Brown","Maroon","Charcoal","Off-white","Rose Pink"], sizes: "36, 38, 40, 42, 44, 46" },
-  { name: "Non Bio Round Neck", category: "Round Neck Tees", gsm: "180gsm", description: "Non Bio Round neck, 180gsm, 88% Cotton, 12% Polyester", bulk: 102, sample: 129, colors: ["Black"], sizes: "36, 38, 40, 42, 44, 46" },
-  { name: "Sublimation T-Shirt", category: "Round Neck Tees", gsm: "200gsm", description: "Regular Fit Round neck, 200gsm, Cotton Feel Polyester Sublimation tshirt", bulk: 115, sample: 144, colors: ["White"], sizes: "36, 38, 40, 42, 44, 46" },
-  { name: "Premium Polo", category: "Polo T-Shirts", gsm: "220gsm", description: "Most Premium Honeycomb Polo, 220gsm, 100% Cotton Supercombed Red Lable Fabric", bulk: 220, sample: 270, colors: ["Black","White","Navy","Maroon"], sizes: "36, 38, 40, 42, 44, 46" },
-  { name: "Cotton Polo", category: "Polo T-Shirts", gsm: "220gsm", description: "Cotton Matty Polo neck, 220gsm, 88% Cotton, 12% Polyester", bulk: 180, sample: 222, colors: ["Black","White","Navy","Grey","Maroon","Charcoal"], sizes: "36, 38, 40, 42, 44, 46" },
-  { name: "Zip Hoodie", category: "Hoodies", gsm: "320gsm", description: "Zipper Hoodie, 320gsm, Cotton Brushed Loopknit, 88% cotton, 12% polyester", bulk: 325, sample: 390, colors: ["Black"], sizes: "S, M, L, XL, XXL" },
-  { name: "Hoodie 320gsm (Black)", category: "Hoodies", gsm: "320gsm", description: "Non-zipper Hoodie, 320gsm, Cotton Brushed Loopknit, 88% cotton, 12% polyester", bulk: 295, sample: 366, colors: ["Black"], sizes: "S, M, L, XL, XXL" },
-  { name: "Hoodie 320gsm", category: "Hoodies", gsm: "320gsm", description: "Non-zipper Hoodie, 320gsm, Cotton Brushed Loopknit, 88% cotton, 12% polyester", bulk: 325, sample: 402, colors: ["White","Navy","Army Green","Off-white","Maroon","Grey","Red"], sizes: "S, M, L, XL, XXL" },
-  { name: "Dropshoulder Hoodie 430gsm", category: "Hoodies", gsm: "430gsm", description: "Most Heavy Non-zipper Dropshoulder Hoodie, 430gsm, Cotton Brushed Loopknit, 88% cotton, 12% polyester", bulk: 380, sample: 468, colors: ["Black"], sizes: "S, M, L, XL, XXL" },
-  { name: "Hoodie 430gsm", category: "Hoodies", gsm: "430gsm", description: "Most Heavy Non-zipper Dropshoulder Hoodie, 430gsm, Cotton Brushed Loopknit, 88% cotton, 12% polyester", bulk: 418, sample: 502, colors: ["Navy","White","Off-white"], sizes: "S, M, L, XL, XXL" },
-  { name: "Sweatshirt", category: "Sweatshirts & Jackets", gsm: "320gsm", description: "Sweatshirt, 320gsm, Cotton Brushed Loopknit, 88% cotton, 12% polyester", bulk: 225, sample: 276, colors: ["Black","Navy","Grey","Army Green"], sizes: "S, M, L, XL, XXL" },
-  { name: "Sweatshirt 2", category: "Sweatshirts & Jackets", gsm: "320gsm", description: "Sweatshirt, 320gsm, Cotton Brushed Loopknit, 88% cotton, 12% polyester", bulk: 240, sample: 288, colors: ["Maroon","White","Off-white"], sizes: "S, M, L, XL, XXL" },
-  { name: "Varsity Jacket", category: "Sweatshirts & Jackets", gsm: "320gsm", description: "Varsity Jacket, 320gsm, Cotton Brushed Loopknit, White Sleeve/Black Body, 88% cotton, 12% polyester", bulk: 335, sample: 402, colors: ["Black"], sizes: "XS, S, M, L, XL, XXL" },
-  { name: "Kids Round Neck", category: "Kids & Bottomwear", gsm: "180gsm", description: "True Biowash Kids Round neck, 180gsm, 100% Cotton Supercombed Premium Quality Red Lable Fabric", bulk: 110, sample: 144, colors: ["Black","White","Red","Baby Pink","Mustard Yellow"], sizes: "20, 22, 24, 26, 28, 30, 32, 34" },
-  { name: "Shorts", category: "Kids & Bottomwear", gsm: "240gsm", description: "240gsm, Terry cotton/Loopknit Heavy Gauge, 100% Cotton Supercombed Premium Quality Red Lable Fabric, (Zipper Left and Right pocket, 1 back pocket)", bulk: 205, sample: 246, colors: ["Black","Off-white","Lavender","Beige"], sizes: "XS, S, M, L, XL" },
-]
-
-// ===========================================
 // Static Data: Style Pairs (from style-pairs-final.txt)
 // ===========================================
 const STYLE_PAIRS = [
@@ -2517,123 +2238,4 @@ const STYLE_PAIRS = [
 // ===========================================
 // Catalog Tab Component
 // ===========================================
-function CatalogTab() {
-  const [search, setSearch] = useState('')
-  const [expanded, setExpanded] = useState(null)
-  const categories = [...new Set(CATALOG_PRODUCTS.map(p => p.category))]
-
-  const filtered = CATALOG_PRODUCTS.filter(p =>
-    !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase()) || p.category.toLowerCase().includes(search.toLowerCase())
-  )
-
-  const groupedFiltered = categories.map(cat => ({
-    name: cat,
-    products: filtered.filter(p => p.category === cat)
-  })).filter(g => g.products.length > 0)
-
-  return (
-    <div>
-      <h2 style={styles.sectionTitle}>Product Catalog ({CATALOG_PRODUCTS.length} products)</h2>
-      <div style={{ margin: '12px 0' }}>
-        <input type="text" placeholder="Search products..." value={search} onChange={e => setSearch(e.target.value)}
-          style={{ width: '100%', padding: '10px 14px', border: '1px solid #334155', borderRadius: '8px', background: '#1e293b', color: '#f8fafc', fontSize: '14px', boxSizing: 'border-box' }} />
-      </div>
-      {groupedFiltered.map(group => (
-        <div key={group.name} style={styles.kbSection}>
-          <div style={styles.kbHeader} onClick={() => setExpanded(expanded === group.name ? null : group.name)}>
-            <span style={styles.kbHeaderTitle}>{group.name} ({group.products.length})</span>
-            <span style={{ color: '#64748b' }}>{expanded === group.name ? '\u25BC' : '\u25B6'}</span>
-          </div>
-          {expanded === group.name && (
-            <div style={styles.kbContent}>
-              {group.products.map((p, i) => (
-                <div key={i} style={styles.kbCard}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
-                    <div>
-                      <div style={{ fontSize: '15px', fontWeight: '600', color: '#f8fafc' }}>{p.name}</div>
-                      <div style={styles.kbMeta}>{p.gsm} | {p.category}</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <span style={{ ...styles.priceBadge, background: '#14532d' }}>Bulk {'\u20B9'}{p.bulk}</span>
-                      <span style={{ ...styles.priceBadge, background: '#854d0e' }}>Sample {'\u20B9'}{p.sample}</span>
-                    </div>
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '6px' }}>{p.description}</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
-                    {p.colors.map((c, ci) => <span key={ci} style={styles.colorChip}>{c}</span>)}
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Sizes: {p.sizes}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ===========================================
-// Reply Templates Tab Component
-// ===========================================
-function ReplyTemplatesTab() {
-  const [search, setSearch] = useState('')
-  const filtered = REPLY_TEMPLATES.filter(t =>
-    !search || t.shortcut.toLowerCase().includes(search.toLowerCase()) || t.content.toLowerCase().includes(search.toLowerCase()) || t.category.toLowerCase().includes(search.toLowerCase())
-  )
-
-  return (
-    <div>
-      <h2 style={styles.sectionTitle}>Saved Reply Templates ({REPLY_TEMPLATES.length})</h2>
-      <div style={{ margin: '12px 0' }}>
-        <input type="text" placeholder="Search by shortcut, content, or category..." value={search} onChange={e => setSearch(e.target.value)}
-          style={{ width: '100%', padding: '10px 14px', border: '1px solid #334155', borderRadius: '8px', background: '#1e293b', color: '#f8fafc', fontSize: '14px', boxSizing: 'border-box' }} />
-      </div>
-      {filtered.map((t, i) => (
-        <div key={i} style={styles.kbCard}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <span style={{ padding: '2px 10px', borderRadius: '4px', background: '#3b82f6', color: '#fff', fontSize: '12px', fontWeight: '600' }}>/{t.shortcut}</span>
-            {t.mediaType && <span style={styles.mediaBadge}>{t.mediaType}</span>}
-            <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#475569', background: '#1e293b', padding: '2px 8px', borderRadius: '3px' }}>{t.category.replace(/_/g, ' ')}</span>
-          </div>
-          <div style={{ fontSize: '13px', color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{t.content}</div>
-        </div>
-      ))}
-      {filtered.length === 0 && <p style={styles.empty}>No matching templates</p>}
-    </div>
-  )
-}
-
-// ===========================================
-// Style Pairs Tab Component
-// ===========================================
-function StylePairsTab() {
-  const [search, setSearch] = useState('')
-  const filtered = STYLE_PAIRS.filter(p =>
-    !search || p.buyer.toLowerCase().includes(search.toLowerCase()) || p.om.toLowerCase().includes(search.toLowerCase())
-  )
-
-  return (
-    <div>
-      <h2 style={styles.sectionTitle}>Style Pairs ({STYLE_PAIRS.length} pairs)</h2>
-      <p style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '12px' }}>Buyer question &rarr; Om reply pairs. These define how Ketu should respond.</p>
-      <div style={{ margin: '0 0 12px' }}>
-        <input type="text" placeholder="Search style pairs..." value={search} onChange={e => setSearch(e.target.value)}
-          style={{ width: '100%', padding: '10px 14px', border: '1px solid #334155', borderRadius: '8px', background: '#1e293b', color: '#f8fafc', fontSize: '14px', boxSizing: 'border-box' }} />
-      </div>
-      {filtered.map((p, i) => (
-        <div key={i} style={{ background: '#1e293b', padding: '12px 14px', borderRadius: '8px', marginBottom: '6px' }}>
-          <div style={{ fontSize: '13px', marginBottom: '4px' }}>
-            <span style={{ color: '#f87171', fontWeight: '600' }}>Buyer:</span> <span style={{ color: '#e2e8f0' }}>{p.buyer}</span>
-          </div>
-          <div style={{ fontSize: '13px' }}>
-            <span style={{ color: '#22c55e', fontWeight: '600' }}>Om:</span> <span style={{ color: '#86efac' }}>{p.om}</span>
-          </div>
-        </div>
-      ))}
-      {filtered.length === 0 && <p style={styles.empty}>No matching pairs</p>}
-    </div>
-  )
-}
-
 export default App
