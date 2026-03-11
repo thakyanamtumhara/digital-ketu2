@@ -432,6 +432,65 @@ app.get('/api/learning/manual-pairs', async (c) => {
   return c.json(pairs)
 })
 
+// All pulled pairs (history pull) with summary
+app.get('/api/learning/pulled-pairs', async (c) => {
+  const page = parseInt(c.req.query('page') || '1')
+  const pageSize = parseInt(c.req.query('pageSize') || '50')
+  const category = c.req.query('category') || null
+  const result = c.req.query('result') || null // correction_added, ai_would_handle, skipped
+
+  const where = { whatsappNumber: 'history_pull' }
+  if (category) where.category = category
+  if (result) where.reviewResult = result
+
+  const [pairs, total, summary] = await Promise.all([
+    db.manualReplyPair.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    db.manualReplyPair.count({ where }),
+    // Summary stats
+    (async () => {
+      const baseWhere = { whatsappNumber: 'history_pull' }
+      const [totalPulled, reviewed, corrections, aiHandled, skipped, categories] = await Promise.all([
+        db.manualReplyPair.count({ where: baseWhere }),
+        db.manualReplyPair.count({ where: { ...baseWhere, reviewedAt: { not: null } } }),
+        db.manualReplyPair.count({ where: { ...baseWhere, reviewResult: 'correction_added' } }),
+        db.manualReplyPair.count({ where: { ...baseWhere, reviewResult: 'ai_would_handle' } }),
+        db.manualReplyPair.count({ where: { ...baseWhere, reviewResult: 'skipped' } }),
+        db.manualReplyPair.groupBy({
+          by: ['category'],
+          where: { ...baseWhere, category: { not: null } },
+          _count: { id: true },
+          orderBy: { _count: { id: 'desc' } },
+        }),
+      ])
+      // Also get corrections per category
+      const correctionsByCategory = await db.manualReplyPair.groupBy({
+        by: ['category'],
+        where: { ...baseWhere, reviewResult: 'correction_added', category: { not: null } },
+        _count: { id: true },
+      })
+      const corrMap = {}
+      for (const c of correctionsByCategory) {
+        if (c.category) corrMap[c.category] = c._count.id
+      }
+      return {
+        totalPulled, reviewed, corrections, aiHandled, skipped,
+        categories: categories.map(c => ({
+          name: c.category,
+          total: c._count.id,
+          corrections: corrMap[c.category] || 0,
+        })),
+      }
+    })(),
+  ])
+
+  return c.json({ pairs, total, page, pageSize, summary })
+})
+
 // ===========================================
 // Dashboard APIs
 // ===========================================

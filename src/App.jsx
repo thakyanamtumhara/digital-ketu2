@@ -91,6 +91,17 @@ function App() {
   }
 
   const [historyPullProgress, setHistoryPullProgress] = useState(null)
+  const [pulledPairsData, setPulledPairsData] = useState(null)
+  const [pulledPairsPage, setPulledPairsPage] = useState(1)
+  const [pulledPairsFilter, setPulledPairsFilter] = useState({ category: '', result: '' })
+
+  const fetchPulledPairs = useCallback(async (page = 1, category = '', result = '') => {
+    const params = new URLSearchParams({ page, pageSize: 50 })
+    if (category) params.set('category', category)
+    if (result) params.set('result', result)
+    const res = await fetch(`${API}/learning/pulled-pairs?${params}`)
+    if (res.ok) setPulledPairsData(await res.json())
+  }, [])
 
   const triggerHistoryPull = async (limit = 500) => {
     const res = await fetch(`${API}/learning/history-pull`, {
@@ -188,7 +199,7 @@ function App() {
 
       {/* Tabs */}
       <nav style={styles.tabs}>
-        {['live', 'analytics', 'defer', 'filters', 'learning', 'settings', 'sync'].map(t => (
+        {['live', 'analytics', 'defer', 'filters', 'learning', 'pulled', 'settings', 'sync'].map(t => (
           <button
             key={t}
             style={{ ...styles.tab, ...(tab === t ? styles.activeTab : {}) }}
@@ -199,9 +210,10 @@ function App() {
               if (t === 'analytics') fetchAnalytics()
               if (t === 'filters') fetchFilterStats()
               if (t === 'learning') fetchLearningStats()
+              if (t === 'pulled') fetchPulledPairs(1, '', '')
             }}
           >
-            {t === 'live' ? 'Live Monitor' : t === 'analytics' ? 'Analytics' : t === 'defer' ? 'Defer to Ketu' : t === 'filters' ? 'Pre-AI Filters' : t === 'learning' ? 'Learning' : t === 'settings' ? 'Settings' : 'Sync'}
+            {{live:'Live Monitor', analytics:'Analytics', defer:'Defer to Ketu', filters:'Pre-AI Filters', learning:'Learning', pulled:'Pulled Pairs', settings:'Settings', sync:'Sync'}[t]}
           </button>
         ))}
       </nav>
@@ -216,6 +228,7 @@ function App() {
         {tab === 'defer' && <DeferManager list={deferList} onDelete={deleteDefer} settings={settings} updateSetting={updateSetting} />}
         {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={fetchFilterStats} />}
         {tab === 'learning' && <LearningPanel stats={learningStats} settings={settings} onRun={triggerLearningRun} running={learningRunning} onToggle={toggleLearning} onRefresh={fetchLearningStats} onBacklog={triggerBacklog} backlogProgress={backlogProgress} onHistoryPull={triggerHistoryPull} historyPullProgress={historyPullProgress} />}
+        {tab === 'pulled' && <PulledPairsPanel data={pulledPairsData} page={pulledPairsPage} filter={pulledPairsFilter} onPageChange={(p) => { setPulledPairsPage(p); fetchPulledPairs(p, pulledPairsFilter.category, pulledPairsFilter.result) }} onFilterChange={(f) => { setPulledPairsFilter(f); setPulledPairsPage(1); fetchPulledPairs(1, f.category, f.result) }} />}
         {tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
         {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} onSync={triggerSync} syncing={syncing} knowledge={knowledge} />}
       </main>
@@ -938,6 +951,218 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+const CATEGORY_COLORS = {
+  order_issue: '#ef4444', payment: '#f59e0b', delivery: '#3b82f6', complaint: '#dc2626',
+  pricing: '#8b5cf6', product_inquiry: '#06b6d4', website: '#64748b', greeting: '#22c55e',
+  informing: '#a3e635', other: '#94a3b8',
+}
+
+const CATEGORY_LABELS = {
+  order_issue: 'Order Issues', payment: 'Payment', delivery: 'Delivery', complaint: 'Complaints',
+  pricing: 'Pricing', product_inquiry: 'Product Inquiry', website: 'Website', greeting: 'Greetings',
+  informing: 'Informing', other: 'Other',
+}
+
+const RESULT_LABELS = { correction_added: 'AI Would Fail → Correction Added', ai_would_handle: 'AI Would Handle', skipped: 'Skipped' }
+const RESULT_COLORS = { correction_added: '#ef4444', ai_would_handle: '#22c55e', skipped: '#64748b' }
+
+function PulledPairsPanel({ data, page, filter, onPageChange, onFilterChange }) {
+  const [view, setView] = useState('summary')
+
+  if (!data) return <div style={{ padding: 20, color: '#94a3b8' }}>Loading pulled pairs...</div>
+
+  const { pairs, total, summary } = data
+  const totalPages = Math.ceil(total / (data.pageSize || 50))
+
+  return (
+    <div style={{ padding: 16 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ color: '#f1f5f9', margin: 0, fontSize: 18 }}>Pulled Pairs — Verification</h2>
+        <div style={{ display: 'flex', gap: 4, background: '#1e293b', borderRadius: 8, padding: 3 }}>
+          {['summary', 'details'].map(v => (
+            <button key={v} onClick={() => setView(v)} style={{
+              padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13,
+              background: view === v ? '#3b82f6' : 'transparent', color: view === v ? '#fff' : '#94a3b8',
+            }}>
+              {v === 'summary' ? 'Summary' : 'All Pairs'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {summary.totalPulled === 0 ? (
+        <div style={{ color: '#64748b', fontSize: 14, padding: 40, textAlign: 'center', background: '#1e293b', borderRadius: 8 }}>
+          No pairs pulled yet. Go to the Learning tab and click "Pull 500 Pairs" first.
+        </div>
+      ) : view === 'summary' ? (
+        /* ===== SUMMARY VIEW ===== */
+        <div>
+          {/* Top-level stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 20 }}>
+            {[
+              { label: 'Total Pulled', value: summary.totalPulled, color: '#3b82f6' },
+              { label: 'Reviewed', value: summary.reviewed, color: '#f1f5f9' },
+              { label: 'Corrections Added', value: summary.corrections, color: '#ef4444' },
+              { label: 'AI Would Handle', value: summary.aiHandled, color: '#22c55e' },
+              { label: 'Skipped', value: summary.skipped, color: '#64748b' },
+            ].map(s => (
+              <div key={s.label} style={{ background: '#1e293b', borderRadius: 8, padding: 14 }}>
+                <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 4 }}>{s.label}</div>
+                <div style={{ color: s.color, fontSize: 22, fontWeight: 700 }}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* What AI learned - big picture */}
+          <div style={{ background: '#1e293b', borderRadius: 8, padding: 16, marginBottom: 20 }}>
+            <h3 style={{ color: '#f1f5f9', margin: '0 0 12px', fontSize: 15 }}>What AI Learned from These Pairs</h3>
+            <div style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.7 }}>
+              <p style={{ margin: '0 0 8px' }}>
+                Out of <strong style={{ color: '#f1f5f9' }}>{summary.totalPulled}</strong> buyer→Ketu pairs pulled from WhatsApp history:
+              </p>
+              <ul style={{ margin: '0 0 8px', paddingLeft: 20 }}>
+                <li><strong style={{ color: '#ef4444' }}>{summary.corrections}</strong> pairs — AI would NOT have handled correctly. These have been added to <strong style={{ color: '#f1f5f9' }}>Defer to Ketu</strong> as corrections, so next time a similar question comes, your correct reply is used directly.</li>
+                <li><strong style={{ color: '#22c55e' }}>{summary.aiHandled}</strong> pairs — AI already knows how to handle these correctly. No action needed.</li>
+                {summary.skipped > 0 && <li><strong style={{ color: '#64748b' }}>{summary.skipped}</strong> pairs — skipped (too short or unclear to review).</li>}
+              </ul>
+              <p style={{ margin: '0 0 4px' }}>
+                <strong style={{ color: '#f1f5f9' }}>{summary.categories.length} categories</strong> were identified across your conversations:
+              </p>
+            </div>
+          </div>
+
+          {/* Category breakdown */}
+          <div style={{ background: '#1e293b', borderRadius: 8, padding: 16, marginBottom: 20 }}>
+            <h3 style={{ color: '#f1f5f9', margin: '0 0 12px', fontSize: 15 }}>Category Breakdown</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {summary.categories.map(cat => {
+                const pct = summary.totalPulled > 0 ? (cat.total / summary.totalPulled * 100).toFixed(1) : 0
+                const failPct = cat.total > 0 ? (cat.corrections / cat.total * 100).toFixed(0) : 0
+                const color = CATEGORY_COLORS[cat.name] || '#94a3b8'
+                return (
+                  <div key={cat.name} style={{ background: '#0f172a', borderRadius: 8, padding: 12, borderLeft: `3px solid ${color}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <div>
+                        <span style={{ color: '#f1f5f9', fontSize: 14, fontWeight: 600 }}>{CATEGORY_LABELS[cat.name] || cat.name}</span>
+                        <span style={{ color: '#64748b', fontSize: 12, marginLeft: 8 }}>{cat.total} pairs ({pct}%)</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
+                        <span style={{ color: '#ef4444' }}>{cat.corrections} corrections</span>
+                        <span style={{ color: '#64748b' }}>{failPct}% fail rate</span>
+                      </div>
+                    </div>
+                    <div style={{ background: '#334155', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+                      <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 4 }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Verdict */}
+          <div style={{ background: '#1e293b', borderRadius: 8, padding: 16 }}>
+            <h3 style={{ color: '#f1f5f9', margin: '0 0 8px', fontSize: 15 }}>Verdict</h3>
+            <div style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.7 }}>
+              {summary.corrections > 0 ? (
+                <p style={{ margin: 0 }}>
+                  AI's biggest weakness is in <strong style={{ color: '#f1f5f9' }}>
+                    {summary.categories.filter(c => c.corrections > 0).sort((a, b) => b.corrections - a.corrections).slice(0, 3).map(c => CATEGORY_LABELS[c.name] || c.name).join(', ')}
+                  </strong> — these categories had the most corrections. The corrections are now stored and will be used to handle future similar questions automatically.
+                </p>
+              ) : (
+                <p style={{ margin: 0 }}>No corrections were needed — AI would handle all these queries correctly.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* ===== DETAILS VIEW ===== */
+        <div>
+          {/* Filters */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+            <select value={filter.category} onChange={e => onFilterChange({ ...filter, category: e.target.value })} style={{
+              padding: '6px 12px', borderRadius: 6, border: '1px solid #334155', background: '#1e293b', color: '#f1f5f9', fontSize: 13,
+            }}>
+              <option value="">All Categories</option>
+              {summary.categories.map(c => (
+                <option key={c.name} value={c.name}>{CATEGORY_LABELS[c.name] || c.name} ({c.total})</option>
+              ))}
+            </select>
+            <select value={filter.result} onChange={e => onFilterChange({ ...filter, result: e.target.value })} style={{
+              padding: '6px 12px', borderRadius: 6, border: '1px solid #334155', background: '#1e293b', color: '#f1f5f9', fontSize: 13,
+            }}>
+              <option value="">All Results</option>
+              <option value="correction_added">Correction Added ({summary.corrections})</option>
+              <option value="ai_would_handle">AI Would Handle ({summary.aiHandled})</option>
+              <option value="skipped">Skipped ({summary.skipped})</option>
+            </select>
+            <span style={{ color: '#64748b', fontSize: 13, alignSelf: 'center' }}>
+              Showing {pairs.length} of {total} pairs (page {page}/{totalPages || 1})
+            </span>
+          </div>
+
+          {/* Pairs list */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {pairs.map((p, i) => {
+              const resultColor = RESULT_COLORS[p.reviewResult] || '#64748b'
+              const catColor = CATEGORY_COLORS[p.category] || '#94a3b8'
+              return (
+                <div key={p.id} style={{ background: '#1e293b', borderRadius: 8, padding: 14, borderLeft: `3px solid ${resultColor}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span style={{ color: '#64748b', fontSize: 11 }}>#{(page - 1) * 50 + i + 1}</span>
+                      {p.category && (
+                        <span style={{ background: catColor + '22', color: catColor, fontSize: 11, padding: '2px 8px', borderRadius: 10, border: `1px solid ${catColor}44` }}>
+                          {CATEGORY_LABELS[p.category] || p.category}
+                        </span>
+                      )}
+                      <span style={{ background: resultColor + '22', color: resultColor, fontSize: 11, padding: '2px 8px', borderRadius: 10, border: `1px solid ${resultColor}44` }}>
+                        {p.reviewResult === 'correction_added' ? 'Correction Added' : p.reviewResult === 'ai_would_handle' ? 'AI OK' : p.reviewResult || 'Pending'}
+                      </span>
+                    </div>
+                    <span style={{ color: '#64748b', fontSize: 11 }}>{new Date(p.createdAt).toLocaleString('en-IN')}</span>
+                  </div>
+                  <div style={{ marginBottom: 6 }}>
+                    <div style={{ color: '#64748b', fontSize: 11, marginBottom: 2 }}>Buyer Message:</div>
+                    <div style={{ color: '#f1f5f9', fontSize: 13, background: '#0f172a', padding: 8, borderRadius: 6 }}>{p.buyerMessage}</div>
+                  </div>
+                  <div style={{ marginBottom: 6 }}>
+                    <div style={{ color: '#64748b', fontSize: 11, marginBottom: 2 }}>Ketu's Reply:</div>
+                    <div style={{ color: '#22c55e', fontSize: 13, background: '#0f172a', padding: 8, borderRadius: 6 }}>{p.ketuReply}</div>
+                  </div>
+                  {p.reviewNote && (
+                    <div>
+                      <div style={{ color: '#64748b', fontSize: 11, marginBottom: 2 }}>AI's Assessment:</div>
+                      <div style={{ color: '#f59e0b', fontSize: 12, background: '#0f172a', padding: 8, borderRadius: 6, fontStyle: 'italic' }}>{p.reviewNote}</div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16 }}>
+              <button onClick={() => onPageChange(page - 1)} disabled={page <= 1} style={{
+                padding: '6px 14px', borderRadius: 6, border: 'none', cursor: page <= 1 ? 'default' : 'pointer',
+                background: '#334155', color: page <= 1 ? '#475569' : '#f1f5f9', fontSize: 13,
+              }}>Previous</button>
+              <span style={{ color: '#94a3b8', fontSize: 13, alignSelf: 'center' }}>Page {page} of {totalPages}</span>
+              <button onClick={() => onPageChange(page + 1)} disabled={page >= totalPages} style={{
+                padding: '6px 14px', borderRadius: 6, border: 'none', cursor: page >= totalPages ? 'default' : 'pointer',
+                background: '#334155', color: page >= totalPages ? '#475569' : '#f1f5f9', fontSize: 13,
+              }}>Next</button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
