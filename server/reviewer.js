@@ -13,6 +13,7 @@ import { clearFilterCache } from './process.js'
 const REVIEWER_MODEL = 'claude-sonnet-4-6-20250514'
 const HISTORY_PULL_MODEL = 'claude-opus-4-6-20250514' // Best model for one-time history pull
 const BATCH_SIZE = 20
+const HISTORY_PULL_BATCH_SIZE = 50 // Bigger batches for history pull — more context per call
 
 // Pricing (per token)
 const SONNET_INPUT_PRICE = 3.0 / 1_000_000   // $3 per 1M input tokens
@@ -202,8 +203,9 @@ RESPOND WITH ONLY VALID JSON — no markdown, no explanation:
   { "id": "PAIR_ID", "aiWouldFail": false, "category": "product_inquiry", "reason": "Simple product inquiry — AI has this in knowledge base" }
 ]`
 
-export async function reviewManualPairs(db, { model } = {}) {
+export async function reviewManualPairs(db, { model, batchSize } = {}) {
   const useModel = model || REVIEWER_MODEL
+  const useBatchSize = batchSize || BATCH_SIZE
   const isOpus = useModel.includes('opus')
   const inputPrice = isOpus ? OPUS_INPUT_PRICE : SONNET_INPUT_PRICE
   const outputPrice = isOpus ? OPUS_OUTPUT_PRICE : SONNET_OUTPUT_PRICE
@@ -211,7 +213,7 @@ export async function reviewManualPairs(db, { model } = {}) {
   const pairs = await db.manualReplyPair.findMany({
     where: { reviewedAt: null },
     orderBy: { createdAt: 'desc' },
-    take: BATCH_SIZE,
+    take: useBatchSize,
   })
 
   if (pairs.length === 0) return { reviewed: 0, corrections: 0, costUsd: 0 }
@@ -349,7 +351,7 @@ export async function pullAndReviewHistory(db, onProgress, { limit = 1000 } = {}
 
   while (true) {
     batchNumber++
-    const result = await reviewManualPairs(db, { model: historyModel })
+    const result = await reviewManualPairs(db, { model: historyModel, batchSize: HISTORY_PULL_BATCH_SIZE })
 
     totalReviewed += result.reviewed
     totalCorrections += result.corrections
@@ -416,16 +418,20 @@ export async function pullAndReviewHistory(db, onProgress, { limit = 1000 } = {}
 // After reviewing pairs, extract keywords that could be used as Pre-AI filters.
 // High-confidence keywords for existing categories → auto-added.
 // Low-confidence or new categories → pending manual review.
+// Pass 2 of smart 2-pass approach: Opus sees ALL reviewed pairs for deep pattern analysis.
 
 async function extractKeywordsFromReviewedPairs(db, { model } = {}) {
   const useModel = model || REVIEWER_MODEL
-  // Get recently reviewed pairs grouped by category
+  // Get ALL reviewed pairs — Opus 4.6 has 200K context, can handle 1000+ pairs
+  // This is the key insight: seeing ALL pairs lets the model find patterns across the full dataset
   const recentPairs = await db.manualReplyPair.findMany({
     where: { reviewedAt: { not: null }, category: { not: null } },
     orderBy: { reviewedAt: 'desc' },
-    take: 200,
+    take: 2000, // Get all available reviewed pairs (up to 2000)
     select: { buyerMessage: true, category: true },
   })
+
+  console.log(`[KeywordExtract] Loaded ${recentPairs.length} reviewed pairs for deep analysis with ${useModel}`)
 
   if (recentPairs.length < 10) return { autoAdded: 0, pending: 0, total: 0 }
 
@@ -449,10 +455,13 @@ async function extractKeywordsFromReviewedPairs(db, { model } = {}) {
     existingKeywordsMap[f.name] = f.keywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
   }
 
-  // Build prompt with all categories and sample messages
+  // Build prompt with all categories and ALL messages (Opus 4.6 has 200K context)
+  // Show up to 50 messages per category for deep pattern analysis
   const categorySections = Object.entries(byCategory)
-    .map(([cat, msgs]) => `### ${cat} (${msgs.length} messages)\n${msgs.slice(0, 15).map(m => `- "${m}"`).join('\n')}`)
+    .map(([cat, msgs]) => `### ${cat} (${msgs.length} messages)\n${msgs.slice(0, 50).map(m => `- "${m}"`).join('\n')}${msgs.length > 50 ? `\n... and ${msgs.length - 50} more similar messages` : ''}`)
     .join('\n\n')
+
+  console.log(`[KeywordExtract] Categories: ${Object.entries(byCategory).map(([c, m]) => `${c}(${m.length})`).join(', ')}`)
 
   const existingKwSection = existingFilters
     .map(f => `- ${f.name}: ${f.keywords.split(',').slice(0, 10).join(', ')}${f.keywords.split(',').length > 10 ? '...' : ''}`)
