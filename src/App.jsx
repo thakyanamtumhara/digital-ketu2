@@ -243,7 +243,7 @@ function App() {
               if (t === 'learning') fetchLearningStats()
             }}
           >
-            {{live:'Live Monitor', analytics:'Analytics', defer:'Defer to Ketu', filters:'Pre-AI Filters', learning:'Learning', settings:'Settings', sync:'Sync'}[t]}
+            {{live:'Live Monitor', analytics:'Analytics', defer:'Corrections', filters:'Pre-AI Filters', learning:'Learning', settings:'Settings', sync:'Sync'}[t]}
           </button>
         ))}
       </nav>
@@ -819,30 +819,14 @@ function StatCard({ label, value }) {
 }
 
 function DeferManager({ list, onDelete, settings, updateSetting }) {
-  const [editingMsg, setEditingMsg] = useState(false)
-  const [msgDraft, setMsgDraft] = useState(settings.deferMessage)
   return (
     <div>
-      <h2 style={styles.sectionTitle}>Defer to Ketu List</h2>
+      <h2 style={styles.sectionTitle}>Corrections</h2>
+      <p style={{ color: '#94a3b8', fontSize: 13, margin: '0 0 16px' }}>
+        When you edit an AI reply, the buyer's question + your correct reply become a correction pair. These are searched alongside Catalog, Reply Templates, and Style Pairs in the unified vector search.
+      </p>
 
-      {/* Editable defer message */}
-      <div style={styles.deferMsgBox}>
-        <label style={styles.label}>Defer message (sent to buyers):</label>
-        {editingMsg ? (
-          <div>
-            <textarea style={styles.textarea} value={msgDraft} onChange={e => setMsgDraft(e.target.value)} rows={3} />
-            <button style={styles.btnPrimary} onClick={() => { updateSetting('deferMessage', msgDraft); setEditingMsg(false) }}>Save</button>
-            <button style={styles.btnSecondary} onClick={() => setEditingMsg(false)}>Cancel</button>
-          </div>
-        ) : (
-          <div>
-            <p style={styles.deferMsgText}>{settings.deferMessage}</p>
-            <button style={styles.btnSecondary} onClick={() => setEditingMsg(true)}>Edit Message</button>
-          </div>
-        )}
-      </div>
-
-      {list.length === 0 && <p style={styles.empty}>No deferred questions yet</p>}
+      {list.length === 0 && <p style={styles.empty}>No corrections yet</p>}
       {list.map(item => (
         <div key={item.id} style={styles.deferCard}>
           <div style={styles.deferQuestion}><strong>Buyer asked:</strong> {item.buyerQuestion}</div>

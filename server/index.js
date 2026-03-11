@@ -1732,7 +1732,7 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
 // Run initial sync check on startup
 runScheduledSync().catch(err => console.error('[Sync] Startup sync check failed:', err.message))
 
-// One-time cleanup: clear old DeferToKetu data (corrections now go through unified vector search as CORRECTION source)
+// One-time cleanup: clear old DeferToKetu data + fix threshold
 ;(async () => {
   try {
     const count = await db.deferToKetu.count()
@@ -1741,8 +1741,14 @@ runScheduledSync().catch(err => console.error('[Sync] Startup sync check failed:
       await db.knowledgeChunk.deleteMany({ where: { source: 'CORRECTION' } })
       console.log(`[Cleanup] Cleared ${count} old DeferToKetu entries — corrections now use KnowledgeChunk (CORRECTION source)`)
     }
+    // Fix confidence threshold if it's set to old 0.6 value
+    const settings = await db.settings.findUnique({ where: { id: 'default' } })
+    if (settings && settings.confidenceThreshold < 0.8) {
+      await db.settings.update({ where: { id: 'default' }, data: { confidenceThreshold: 0.80 } })
+      console.log(`[Cleanup] Fixed confidence threshold: ${settings.confidenceThreshold} → 0.80`)
+    }
   } catch (err) {
-    console.error('[Cleanup] Failed to clear old defer data:', err.message)
+    console.error('[Cleanup] Startup cleanup failed:', err.message)
   }
 })()
 
