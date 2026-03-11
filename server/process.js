@@ -255,9 +255,13 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
-  // --- Check: Defer to Ketu list (skip for greetings) ---
+  // --- Check: Early informing detection (skip defer for purchase confirmations) ---
+  const informingKwsEarly = parseKeywords(settings.informingKeywords, DEFAULT_INFORMING_KEYWORDS)
+  const isInforming = informingKwsEarly.some(kw => lowerMsg.includes(kw))
+
+  // --- Check: Defer to Ketu list (skip for greetings AND informing messages) ---
   // If a correction exists (correctReply), use it directly instead of deferring
-  if (!isGreeting) {
+  if (!isGreeting && !isInforming) {
     const deferMatch = await vectorSearchDeferList(db, anthropic, mergedText, {
       threshold: settings.deferThreshold,
     })
@@ -563,6 +567,13 @@ const DEFAULT_INFORMING_KEYWORDS = [
   'most probably', 'probably', 'shayad',
   'video dekhi', 'video dekha', 'reel dekhi', 'reel dekha',
   'interested', 'interest hai',
+  // Purchase confirmations — buyer is informing they already ordered
+  'purchased', 'order kiya', 'order kar diya', 'order de diya',
+  'order place kiya', 'order placed', 'order kar diya hai',
+  'website se order', 'website se liya', 'website pe order',
+  'online order', 'order done', 'order ho gaya',
+  'le liya', 'kharid liya', 'khareed liya',
+  'payment kar diya', 'payment done', 'pay kar diya',
 ]
 
 const DEFAULT_LOGISTICS_KEYWORDS = [
