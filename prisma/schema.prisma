@@ -160,10 +160,12 @@ model ManualReplyPair {
   reviewedAt      DateTime?           // when Sonnet reviewed this
   reviewResult    String?             // "correction_added" | "ai_would_handle" | "skipped"
   reviewNote      String?             // reviewer's reasoning
+  category        String?             // "order_issue" | "payment" | "delivery" | "complaint" | "pricing" | "product_inquiry" | "website" | "greeting" | "informing" | "other"
   createdAt       DateTime  @default(now())
 
   @@index([reviewedAt])
   @@index([createdAt])
+  @@index([category])
 }
 
 // --- Sync Log ---

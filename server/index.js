@@ -6,7 +6,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage } from './process.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured } from './embeddings.js'
-import { runReviewJob, reviewBacklog } from './reviewer.js'
+import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
 
 const app = new Hono()
 const db = new PrismaClient()
@@ -269,6 +269,75 @@ app.post('/api/learning/backlog', async (c) => {
 app.get('/api/learning/backlog/progress', async (c) => {
   if (!backlogProgress) return c.json({ status: 'not_started' })
   return c.json(backlogProgress)
+})
+
+// One-time history pull — fetch 500 pairs from wwbun + review them
+let historyPullRunning = false
+let historyPullProgress = null
+
+app.post('/api/learning/history-pull', async (c) => {
+  if (historyPullRunning) {
+    return c.json({ error: 'History pull already running', progress: historyPullProgress }, 409)
+  }
+
+  const body = await c.req.json().catch(() => ({}))
+  const limit = Math.min(Math.max(parseInt(body.limit) || 500, 1), 1000) // 1-1000, default 500
+
+  historyPullRunning = true
+  historyPullProgress = { status: 'running', phase: 'fetching', fetched: 0, stored: 0, reviewed: 0, corrections: 0, costUsd: 0 }
+
+  // Run in background
+  pullAndReviewHistory(db, (progress) => {
+    historyPullProgress = { status: 'running', ...progress }
+  }, { limit }).then(result => {
+    historyPullProgress = { status: 'complete', ...result }
+    historyPullRunning = false
+    // Update learning cost
+    db.settings.update({
+      where: { id: 'default' },
+      data: { learningDailySpentUsd: { increment: result.costUsd } },
+    }).catch(() => {})
+    console.log(`[HistoryPull] Done: ${result.fetched} fetched, ${result.stored} stored, ${result.reviewed} reviewed, ${result.corrections} corrections`)
+  }).catch(err => {
+    historyPullProgress = { status: 'failed', error: err.message }
+    historyPullRunning = false
+    console.error('[HistoryPull] Failed:', err.message)
+  })
+
+  return c.json({ status: 'started', message: 'History pull started. Check /api/learning/history-pull/progress for updates.' })
+})
+
+app.get('/api/learning/history-pull/progress', async (c) => {
+  if (!historyPullProgress) return c.json({ status: 'not_started' })
+  return c.json(historyPullProgress)
+})
+
+// Category breakdown for dashboard
+app.get('/api/learning/categories', async (c) => {
+  const categories = await db.manualReplyPair.groupBy({
+    by: ['category'],
+    where: { category: { not: null } },
+    _count: { id: true },
+    orderBy: { _count: { id: 'desc' } },
+  })
+
+  const failsByCategory = await db.manualReplyPair.groupBy({
+    by: ['category'],
+    where: { category: { not: null }, reviewResult: 'correction_added' },
+    _count: { id: true },
+  })
+
+  const failMap = {}
+  for (const f of failsByCategory) {
+    if (f.category) failMap[f.category] = f._count.id
+  }
+
+  return c.json(categories.map(c => ({
+    category: c.category,
+    total: c._count.id,
+    aiWouldFail: failMap[c.category] || 0,
+    failRate: c._count.id > 0 ? Math.round(((failMap[c.category] || 0) / c._count.id) * 100) : 0,
+  })))
 })
 
 // Learning stats for dashboard

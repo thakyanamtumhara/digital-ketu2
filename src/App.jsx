@@ -90,6 +90,30 @@ function App() {
     }
   }
 
+  const [historyPullProgress, setHistoryPullProgress] = useState(null)
+
+  const triggerHistoryPull = async (limit = 500) => {
+    const res = await fetch(`${API}/learning/history-pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit }),
+    })
+    if (res.ok) {
+      setHistoryPullProgress({ status: 'running', phase: 'fetching', fetched: 0, stored: 0, reviewed: 0, corrections: 0 })
+      const poll = setInterval(async () => {
+        const pRes = await fetch(`${API}/learning/history-pull/progress`)
+        if (pRes.ok) {
+          const progress = await pRes.json()
+          setHistoryPullProgress(progress)
+          if (progress.status === 'complete' || progress.status === 'failed') {
+            clearInterval(poll)
+            fetchLearningStats()
+          }
+        }
+      }, 5000)
+    }
+  }
+
   const toggleLearning = async (enabled) => {
     await fetch(`${API}/learning/toggle`, {
       method: 'PUT',
@@ -191,7 +215,7 @@ function App() {
         {tab === 'analytics' && <Analytics analytics={analytics} period={period} setPeriod={setPeriod} />}
         {tab === 'defer' && <DeferManager list={deferList} onDelete={deleteDefer} settings={settings} updateSetting={updateSetting} />}
         {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={fetchFilterStats} />}
-        {tab === 'learning' && <LearningPanel stats={learningStats} settings={settings} onRun={triggerLearningRun} running={learningRunning} onToggle={toggleLearning} onRefresh={fetchLearningStats} onBacklog={triggerBacklog} backlogProgress={backlogProgress} />}
+        {tab === 'learning' && <LearningPanel stats={learningStats} settings={settings} onRun={triggerLearningRun} running={learningRunning} onToggle={toggleLearning} onRefresh={fetchLearningStats} onBacklog={triggerBacklog} backlogProgress={backlogProgress} onHistoryPull={triggerHistoryPull} historyPullProgress={historyPullProgress} />}
         {tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
         {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} onSync={triggerSync} syncing={syncing} knowledge={knowledge} />}
       </main>
@@ -917,7 +941,7 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
   )
 }
 
-function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, onBacklog, backlogProgress }) {
+function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, onBacklog, backlogProgress, onHistoryPull, historyPullProgress }) {
   if (!stats) return <div style={{ padding: 20, color: '#94a3b8' }}>Loading learning stats...</div>
 
   const costInr = (stats.dailyCost.spent * 85).toFixed(1)
@@ -1056,6 +1080,57 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
               <span>Cost: Rs {((backlogProgress.totalCostUsd || 0) * 85).toFixed(1)}</span>
               {backlogProgress.batches && <span>Batches: {backlogProgress.batches}</span>}
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* History Pull from wwbun */}
+      <div style={{ background: '#1e293b', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div>
+            <div style={{ color: '#f1f5f9', fontSize: 14, fontWeight: 600 }}>Pull History from WhatsApp</div>
+            <div style={{ color: '#64748b', fontSize: 12 }}>One-time pull of 500 buyer→Ketu reply pairs from wwbun. Sonnet reviews each pair and auto-adds corrections. ~Rs 29 cost.</div>
+          </div>
+          <button
+            onClick={() => onHistoryPull(500)}
+            disabled={historyPullProgress?.status === 'running'}
+            style={{
+              padding: '8px 16px', borderRadius: 6, border: 'none', cursor: historyPullProgress?.status === 'running' ? 'wait' : 'pointer',
+              background: '#0ea5e9', color: '#fff', fontSize: 13, opacity: historyPullProgress?.status === 'running' ? 0.6 : 1,
+            }}
+          >
+            {historyPullProgress?.status === 'running' ? 'Pulling...' : 'Pull 500 Pairs'}
+          </button>
+        </div>
+        {historyPullProgress && (
+          <div style={{ background: '#0f172a', borderRadius: 6, padding: 10, marginTop: 8 }}>
+            <div style={{ color: historyPullProgress.status === 'complete' ? '#22c55e' : historyPullProgress.status === 'failed' ? '#ef4444' : '#f59e0b', fontSize: 13, marginBottom: 4 }}>
+              {historyPullProgress.status === 'running'
+                ? historyPullProgress.phase === 'fetching' ? 'Fetching pairs from WhatsApp...'
+                : historyPullProgress.phase === 'stored' ? `Stored ${historyPullProgress.stored} pairs, starting review...`
+                : `Reviewing batch ${historyPullProgress.batchNumber}...`
+                : historyPullProgress.status === 'complete' ? 'History pull complete!'
+                : `Failed: ${historyPullProgress.error}`}
+            </div>
+            <div style={{ display: 'flex', gap: 16, color: '#94a3b8', fontSize: 12, flexWrap: 'wrap' }}>
+              <span>Fetched: {historyPullProgress.fetched || 0}</span>
+              <span>Stored: {historyPullProgress.stored || 0}</span>
+              <span>Reviewed: {historyPullProgress.totalReviewed || historyPullProgress.reviewed || 0}</span>
+              <span>Corrections: {historyPullProgress.totalCorrections || historyPullProgress.corrections || 0}</span>
+              <span>Cost: Rs {((historyPullProgress.totalCostUsd || historyPullProgress.costUsd || 0) * 85).toFixed(1)}</span>
+            </div>
+            {historyPullProgress.categories && Object.keys(historyPullProgress.categories).length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 4 }}>Categories found:</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {Object.entries(historyPullProgress.categories).sort((a, b) => b[1] - a[1]).map(([cat, count]) => (
+                    <span key={cat} style={{ background: '#334155', color: '#e2e8f0', fontSize: 11, padding: '2px 8px', borderRadius: 10 }}>
+                      {cat}: {count}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

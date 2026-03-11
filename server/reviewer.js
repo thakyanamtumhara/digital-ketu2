@@ -49,10 +49,12 @@ COMMON FAILURES TO WATCH:
 
 For rating ≤ 3, suggest the correct reply in the same language/style as the buyer.
 
+CATEGORIZE each message into one of: order_issue, payment, delivery, complaint, pricing, product_inquiry, website, greeting, informing, other.
+
 RESPOND WITH ONLY VALID JSON — no markdown, no explanation:
 [
-  { "id": "MESSAGE_ID", "rating": 4, "reason": "Good reply, natural tone", "suggestedReply": null },
-  { "id": "MESSAGE_ID", "rating": 2, "reason": "Buyer said site not working, AI suggested visiting site", "suggestedReply": "Sir, thodi der baad try kariye. Network ka issue hoga." }
+  { "id": "MESSAGE_ID", "rating": 4, "category": "product_inquiry", "reason": "Good reply, natural tone", "suggestedReply": null },
+  { "id": "MESSAGE_ID", "rating": 2, "category": "website", "reason": "Buyer said site not working, AI suggested visiting site", "suggestedReply": "Sir, thodi der baad try kariye. Network ka issue hoga." }
 ]`
 
 export async function reviewAiReplies(db) {
@@ -178,10 +180,22 @@ THE AI CANNOT HANDLE:
 - Anything requiring personal judgment or business decisions
 - Adding/removing items from existing orders
 
+CATEGORIZE each pair into one of these categories:
+- order_issue (missing items, wrong items, damage, replacement, order modification)
+- payment (payment confirmation, refund, dispute, advance payment)
+- delivery (tracking, dispatch status, courier issues, delivery timing)
+- complaint (angry buyer, frustration, quality issue, service complaint)
+- pricing (custom pricing, bulk deals, discount requests, negotiation)
+- product_inquiry (rates, colors, sizes, availability, MOQ, catalog)
+- website (site issues, ordering help, technical problems)
+- greeting (hello, hi, welcome, casual chat)
+- informing (buyer sharing info, confirming purchase, future plans)
+- other (anything that doesn't fit above)
+
 RESPOND WITH ONLY VALID JSON — no markdown, no explanation:
 [
-  { "id": "PAIR_ID", "aiWouldFail": true, "reason": "Order damage complaint — AI cannot handle replacements" },
-  { "id": "PAIR_ID", "aiWouldFail": false, "reason": "Simple product inquiry — AI has this in knowledge base" }
+  { "id": "PAIR_ID", "aiWouldFail": true, "category": "order_issue", "reason": "Order damage complaint — AI cannot handle replacements" },
+  { "id": "PAIR_ID", "aiWouldFail": false, "category": "product_inquiry", "reason": "Simple product inquiry — AI has this in knowledge base" }
 ]`
 
 export async function reviewManualPairs(db) {
@@ -250,12 +264,127 @@ export async function reviewManualPairs(db) {
         reviewedAt: new Date(),
         reviewResult: result.aiWouldFail ? 'correction_added' : 'ai_would_handle',
         reviewNote: result.reason || null,
+        category: result.category || null,
       },
     })
   }
 
   console.log(`[Reviewer] Manual pairs: ${pairs.length} reviewed, ${corrections} corrections, $${costUsd.toFixed(4)} cost`)
   return { reviewed: pairs.length, corrections, costUsd }
+}
+
+// ===========================
+// History Pull: Fetch pairs from wwbun + review in batches
+// ===========================
+
+export async function pullAndReviewHistory(db, onProgress, { limit = 500 } = {}) {
+  const WWBUN_API_URL = process.env.WWBUN_API_URL
+  const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
+
+  if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) {
+    throw new Error('WWBUN_API_URL or DIGITAL_KETU_SECRET not configured')
+  }
+
+  // Step 1: Fetch pairs from wwbun
+  console.log(`[HistoryPull] Fetching ${limit} pairs from wwbun...`)
+  const response = await fetch(`${WWBUN_API_URL}/api/messages/export-style-pairs?limit=${limit}`, {
+    headers: { 'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET },
+  })
+
+  if (!response.ok) {
+    throw new Error(`wwbun export failed: ${response.status} ${response.statusText}`)
+  }
+
+  const pairs = await response.json()
+  console.log(`[HistoryPull] Fetched ${pairs.length} pairs from wwbun`)
+
+  if (pairs.length === 0) {
+    return { fetched: 0, stored: 0, reviewed: 0, corrections: 0, costUsd: 0, categories: {} }
+  }
+
+  // Step 2: Store as ManualReplyPair (skip duplicates by checking buyerMessage + ketuReply)
+  let stored = 0
+  for (const pair of pairs) {
+    try {
+      // Check if this exact pair already exists
+      const existing = await db.manualReplyPair.findFirst({
+        where: { buyerMessage: pair.buyerMessage, ketuReply: pair.omReply },
+        select: { id: true },
+      })
+      if (existing) continue
+
+      await db.manualReplyPair.create({
+        data: {
+          whatsappNumber: 'history_pull',
+          buyerMessage: pair.buyerMessage,
+          ketuReply: pair.omReply,
+        },
+      })
+      stored++
+    } catch (err) {
+      // Skip duplicates or errors
+    }
+  }
+
+  console.log(`[HistoryPull] Stored ${stored} new pairs (${pairs.length - stored} duplicates skipped)`)
+
+  if (onProgress) onProgress({ phase: 'stored', fetched: pairs.length, stored, reviewed: 0, corrections: 0, costUsd: 0 })
+
+  // Step 3: Review all unreviewed pairs in batches
+  let totalReviewed = 0, totalCorrections = 0, totalCostUsd = 0
+  let batchNumber = 0
+  const categories = {}
+
+  while (true) {
+    batchNumber++
+    const result = await reviewManualPairs(db)
+
+    totalReviewed += result.reviewed
+    totalCorrections += result.corrections
+    totalCostUsd += result.costUsd
+
+    if (onProgress) {
+      onProgress({
+        phase: 'reviewing',
+        fetched: pairs.length,
+        stored,
+        batchNumber,
+        totalReviewed,
+        totalCorrections,
+        totalCostUsd,
+      })
+    }
+
+    console.log(`[HistoryPull] Batch ${batchNumber}: +${result.reviewed} reviewed, +${result.corrections} corrections, $${totalCostUsd.toFixed(4)} cost`)
+
+    if (result.reviewed === 0) break
+
+    // Small delay between batches
+    await new Promise(r => setTimeout(r, 2000))
+  }
+
+  // Step 4: Aggregate category stats
+  const categoryStats = await db.manualReplyPair.groupBy({
+    by: ['category'],
+    where: { category: { not: null } },
+    _count: { id: true },
+  })
+  for (const stat of categoryStats) {
+    if (stat.category) categories[stat.category] = stat._count.id
+  }
+
+  console.log(`[HistoryPull] Complete: ${pairs.length} fetched, ${stored} stored, ${totalReviewed} reviewed, ${totalCorrections} corrections, $${totalCostUsd.toFixed(4)} cost`)
+  console.log(`[HistoryPull] Categories:`, categories)
+
+  return {
+    fetched: pairs.length,
+    stored,
+    reviewed: totalReviewed,
+    corrections: totalCorrections,
+    costUsd: totalCostUsd,
+    batches: batchNumber - 1,
+    categories,
+  }
 }
 
 // ===========================
