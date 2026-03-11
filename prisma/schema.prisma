@@ -141,9 +141,9 @@ model Settings {
   nextSyncAt          DateTime?
   // Self-learning settings
   learningEnabled     Boolean  @default(true)        // toggle learning on/off
-  learningIntervalHours Int    @default(4)            // run review every N hours
+  learningIntervalHours Int    @default(2)            // run review every N hours (aggressive for first weeks)
   lastReviewAt        DateTime?
-  learningDailyBudgetUsd Float @default(0.15)         // max daily spend on review calls (~Rs 12)
+  learningDailyBudgetUsd Float @default(0.50)         // max daily spend on review calls (~Rs 42) — higher for initial learning phase
   learningDailySpentUsd  Float @default(0)            // today's spend on review
   learningSpentResetAt   DateTime @default(now())     // when learning counter was last reset
   createdAt           DateTime @default(now())
