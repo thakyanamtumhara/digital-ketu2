@@ -1702,14 +1702,14 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
-              onClick={() => onHistoryPull(20)}
+              onClick={() => onHistoryPull((stats?.stats?.pendingManualPairs || 0) + 10)}
               disabled={historyPullProgress?.status === 'running'}
               style={{
                 padding: '8px 12px', borderRadius: 6, border: '1px solid #f59e0b', cursor: historyPullProgress?.status === 'running' ? 'wait' : 'pointer',
                 background: 'transparent', color: '#f59e0b', fontSize: 12, opacity: historyPullProgress?.status === 'running' ? 0.6 : 1,
               }}
             >
-              Test 20 Pairs
+              Test {(stats?.stats?.pendingManualPairs || 0) + 10} Pairs
             </button>
             <button
               onClick={() => onHistoryPull(1000)}
