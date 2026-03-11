@@ -1,7 +1,13 @@
 // Core message processing pipeline
-// Handles: merge → dedup → media check → cooldown → defer check → all chunks → Claude → reply
+// Handles: merge → dedup → media check → cooldown → defer check → vector search → Claude → reply
+//
+// Vector-based system (v2):
+// 1. Buyer message → Voyage AI embedding
+// 2. Vector search ALL 3 sources (style pairs, templates, catalog)
+// 3. Best match ≥ 85% (confidenceThreshold) → send top 5 to Claude → reply
+// 4. Best match < 85% → defer to Ketu (not enough knowledge)
 
-import { getAllChunks, vectorSearchDeferList } from './embeddings.js'
+import { vectorSearch, vectorSearchDeferList } from './embeddings.js'
 
 // ===========================================
 // Dynamic Pre-AI Filter Cache
@@ -245,6 +251,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       // For exact match filters, use normalizedText (honorifics stripped)
       // For greeting, use normalizedForGreeting (emojis also stripped)
       const textForMatch = filter.name === 'greeting' ? normalizedForGreeting : normalizedText
+      const lowerMsg = mergedText.trim().toLowerCase()
       const matched = checkKeywordMatch(textForMatch, lowerMsg, filter)
 
       if (!matched) continue
@@ -325,60 +332,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       'hy', 'hye', 'hola', 'yo',
     ]
     isGreeting = greetingPatterns.includes(normalizedForGreeting)
-
-    // Informing
-    const informingKwsEarly = parseKeywords(settings.informingKeywords, DEFAULT_INFORMING_KEYWORDS)
-    if (informingKwsEarly.some(kw => lowerMsg.includes(kw))) {
-      const informingReply = 'Ok noted sir 👍'
-      await sendReplyViaWwbun(whatsappNumber, informingReply)
-      await createLog(db, conversation.id, mergedText, messageIds, {
-        status: 'REPLIED', deferReason: 'informing', aiReply: informingReply,
-        processingMs: Date.now() - startTime, sentViaWwbun: true,
-        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
-      })
-      return
-    }
-
-    // Website issue
-    const siteWords = ['site', 'website', 'sale91', 'page']
-    const issueWords = ['issue', 'problem', 'error', 'down', 'nahi', 'ni', 'nhi', 'not']
-    const directWebsiteIssueKws = [
-      'open nahi', 'open ni', 'open nhi', 'khul nahi', 'khul ni', 'khul nhi',
-      'nahi khul', 'nhi khul', 'not opening', 'not working', 'not loading',
-      'load nahi', 'blank page', 'page not found', 'server error',
-    ]
-    const productIssueWords = ['product', 'tshirt', 't-shirt', 'shirt', 'item', 'listed', 'price', 'rate', 'photo', 'image', 'color', 'colour', 'size']
-    const hasSiteWord = siteWords.some(w => lowerMsg.includes(w))
-    const hasIssueWord = issueWords.some(w => lowerMsg.includes(w))
-    const hasDirectIssue = directWebsiteIssueKws.some(kw => lowerMsg.includes(kw))
-    const isProductIssue = productIssueWords.some(w => lowerMsg.includes(w))
-    if (((hasSiteWord && hasIssueWord) || hasDirectIssue) && !isProductIssue) {
-      const websiteIssueReply = 'Sir, issue toh nahi hai. Network ya server ka temporary issue hoga. Thodi der baad try kariye, open ho jaayega 👍'
-      await sendReplyViaWwbun(whatsappNumber, websiteIssueReply)
-      await createLog(db, conversation.id, mergedText, messageIds, {
-        status: 'REPLIED', deferReason: 'website_issue', aiReply: websiteIssueReply,
-        processingMs: Date.now() - startTime, sentViaWwbun: true,
-        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
-      })
-      return
-    }
-
-    // Angry buyer
-    const angryKeywords = [
-      'bakwas', 'bekar', 'ghatiya', 'worst', 'scam', 'fraud', 'cheat',
-      'dhoka', 'dhokha', 'complaint', 'consumer forum', 'legal',
-      'reply nahi karte', 'response nahi', 'koi jawab nahi',
-      'bahut bura', 'very bad', 'terrible', 'horrible', 'pathetic',
-      'pagal', 'bewakoof', 'stupid',
-    ]
-    if (angryKeywords.some(kw => lowerMsg.includes(kw))) {
-      await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
-      await createLog(db, conversation.id, mergedText, messageIds, {
-        status: 'DEFERRED', deferReason: 'angry_buyer', aiReply: settings.deferMessage,
-        processingMs: Date.now() - startTime, sentViaWwbun: true,
-      })
-      return
-    }
   }
 
   // --- WELCOME MESSAGE BYPASS ---
@@ -485,25 +438,50 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
   }
 
-  // --- Fetch knowledge chunks (SMART FILTERING to reduce tokens) ---
-  const allChunks = await getAllChunks(db)
+  // --- VECTOR SEARCH: Find relevant knowledge from all 3 sources ---
+  // Search 1: Knowledge (catalog + templates + policies) — top 5
+  // Search 2: Style pairs (Om's real replies) — top 3 for tone/style reference
+  const [knowledgeResults, stylePairResults] = await Promise.all([
+    vectorSearch(db, anthropic, mergedText, {
+      limit: 5,
+      minSimilarity: 0.0,
+      excludeSources: ['STYLE_PAIR', 'STYLE_GUIDE'],
+    }),
+    vectorSearch(db, anthropic, mergedText, {
+      limit: 3,
+      minSimilarity: 0.0,
+      sources: ['STYLE_PAIR'],
+    }),
+  ])
 
-  // If KB is completely empty, defer (sync hasn't run yet)
-  if (allChunks.length === 0) {
+  // Combine all results and find best similarity
+  const allVectorResults = [...knowledgeResults, ...stylePairResults]
+  const bestSimilarity = allVectorResults.length > 0
+    ? Math.max(...allVectorResults.map(r => Number(r.similarity)))
+    : 0
+
+  console.log(`[Vector] ${whatsappNumber} — ${knowledgeResults.length} knowledge + ${stylePairResults.length} style pairs, best: ${(bestSimilarity * 100).toFixed(1)}%`)
+
+  // --- CONFIDENCE CHECK: Zone 1 (≥85%) → answer, Zone 2/3 (<85%) → defer ---
+  const confidenceThreshold = settings.confidenceThreshold || 0.85
+
+  if (bestSimilarity < confidenceThreshold) {
+    // Below threshold — not enough knowledge to answer accurately
     await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'DEFERRED',
-      deferReason: 'empty_knowledge_base',
+      deferReason: 'low_confidence',
+      similarityScore: bestSimilarity,
       aiReply: settings.deferMessage,
+      knowledgeChunks: allVectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
       processingMs: Date.now() - startTime,
       sentViaWwbun: true,
     })
+    console.log(`[Defer] ${whatsappNumber} — best match ${(bestSimilarity * 100).toFixed(1)}% < ${(confidenceThreshold * 100).toFixed(0)}% threshold`)
     return
   }
 
   // --- Build prompt for Claude ---
-  // isFirstTime is always false here — welcome bypass already returned above
-
   // Get recent conversation history (last 5 messages)
   const recentLogs = await db.messageLog.findMany({
     where: { conversationId: conversation.id, status: 'REPLIED' },
@@ -513,82 +491,18 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   })
   const conversationHistory = recentLogs.reverse()
 
-  // Fetch Om's real reply style from defer-to-ketu corrections
-  const deferExamples = await db.deferToKetu.findMany({
-    select: { buyerQuestion: true, correctReply: true },
-    orderBy: { createdAt: 'desc' },
-    take: 10,
-  })
-
-  // Fetch ALL corrections for knowledge search (edited replies = factual knowledge)
-  const allCorrections = await db.deferToKetu.findMany({
-    where: { correctReply: { not: '' } },
-    select: { buyerQuestion: true, correctReply: true },
-  })
-
-  // Fetch Om's extracted style guide (compact, ~200 words instead of raw pairs)
+  // Fetch Om's extracted style guide (compact, ~200 words)
   const styleGuideChunk = await db.knowledgeChunk.findFirst({
     where: { source: 'STYLE_GUIDE', sourceId: 'om_style_guide' },
     select: { content: true },
   })
   const styleGuide = styleGuideChunk?.content || null
 
-  // --- Smart chunk selection based on message intent ---
-  // Instead of sending ALL 82 chunks (~8000 tokens), pick what's relevant (~2000-3000 tokens)
-  const filteredChunks = filterChunksForMessage(allChunks, mergedText, isGreeting, settings, allCorrections)
-
-  // Separate catalog, correction, and other chunks
-  const catalogChunks = filteredChunks.filter(c => c.source === 'CATALOG')
-  const correctionChunks = filteredChunks.filter(c => c.source === 'EDITED_REPLY')
-  const otherChunks = filteredChunks.filter(c => c.source !== 'CATALOG' && c.source !== 'EDITED_REPLY')
-
-  // Detect dispatch intent: buyer says payment done + wants dispatch
-  const dispatchKeywords = ['dispatch', 'nikal', 'bhej', 'ship', 'send', 'deliver', 'courier']
-  const paymentKeywords = ['payment', 'paid', 'pay', 'paisa', 'paise', 'amount', 'transfer']
-  const urgencyKeywords = ['abhi', 'aaj', 'now', 'today', 'jaldi', 'asap', 'urgent', 'turant']
-  const lowerMsg = mergedText.toLowerCase()
-  const hasDispatchIntent = (
-    dispatchKeywords.some(kw => lowerMsg.includes(kw)) ||
-    (paymentKeywords.some(kw => lowerMsg.includes(kw)) && urgencyKeywords.some(kw => lowerMsg.includes(kw)))
-  )
-
-  // Detect buying intent: buyer asking about price, ordering, MOQ, samples etc.
-  const buyingIntentKeywords = [
-    'price', 'rate', 'cost', 'kitna', 'kitne', 'kya rate', 'bhav', 'daam',
-    'order', 'buy', 'kharidna', 'lena', 'chahiye', 'mangta',
-    'moq', 'minimum', 'bulk', 'wholesale',
-    'sample', 'catalog', 'catalogue',
-    'how to order', 'kaise order', 'order kaise',
-  ]
-  const hasBuyingIntent = buyingIntentKeywords.some(kw => lowerMsg.includes(kw))
-
-  // Detect price negotiation intent: buyer saying price is high, asking for discount
-  const priceNegotiationKeywords = [
-    'price jada', 'price zyada', 'price jyada', 'price high', 'mehnga', 'mehenga', 'costly',
-    'expensive', 'sasta', 'kam karo', 'discount', 'offer', 'deal',
-    'jada hai', 'jyada hai', 'zyada hai', 'bahut hai',
-    'kam kar', 'thoda kam', 'rate kam',
-  ]
-  const hasPriceNegotiation = priceNegotiationKeywords.some(kw => lowerMsg.includes(kw))
-
-  // Detect competitor comparison intent: buyer comparing with other sellers/platforms
-  const competitorKeywords = [
-    'dusri jagah', 'doosri jagah', 'aur jagah', 'kahi aur', 'kahin aur',
-    'amazon', 'flipkart', 'meesho', 'indiamart', 'alibaba',
-    'competitor', 'compare', 'other seller', 'other supplier',
-  ]
-  const hasCompetitorIntent = competitorKeywords.some(kw => lowerMsg.includes(kw))
-
-  // Detect informing intent: buyer is sharing future plans, not inquiring
-  const informingKws = parseKeywords(settings.informingKeywords, DEFAULT_INFORMING_KEYWORDS)
-  const hasInformingIntent = informingKws.some(kw => lowerMsg.includes(kw))
-
-  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent, hasPriceNegotiation, hasCompetitorIntent, hasInformingIntent })
+  const systemPrompt = buildSystemPrompt({ settings, styleGuide, stylePairs: stylePairResults })
   const userPrompt = buildUserPrompt({
     mergedText,
-    chunks: otherChunks,
-    catalogChunks,
-    correctionChunks,
+    knowledgeResults,
+    stylePairResults,
     conversationHistory,
   })
 
@@ -614,7 +528,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'FAILED',
       deferReason: err.message,
-      knowledgeChunks: filteredChunks.map(c => ({ title: c.title, source: c.source })),
+      knowledgeChunks: allVectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
       processingMs: Date.now() - startTime,
     })
     return
@@ -653,11 +567,13 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   })
 
   // --- Log ---
+  const catalogMatches = knowledgeResults.filter(c => c.source === 'CATALOG')
   await createLog(db, conversation.id, mergedText, messageIds, {
     status: 'REPLIED',
     aiReply,
-    knowledgeChunks: filteredChunks.map(c => ({ title: c.title, source: c.source })),
-    catalogMatch: catalogChunks.length > 0 ? catalogChunks[0].metadata : null,
+    knowledgeChunks: allVectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
+    similarityScore: bestSimilarity,
+    catalogMatch: catalogMatches.length > 0 ? catalogMatches[0].metadata : null,
     promptTokens,
     completionTokens,
     totalTokens,
@@ -671,326 +587,68 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   console.log(`[Reply] ${whatsappNumber} — ${totalTokens} tokens, $${costUsd.toFixed(6)}, ${Date.now() - startTime}ms`)
 }
 
-// ===========================================
-// Smart Chunk Filtering (token optimization)
-// ===========================================
-// Instead of sending ALL 82 chunks (~8000 tokens), pick relevant ones (~2000-3000)
-
-const DEFAULT_PRODUCT_KEYWORDS = [
-  'tshirt', 't-shirt', 't shirt', 'hoodie', 'sweatshirt', 'polo', 'round neck',
-  'oversize', 'oversized', 'drop shoulder', 'jacket', 'varsity', 'shorts',
-  'kids', 'cotton', 'polyester', 'gsm', 'fabric', 'sublimation', 'acid wash',
-  'acidwash', 'biowash', 'zip', 'hoodie', 'jogger', 'bottom',
-  'price', 'rate', 'cost', 'kitna', 'kitne', 'kya rate', 'bhav', 'daam',
-  'color', 'colour', 'rang', 'size', 'sizes',
-  'catalog', 'catalogue', 'product', 'products', 'collection', 'range',
-  'sample', 'order', 'bulk', 'wholesale', 'moq', 'minimum',
-  'buy', 'kharidna', 'lena', 'chahiye', 'mangta', 'bhejo', 'ship',
-]
-
-// Generic buying-intent keywords that DON'T mean the buyer wants product info
-// These only trigger catalog when there's NO delivery/availability context
-const GENERIC_INTENT_KEYWORDS = [
-  'order', 'chahiye', 'mangta', 'bhejo', 'ship', 'lena', 'buy', 'kharidna',
-  'sample', 'bulk', 'wholesale', 'moq', 'minimum',
-]
-
-// Delivery/availability keywords — when present with only generic intent words, skip catalog
-const DELIVERY_AVAILABILITY_KEYWORDS = [
-  'delivery', 'shipping', 'dispatch', 'courier',
-  'mil jayega', 'mil jaayega', 'milega', 'milegi', 'mil jaega',
-  'pohoch jayega', 'pahunch jayega', 'pahunchega', 'pohochega',
-  'kitne din', 'kab tak', 'kab milega', 'kal', 'parso', 'parson',
-  'time lagega', 'time lagta', 'din lagenge', 'din lagte',
-  'delhi', 'mumbai', 'bangalore', 'kolkata', 'chennai', 'hyderabad',
-  'pune', 'jaipur', 'lucknow', 'ahmedabad', 'surat',
-  'maal chahiye', 'maal mil', 'maal bhej', 'goods',
-  'available', 'availability', 'stock', 'stock hai', 'stock mein',
-  'ready hai', 'ready ho jayega', 'taiyaar',
-]
-
-// Informing keywords — buyer is sharing plans/intent, not inquiring about products
-// e.g. "this winter I will be buying 5k hoodies" or "inform kar raha hu, aage lena hai"
-const DEFAULT_INFORMING_KEYWORDS = [
-  'just to inform', 'inform', 'batana tha', 'bata raha', 'bata rahi',
-  'plan hai', 'plan kar', 'planning', 'soch raha', 'soch rahi', 'socha hai',
-  'future mein', 'future me', 'aage', 'baad mein', 'baad me',
-  'winter mein', 'winter me', 'summer mein', 'summer me',
-  'this winter', 'this summer', 'next month', 'next year',
-  'coming winter', 'coming summer', 'coming month',
-  'will be buying', 'will buy', 'will order', 'will need',
-  'lene wala', 'lene wale', 'lenge', 'karenge', 'karunga', 'karungi',
-  'lunga', 'lungi', 'mangwaunga', 'mangwaungi',
-  'most probably', 'probably', 'shayad',
-  'video dekhi', 'video dekha', 'reel dekhi', 'reel dekha',
-  'interested', 'interest hai',
-  // Purchase confirmations — buyer is informing they already ordered
-  'purchased', 'order kiya', 'order kar diya', 'order de diya',
-  'order place kiya', 'order placed', 'order kar diya hai',
-  'website se order', 'website se liya', 'website pe order',
-  'online order', 'order done', 'order ho gaya',
-  'le liya', 'kharid liya', 'khareed liya',
-  'payment kar diya', 'payment done', 'pay kar diya',
-]
-
-const DEFAULT_LOGISTICS_KEYWORDS = [
-  'delivery', 'shipping', 'dispatch', 'track', 'tracking', 'courier',
-  'payment', 'pay', 'upi', 'bank', 'account', 'prepaid',
-  'gst', 'bill', 'invoice', 'tax',
-  'return', 'exchange', 'refund', 'cancel',
-  'printer', 'printing', 'embroidery', 'custom', 'customize',
-  'pickup', 'tiruppur', 'address', 'location', 'where',
-  'discount', 'offer', 'deal',
-  'cod', 'cash on delivery',
-  'time', 'kitne din', 'kab', 'when',
-]
-
-function parseKeywords(csvString, defaults) {
-  if (!csvString || !csvString.trim()) return defaults
-  return csvString.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
-}
-
-function filterChunksForMessage(allChunks, message, isGreeting, settings = {}, editedReplies = []) {
-  const lower = message.toLowerCase()
-  const policies = allChunks.filter(c => c.source === 'POLICY')
-  const catalog = allChunks.filter(c => c.source === 'CATALOG')
-  const savedReplies = allChunks.filter(c => c.source === 'SAVED_REPLY')
-
-  // Always include: policies (small, always relevant)
-  const selected = [...policies]
-
-  // For greetings: just policies (welcome already handled by bypass)
-  if (isGreeting) {
-    return selected
-  }
-
-  // Product-related keywords → include catalog (editable from Settings)
-  const productKeywords = parseKeywords(settings.productKeywords, DEFAULT_PRODUCT_KEYWORDS)
-  const matchedProductKws = productKeywords.filter(kw => lower.includes(kw))
-  let needsCatalog = matchedProductKws.length > 0
-
-  // If only generic intent keywords matched (chahiye, order, bhejo etc.)
-  // AND the message is about delivery/availability — skip catalog
-  if (needsCatalog) {
-    const allMatchedAreGeneric = matchedProductKws.every(kw => GENERIC_INTENT_KEYWORDS.includes(kw))
-    const hasDeliveryContext = DELIVERY_AVAILABILITY_KEYWORDS.some(kw => lower.includes(kw))
-    if (allMatchedAreGeneric && hasDeliveryContext) {
-      needsCatalog = false
-      console.log(`[FILTER] Skipping catalog — delivery/availability question (matched: ${matchedProductKws.join(', ')})`)
-    }
-  }
-
-  // If buyer is just INFORMING about future plans (not inquiring) — skip catalog
-  // e.g. "this winter I will be buying 5k hoodies just to inform"
-  if (needsCatalog) {
-    const informingKeywords = parseKeywords(settings.informingKeywords, DEFAULT_INFORMING_KEYWORDS)
-    const hasInformingContext = informingKeywords.some(kw => lower.includes(kw))
-    if (hasInformingContext) {
-      needsCatalog = false
-      console.log(`[FILTER] Skipping catalog — buyer is informing, not inquiring (matched product kws: ${matchedProductKws.join(', ')})`)
-    }
-  }
-
-  // Logistics/business keywords → include relevant saved replies (editable from Settings)
-  const logisticsKeywords = parseKeywords(settings.logisticsKeywords, DEFAULT_LOGISTICS_KEYWORDS)
-  const needsLogistics = logisticsKeywords.some(kw => lower.includes(kw))
-
-  if (needsCatalog) {
-    // General catalog keywords → send all products
-    const generalCatalogKeywords = [
-      'catalog', 'catalogue', 'product', 'products', 'collection', 'range',
-      'kya kya hai', 'sab dikhao', 'all products', 'full list', 'what all',
-    ]
-    const wantsFullCatalog = generalCatalogKeywords.some(kw => lower.includes(kw))
-
-    if (wantsFullCatalog) {
-      selected.push(...catalog)
-    } else {
-      // Smart match: only send products matching buyer's query
-      const matchedProducts = catalog.filter(product => {
-        const titleLower = (product.title || '').toLowerCase()
-        const contentLower = (product.content || '').toLowerCase()
-        const meta = product.metadata
-          ? (typeof product.metadata === 'string' ? JSON.parse(product.metadata) : product.metadata)
-          : {}
-        const colorsStr = (meta.colors || []).join(' ').toLowerCase()
-        const categoryStr = (meta.category || '').toLowerCase()
-
-        // Check product name, content, colors, category against buyer's words
-        const words = lower.split(/\s+/).filter(w => w.length > 2)
-        return words.some(w =>
-          titleLower.includes(w) || contentLower.includes(w) ||
-          colorsStr.includes(w) || categoryStr.includes(w)
-        )
-      })
-
-      // If specific products matched, send only those; otherwise send all as fallback
-      if (matchedProducts.length > 0) {
-        selected.push(...matchedProducts)
-      } else {
-        selected.push(...catalog)
-      }
-    }
-  }
-
-  if (needsLogistics || needsCatalog) {
-    // Include saved replies that match keywords in the message
-    const relevantReplies = savedReplies.filter(sr => {
-      const titleLower = (sr.title || '').toLowerCase()
-      const contentLower = (sr.content || '').toLowerCase()
-      // Check if any word in the buyer's message appears in this saved reply
-      const words = lower.split(/\s+/).filter(w => w.length > 3)
-      return words.some(w => titleLower.includes(w) || contentLower.includes(w))
-    })
-    selected.push(...relevantReplies)
-
-    // Also search edited corrections for matching knowledge (3rd knowledge source)
-    const matchedCorrections = editedReplies.filter(er => {
-      const questionLower = (er.buyerQuestion || '').toLowerCase()
-      const replyLower = (er.correctReply || '').toLowerCase()
-      const words = lower.split(/\s+/).filter(w => w.length > 3)
-      return words.some(w => questionLower.includes(w) || replyLower.includes(w))
-    })
-    for (const correction of matchedCorrections) {
-      selected.push({
-        source: 'EDITED_REPLY',
-        title: correction.buyerQuestion,
-        content: correction.correctReply,
-      })
-    }
-  }
-
-  // If no keywords matched, don't dump the full catalog — the message isn't about products.
-  // Just send policies. Claude can [DEFER] if it doesn't have enough info.
-
-  // Deduplicate
-  const seen = new Set()
-  return selected.filter(c => {
-    const key = `${c.source}:${c.sourceId || c.title}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-}
+// (Old keyword-based chunk filtering removed — now using vector search)
 
 // ===========================================
-// Prompt Building
+// Prompt Building (Vector-based v2)
 // ===========================================
 
-function buildSystemPrompt({ isFirstTime, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent, hasPriceNegotiation, hasCompetitorIntent, hasInformingIntent }) {
+function buildSystemPrompt({ settings, styleGuide, stylePairs }) {
   let prompt = `You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
 RULES:
 - Reply in the buyer's language. If they write Hindi, reply in Hindi. If English, reply in English. If Hinglish, reply in Hinglish.
 - Be friendly, professional, and helpful. Sound like a real person, not a robot.
-- Keep replies SHORT — STRICT MAX 10-15 words. This is a hard limit, not a suggestion. Count your words before replying. If your reply exceeds 15 words, shorten it. WhatsApp replies must be quick and to the point. No long paragraphs, no listing multiple products, no URLs unless specifically asked.
-- Match Ketu's style: casual, friendly, uses simple words. Look at the STYLE EXAMPLES below.
+- Keep replies SHORT and natural for WhatsApp. Match the length and style shown in the STYLE EXAMPLES below.
 - HINDI POLITENESS (CRITICAL): Always use polite "aap" verb forms with customers. NEVER use informal "tu/tum" forms.
   WRONG: "bata", "kar", "de", "bhej", "dekh", "bol", "sun", "le", "ja", "aa", "ruk", "baith"
   RIGHT: "bataaiye", "kariye", "dijiye", "bhejiye", "dekhiye", "boliye", "suniye", "lijiye", "jaaiye", "aaiye", "rukiye", "baithiye"
-  Example: "Pehle order no. bataaiye" (NOT "pehle order no. bata"). "Ek baar check kariye" (NOT "pehle check kar").
 - Never make up information. Only use the knowledge provided below.
 - If you don't have enough info in the knowledge base to answer accurately, respond with EXACTLY: [DEFER]
 - ORDER-RELATED REQUESTS — respond with EXACTLY: [DEFER] for ANY of these. You CANNOT check orders, look up order details, add/remove items, or do anything with orders. Only Ketu can handle these:
-  • Add/remove/change items in an existing order ("1 pc add kar dena", "ek piece kam tha")
-  • Check order status, order details, order number lookup ("order check karo", "mera order kahan hai")
-  • Replace damaged/defective items ("damaged tha", "tuta hua tha", "galat aaya")
+  • Add/remove/change items in an existing order
+  • Check order status, order details, order number lookup
+  • Replace damaged/defective items
   • Change delivery address, cancel order, modify order in any way
   • Buyer shares an order number, bill number, or invoice — you cannot look these up
   NEVER say "main check kar lunga", "5 min wait karo", "ruko check karta hu" — you cannot check anything. Just [DEFER].
+- Our prices are FIXED. Never offer discounts.
+- Mention sale91.com only if relevant and only ONCE per conversation (check history).
 - Do NOT make up prices, product details, or policies. Only use info from the knowledge base provided.
-- Never reveal you are an AI. You are Ketu's assistant.
-- Use natural greetings appropriate to the language (Namaste, Hello, Hi, etc.).`
+- Never reveal you are an AI. You are Ketu's assistant.`
 
-  // Dispatch intent: only add dispatch rule when buyer is asking about dispatch/shipping after payment
-  if (hasDispatchIntent) {
-    prompt += `\n\nDISPATCH RULE (IMPORTANT — follow this strictly):
-- When buyer's intention is "payment done, please dispatch" or "abhi nikal do" or "aaj hi chahiye" — simply reassure them: "Abhi nikal raha hu sir, thoda time dijiye" (I will dispatch now, give me some time). Do NOT say "kal nikal jaayega" or give future dates. Just confirm immediate dispatch.
-- If buyer keeps asking too many follow-up questions about dispatch (tracking, exact time, repeated asking) — respond with [DEFER] so Ketu can handle it personally.`
-  }
-
-  // Buying intent: only add sale91 rule when buyer is asking about pricing/ordering
-  if (hasBuyingIntent) {
-    prompt += `\n\nSALE91 RULE:
-- Mention sale91.com ONLY ONCE. Check the conversation history — if sale91.com was already shared in a previous reply, do NOT repeat it. Just answer the buyer's question directly. Don't force it.`
-  }
-
-  // Price negotiation: buyer says price is high, asking for discount
-  if (hasPriceNegotiation) {
-    prompt += `\n\nPRICE NEGOTIATION RULE:
-- Our prices are FIXED. We work on very low margins (kam margin pe kaam karte hai). Understand the buyer's intention and reply naturally.
-- Do NOT offer any discount or negotiate. Politely tell them price is fixed.
-- Example tone: "Sir, price hamara fix hota hai. Hum log kafi kam margin pe kaam karte hai."
-- Don't copy-paste this exact line every time — understand what the buyer is saying and reply naturally with this core message.`
-  }
-
-  // Competitor comparison: buyer comparing with other sellers/platforms
-  if (hasCompetitorIntent) {
-    prompt += `\n\nCOMPETITOR COMPARISON RULE:
-- Buyer is comparing your prices with another seller or platform.
-- Do NOT panic, do NOT offer discounts, do NOT badmouth competitors.
-- Confidently say our quality speaks for itself. We deal in premium blank t-shirts with consistent quality and reliable service.
-- Tone: "Sir, aap quality compare karenge toh humara rate best hai. Hum fabric aur stitching mein koi compromise nahi karte."
-- Keep it short, confident, and respectful. Don't get defensive.`
-  }
-
-  // Informing intent: buyer sharing future plans, not asking questions
-  if (hasInformingIntent) {
-    prompt += `\n\nINFORMING RULE (buyer is sharing plans, NOT inquiring):
-- The buyer is just INFORMING you about their future plans or interest. They are NOT asking for product details, prices, or catalog.
-- Simply ACKNOWLEDGE briefly. Examples: "Noted sir, best rates de denge", "Ji sir, noted. Jab bhi ready ho bataaiye", "Zaroor sir, winter mein yaad dilaaiye".
-- Do NOT list products, prices, colors, sizes, or links. Do NOT share catalog or sale91.com. Just acknowledge their plan.
-- Keep it under 10 words. Be warm and brief.`
-  }
-
-  // Add Om's real reply style examples from defer-to-ketu corrections
-  if (deferExamples && deferExamples.length > 0) {
-    prompt += `\n\nSTYLE EXAMPLES (this is how Ketu actually replies — match this tone, length, and word choice):`
-    for (const ex of deferExamples.slice(0, 10)) {
-      prompt += `\nBuyer: "${ex.buyerQuestion}" → Ketu: "${ex.correctReply}"`
+  // Style pairs from vector search (matched to this specific message — shows how Om replies to SIMILAR questions)
+  if (stylePairs && stylePairs.length > 0) {
+    prompt += `\n\nSTYLE EXAMPLES (Om's REAL replies to similar questions — match this tone, length, and word choice):`
+    for (const pair of stylePairs) {
+      const meta = typeof pair.metadata === 'string' ? JSON.parse(pair.metadata) : (pair.metadata || {})
+      if (meta.buyerMessage && meta.omReply) {
+        prompt += `\nBuyer: "${meta.buyerMessage}" → Om: "${meta.omReply}"`
+      } else {
+        prompt += `\n${pair.content}`
+      }
     }
   }
 
-  // Add Om's extracted style guide (compact — extracted once from 200 real reply pairs)
+  // Om's extracted style guide (compact — extracted once from 337 real reply pairs)
   if (styleGuide) {
-    prompt += `\n\nOM'S COMMUNICATION STYLE (extracted from real WhatsApp conversations):\n${styleGuide}`
-  }
-
-  if (isFirstTime) {
-    prompt += `\n\nIMPORTANT: This is the buyer's FIRST message ever. You MUST include the catalog link sale91.com/catalog in your reply, regardless of what they ask.`
+    prompt += `\n\nOM'S COMMUNICATION STYLE:\n${styleGuide}`
   }
 
   return prompt
 }
 
-function buildUserPrompt({ mergedText, chunks, catalogChunks, correctionChunks = [], conversationHistory }) {
+function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conversationHistory }) {
   let prompt = ''
 
-  // Knowledge chunks
-  if (chunks.length > 0) {
-    prompt += `KNOWLEDGE BASE (use this info to answer):\n`
-    for (const chunk of chunks) {
-      prompt += `---\n[${chunk.source}] ${chunk.title || ''}\n${chunk.content}\n`
-    }
-    prompt += '\n'
-  }
-
-  // Verified corrections from edited replies (higher priority than saved replies)
-  if (correctionChunks.length > 0) {
-    prompt += `VERIFIED CORRECTIONS (manually verified — if conflicting with above, trust these):\n`
-    for (const chunk of correctionChunks) {
-      prompt += `---\nQ: ${chunk.title}\nA: ${chunk.content}\n`
-    }
-    prompt += '\n'
-  }
-
-  // Catalog info
-  if (catalogChunks.length > 0) {
-    prompt += `PRODUCT CATALOG INFO:\n`
-    for (const chunk of catalogChunks) {
-      prompt += `---\n${chunk.title || ''}\n${chunk.content}\n`
-      if (chunk.metadata) {
-        const meta = typeof chunk.metadata === 'string' ? JSON.parse(chunk.metadata) : chunk.metadata
+  // Knowledge results from vector search (top 5 matches from catalog + templates + policies)
+  if (knowledgeResults.length > 0) {
+    prompt += `KNOWLEDGE BASE (top matches for this question — use this info to answer):\n`
+    for (const result of knowledgeResults) {
+      const sim = (Number(result.similarity) * 100).toFixed(0)
+      prompt += `---\n[${result.source}] ${result.title || ''} (${sim}% match)\n${result.content}\n`
+      if (result.source === 'CATALOG' && result.metadata) {
+        const meta = typeof result.metadata === 'string' ? JSON.parse(result.metadata) : result.metadata
         if (meta.bulkPrice) prompt += `Bulk price: ₹${meta.bulkPrice}/pc\n`
         if (meta.samplePrice) prompt += `Sample price: ₹${meta.samplePrice}/pc\n`
         if (meta.colors) prompt += `Colors: ${meta.colors.join(', ')}\n`

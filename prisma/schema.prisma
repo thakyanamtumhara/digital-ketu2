@@ -29,7 +29,8 @@ model KnowledgeChunk {
 enum ChunkSource {
   SAVED_REPLY     // from wwbun ReplyTemplate
   CATALOG         // from catalog repo products
-  STYLE_GUIDE     // communication style rules
+  STYLE_GUIDE     // communication style rules (compact, extracted once)
+  STYLE_PAIR      // individual buyer→Om reply pairs for vector matching
   FAQ             // extracted FAQ pairs
   POLICY          // shipping, payment, MOQ policies
 }
@@ -127,7 +128,7 @@ model Settings {
   dailySpentResetAt   DateTime @default(now())      // when daily counter was last reset
   deferMessage        String   @default("Ketu will get back to you shortly on this.")
   mediaMessage        String   @default("Sir, Ketu is not available right now. I'm not able to see images or listen to audio at the moment — could you please write your query in text? I'll read and reply right away.")
-  confidenceThreshold Float    @default(0.6)        // min similarity for Claude call
+  confidenceThreshold Float    @default(0.85)       // min similarity for Claude call (Zone 1: ≥85% → answer, below → defer)
   deferThreshold      Float    @default(0.85)       // min similarity for defer-to-ketu match
   mergeWindowMs       Int      @default(3000)       // message merge window (3 sec)
   cooldownMinutes     Int      @default(10)         // cooldown after Om intervenes

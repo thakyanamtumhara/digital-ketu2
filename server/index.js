@@ -679,6 +679,7 @@ app.get('/api/filters/stats', async (c) => {
     informing,
     websiteIssue,
     repeatMessage,
+    lowConfidence,
     totalReplied,
     totalMessages,
   ] = await Promise.all([
@@ -699,11 +700,12 @@ app.get('/api/filters/stats', async (c) => {
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'informing' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'website_issue' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'repeat_message' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'low_confidence' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, status: 'REPLIED', totalTokens: { gt: 0 } } }),
     db.messageLog.count({ where: { createdAt: { gte: since } } }),
   ])
 
-  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb + orderIdDetected + angryBuyer + informing + websiteIssue + repeatMessage
+  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb + orderIdDetected + angryBuyer + informing + websiteIssue + repeatMessage + lowConfidence
 
   const honorificSuffixes = ['sir', 'ji', 'bhai', 'boss', 'bro', 'sahab', 'saheb', 'g']
 
@@ -863,6 +865,16 @@ app.get('/api/filters/stats', async (c) => {
       tokens: 0,
       triggered: deferToKetu,
       action: 'Auto-reply with correction OR defer message',
+    },
+    {
+      id: 'low_confidence',
+      name: 'Low Confidence (Vector Search)',
+      description: `Best vector match below ${Math.round((settings.confidenceThreshold || 0.85) * 100)}% — not enough knowledge to answer`,
+      type: 'ai-match',
+      currentState: `Threshold: ${Math.round((settings.confidenceThreshold || 0.85) * 100)}%`,
+      tokens: 0,
+      triggered: lowConfidence,
+      action: 'Defer to Ketu (0 tokens — only Voyage AI embedding used)',
     },
     {
       id: 'empty_kb',

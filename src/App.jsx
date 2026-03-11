@@ -217,7 +217,7 @@ function App() {
 
       {/* Tabs */}
       <nav style={styles.tabs}>
-        {['live', 'analytics', 'defer', 'filters', 'learning', 'pulled', 'settings', 'sync'].map(t => (
+        {['live', 'analytics', 'defer', 'filters', 'learning', 'settings', 'sync'].map(t => (
           <button
             key={t}
             data-tab={t}
@@ -229,10 +229,9 @@ function App() {
               if (t === 'analytics') fetchAnalytics()
               if (t === 'filters') { fetchFilterStats(); fetchDbFilters(); fetchDiscovered() }
               if (t === 'learning') fetchLearningStats()
-              if (t === 'pulled') fetchPulledPairs(1, '', '')
             }}
           >
-            {{live:'Live Monitor', analytics:'Analytics', defer:'Defer to Ketu', filters:'Pre-AI Filters', learning:'Learning', pulled:'Pulled Pairs', settings:'Settings', sync:'Sync'}[t]}
+            {{live:'Live Monitor', analytics:'Analytics', defer:'Defer to Ketu', filters:'Pre-AI Filters', learning:'Learning', settings:'Settings', sync:'Sync'}[t]}
           </button>
         ))}
       </nav>
@@ -247,8 +246,7 @@ function App() {
         {tab === 'defer' && <DeferManager list={deferList} onDelete={deleteDefer} settings={settings} updateSetting={updateSetting} />}
         {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={() => { fetchFilterStats(); fetchDbFilters(); fetchDiscovered() }} dbFilters={dbFilters} discovered={discovered} />}
         {tab === 'learning' && <LearningPanel stats={learningStats} settings={settings} onRun={triggerLearningRun} running={learningRunning} onToggle={toggleLearning} onRefresh={fetchLearningStats} onBacklog={triggerBacklog} backlogProgress={backlogProgress} onHistoryPull={triggerHistoryPull} historyPullProgress={historyPullProgress} />}
-        {tab === 'pulled' && <PulledPairsPanel data={pulledPairsData} page={pulledPairsPage} filter={pulledPairsFilter} onPageChange={(p) => { setPulledPairsPage(p); fetchPulledPairs(p, pulledPairsFilter.category, pulledPairsFilter.result) }} onFilterChange={(f) => { setPulledPairsFilter(f); setPulledPairsPage(1); fetchPulledPairs(1, f.category, f.result) }} />}
-        {tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
+{tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
         {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} onSync={triggerSync} syncing={syncing} knowledge={knowledge} />}
       </main>
     </div>
@@ -368,6 +366,11 @@ function ProcessPipeline({ log }) {
               STOPPED: Matched defer-to-ketu rule (similarity: {log.similarityScore ? (log.similarityScore * 100).toFixed(1) + '%' : 'N/A'})
             </div>
           )}
+          {log.deferReason === 'low_confidence' && (
+            <div style={styles.pipeCheckFail}>
+              STOPPED: Vector match too low ({log.similarityScore ? (log.similarityScore * 100).toFixed(1) + '%' : 'N/A'}) — deferred to Ketu
+            </div>
+          )}
           {log.deferReason === 'empty_knowledge_base' && <div style={styles.pipeCheckFail}>STOPPED: Knowledge base empty</div>}
           {log.deferReason === 'welcome_bypass' && (
             <div style={{ padding: '6px 10px', background: '#1e3a5f', borderRadius: '4px', color: '#93c5fd', fontSize: '12px' }}>
@@ -404,7 +407,7 @@ function ProcessPipeline({ log }) {
                   <span style={{ color: '#64748b', fontSize: '11px' }}>{showSection.style ? '▼' : '▶ tap to view'}</span>
                 </div>
                 <div style={{ fontSize: '12px', color: '#94a3b8', padding: '4px 0' }}>
-                  Rules: language matching, 10-15 word max, friendly tone, no AI reveal, [DEFER] when unsure, sale91.com for buying intent
+                  Rules: language matching, natural reply length (from style pairs), friendly tone, no AI reveal, [DEFER] when unsure
                 </div>
                 {showSection.style && prompt.system && (
                   <div style={{ ...styles.promptBlock, maxHeight: '250px', overflow: 'auto', marginTop: '6px' }}>
@@ -413,16 +416,16 @@ function ProcessPipeline({ log }) {
                 )}
               </div>
 
-              {/* B: Style Examples from Om's corrections */}
+              {/* B: Vector-matched Style Pairs */}
               <div style={styles.pipeSectionBox}>
                 <div style={styles.pipeSectionHeader} onClick={() => toggleSec('examples')}>
-                  <span style={{ color: '#f97316', fontWeight: '600' }}>B. OM'S STYLE EXAMPLES (from Defer-to-Ketu)</span>
+                  <span style={{ color: '#f97316', fontWeight: '600' }}>B. STYLE PAIRS (vector-matched to this question)</span>
                   <span style={{ color: '#64748b', fontSize: '11px' }}>{showSection.examples ? '▼' : '▶ tap to view'}</span>
                 </div>
                 {hasStyleExamples ? (
                   <>
                     <div style={{ fontSize: '12px', color: '#94a3b8', padding: '4px 0' }}>
-                      Real examples of how Ketu replies — Claude matches this tone + length
+                      Om's real replies to similar questions — Claude matches this tone + length
                     </div>
                     {showSection.examples && (
                       <div style={{ ...styles.promptBlock, maxHeight: '200px', overflow: 'auto', marginTop: '6px' }}>
@@ -432,43 +435,37 @@ function ProcessPipeline({ log }) {
                   </>
                 ) : (
                   <div style={{ fontSize: '12px', color: '#64748b', padding: '4px 0' }}>
-                    No style examples yet — Om hasn't corrected any replies via Defer-to-Ketu
+                    No matching style pairs found for this question
                   </div>
                 )}
               </div>
 
-              {/* C: Knowledge Chunks */}
+              {/* C: Vector Search Results */}
               <div style={styles.pipeSectionBox}>
                 <div style={styles.pipeSectionHeader} onClick={() => toggleSec('chunks')}>
-                  <span style={{ color: '#a78bfa', fontWeight: '600' }}>C. KNOWLEDGE CHUNKS ({chunks.length})</span>
+                  <span style={{ color: '#a78bfa', fontWeight: '600' }}>C. VECTOR SEARCH RESULTS ({chunks.length} matches)</span>
                   <span style={{ color: '#64748b', fontSize: '11px' }}>{showSection.chunks ? '▼' : '▶ tap to view'}</span>
                 </div>
-                {otherChunks.length > 0 && (
-                  <div style={{ marginTop: '4px' }}>
-                    <div style={{ fontSize: '11px', color: '#a78bfa', marginBottom: '3px' }}>
-                      Saved Replies + Policies ({otherChunks.length})
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
-                      {otherChunks.map((c, i) => (
-                        <span key={i} style={{ ...styles.colorChip, background: c.source === 'POLICY' ? '#422006' : '#1e293b', color: c.source === 'POLICY' ? '#fbbf24' : '#cbd5e1' }}>
-                          [{c.source}] {c.title}
-                        </span>
-                      ))}
-                    </div>
+                {log.similarityScore != null && (
+                  <div style={{ fontSize: '12px', color: '#94a3b8', padding: '4px 0' }}>
+                    Best match: <span style={{ color: log.similarityScore >= 0.85 ? '#22c55e' : '#f59e0b', fontWeight: 600 }}>
+                      {(log.similarityScore * 100).toFixed(1)}%
+                    </span>
+                    {log.similarityScore >= 0.85 ? ' (Zone 1 — AI answered)' : ' (below threshold — deferred)'}
                   </div>
                 )}
-                {catalogChunks.length > 0 && (
-                  <div style={{ marginTop: '6px' }}>
-                    <div style={{ fontSize: '11px', color: '#22c55e', marginBottom: '3px' }}>
-                      Catalog Products ({catalogChunks.length})
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
-                      {catalogChunks.map((c, i) => (
-                        <span key={i} style={{ ...styles.colorChip, background: '#14532d', color: '#86efac' }}>
-                          {c.title}
+                {chunks.length > 0 && (
+                  <div style={{ marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    {chunks.map((c, i) => {
+                      const simPct = c.similarity ? `${(Number(c.similarity) * 100).toFixed(0)}%` : ''
+                      const bgColor = c.source === 'CATALOG' ? '#14532d' : c.source === 'POLICY' ? '#422006' : c.source === 'STYLE_PAIR' ? '#1e1b4b' : '#1e293b'
+                      const textColor = c.source === 'CATALOG' ? '#86efac' : c.source === 'POLICY' ? '#fbbf24' : c.source === 'STYLE_PAIR' ? '#c4b5fd' : '#cbd5e1'
+                      return (
+                        <span key={i} style={{ ...styles.colorChip, background: bgColor, color: textColor }}>
+                          [{c.source}] {c.title} {simPct && <span style={{ color: '#64748b', marginLeft: 4 }}>({simPct})</span>}
                         </span>
-                      ))}
-                    </div>
+                      )
+                    })}
                   </div>
                 )}
                 {showSection.chunks && prompt.user && (
@@ -678,11 +675,7 @@ function DeferManager({ list, onDelete, settings, updateSetting }) {
   )
 }
 
-const DEFAULT_PRODUCT_KW = 'tshirt, t-shirt, t shirt, hoodie, sweatshirt, polo, round neck, oversize, oversized, drop shoulder, jacket, varsity, shorts, kids, cotton, polyester, gsm, fabric, sublimation, acid wash, acidwash, biowash, zip, jogger, bottom, price, rate, cost, kitna, kitne, kya rate, bhav, daam, color, colour, rang, size, sizes, catalog, catalogue, product, products, collection, range, sample, order, bulk, wholesale, moq, minimum, buy, kharidna, lena, chahiye, mangta, bhejo, ship'
-
-const DEFAULT_LOGISTICS_KW = 'delivery, shipping, dispatch, track, tracking, courier, payment, pay, upi, bank, account, prepaid, gst, bill, invoice, tax, return, exchange, refund, cancel, printer, printing, embroidery, custom, customize, pickup, tiruppur, address, location, where, discount, offer, deal, cod, cash on delivery, time, kitne din, kab, when'
-
-const DEFAULT_INFORMING_KW = 'just to inform, inform, batana tha, bata raha, bata rahi, plan hai, plan kar, planning, soch raha, soch rahi, socha hai, future mein, future me, aage, baad mein, baad me, winter mein, winter me, summer mein, summer me, this winter, this summer, next month, next year, coming winter, coming summer, coming month, will be buying, will buy, will order, will need, lene wala, lene wale, lenge, karenge, karunga, karungi, lunga, lungi, mangwaunga, mangwaungi, most probably, probably, shayad, video dekhi, video dekha, reel dekhi, reel dekha, interested, interest hai'
+// (Old keyword constants removed — now using vector search)
 
 function SettingsPanel({ settings, updateSetting, onDownload }) {
   return (
@@ -692,7 +685,7 @@ function SettingsPanel({ settings, updateSetting, onDownload }) {
       <div style={styles.settingsGrid}>
         <SettingRow label="AI Active" type="toggle" value={settings.isActive} onChange={v => updateSetting('isActive', v)} />
         <SettingRow label="Daily Budget (INR)" type="number" value={settings.dailyBudgetInr} onChange={v => updateSetting('dailyBudgetInr', Number(v))} />
-        <SettingRow label="Confidence Threshold" type="number" value={settings.confidenceThreshold} onChange={v => updateSetting('confidenceThreshold', Number(v))} step="0.05" />
+        <SettingRow label="Confidence Threshold (Zone 1 cutoff)" type="number" value={settings.confidenceThreshold} onChange={v => updateSetting('confidenceThreshold', Number(v))} step="0.05" />
         <SettingRow label="Defer Threshold" type="number" value={settings.deferThreshold} onChange={v => updateSetting('deferThreshold', Number(v))} step="0.05" />
         <SettingRow label="Message Merge Window (ms)" type="number" value={settings.mergeWindowMs} onChange={v => updateSetting('mergeWindowMs', Number(v))} />
         <SettingRow label="Cooldown Minutes" type="number" value={settings.cooldownMinutes} onChange={v => updateSetting('cooldownMinutes', Number(v))} />
@@ -712,14 +705,28 @@ function SettingsPanel({ settings, updateSetting, onDownload }) {
         <SettingTextarea label="Defer Reply Message" value={settings.deferMessage} onChange={v => updateSetting('deferMessage', v)} />
       </div>
 
-      <h3 style={{ ...styles.sectionTitle, fontSize: '16px', marginTop: '24px' }}>Chunk Filter Keywords</h3>
+      <h3 style={{ ...styles.sectionTitle, fontSize: '16px', marginTop: '24px' }}>Vector Search</h3>
       <p style={{ color: '#94a3b8', fontSize: 13, margin: '0 0 12px' }}>
-        These keywords decide which knowledge chunks are sent to Claude. Comma-separated. Add new keywords at the end.
+        Knowledge retrieval uses vector search (Voyage AI). The confidence threshold controls when AI answers vs defers.
       </p>
-      <div style={styles.settingsGrid}>
-        <SettingTextarea label="Product Keywords (triggers catalog chunks)" value={settings.productKeywords || DEFAULT_PRODUCT_KW} onChange={v => updateSetting('productKeywords', v)} rows={5} />
-        <SettingTextarea label="Logistics Keywords (triggers saved reply chunks)" value={settings.logisticsKeywords || DEFAULT_LOGISTICS_KW} onChange={v => updateSetting('logisticsKeywords', v)} rows={5} />
-        <SettingTextarea label="Informing Keywords (skips catalog when buyer is sharing future plans)" value={settings.informingKeywords || DEFAULT_INFORMING_KW} onChange={v => updateSetting('informingKeywords', v)} rows={5} />
+      <div style={{ background: '#1e293b', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, fontSize: 13, textAlign: 'center' }}>
+          <div style={{ background: '#14532d', borderRadius: 8, padding: 12 }}>
+            <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 16 }}>Zone 1</div>
+            <div style={{ color: '#86efac' }}>{'>'}= {Math.round((settings.confidenceThreshold || 0.85) * 100)}% match</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>AI answers automatically</div>
+          </div>
+          <div style={{ background: '#422006', borderRadius: 8, padding: 12 }}>
+            <div style={{ color: '#f59e0b', fontWeight: 700, fontSize: 16 }}>Zone 2</div>
+            <div style={{ color: '#fbbf24' }}>50-{Math.round((settings.confidenceThreshold || 0.85) * 100) - 1}% match</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Defer to Ketu</div>
+          </div>
+          <div style={{ background: '#450a0a', borderRadius: 8, padding: 12 }}>
+            <div style={{ color: '#ef4444', fontWeight: 700, fontSize: 16 }}>Zone 3</div>
+            <div style={{ color: '#fca5a5' }}>{'<'} 50% match</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Defer to Ketu</div>
+          </div>
+        </div>
       </div>
 
       <div style={{ marginTop: '24px' }}>

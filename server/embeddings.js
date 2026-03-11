@@ -109,24 +109,52 @@ function textToSimpleEmbedding(text) {
 
 /**
  * Search knowledge base chunks by vector similarity
+ * @param {Object} options
+ * @param {number} options.limit - Max results to return
+ * @param {number} options.minSimilarity - Min cosine similarity (0-1)
+ * @param {string[]} options.sources - Only search these ChunkSource types (e.g., ['CATALOG', 'SAVED_REPLY'])
+ * @param {string[]} options.excludeSources - Exclude these ChunkSource types
  */
-export async function vectorSearch(db, anthropic, queryText, { limit = 5, minSimilarity = 0.0 } = {}) {
+export async function vectorSearch(db, anthropic, queryText, { limit = 5, minSimilarity = 0.0, sources = null, excludeSources = null } = {}) {
   const embedding = await getEmbedding(anthropic, queryText)
 
-  const results = await db.$queryRaw`
-    SELECT
-      id,
-      source,
-      "sourceId",
-      title,
-      content,
-      metadata,
-      1 - (embedding <=> ${embedding}::vector) as similarity
-    FROM "KnowledgeChunk"
-    WHERE embedding IS NOT NULL
-    ORDER BY embedding <=> ${embedding}::vector
-    LIMIT ${limit}
-  `
+  let results
+  if (sources && sources.length > 0) {
+    // Filter to specific sources
+    results = await db.$queryRaw`
+      SELECT
+        id, source, "sourceId", title, content, metadata,
+        1 - (embedding <=> ${embedding}::vector) as similarity
+      FROM "KnowledgeChunk"
+      WHERE embedding IS NOT NULL
+        AND source::text = ANY(${sources})
+      ORDER BY embedding <=> ${embedding}::vector
+      LIMIT ${limit}
+    `
+  } else if (excludeSources && excludeSources.length > 0) {
+    // Exclude specific sources
+    results = await db.$queryRaw`
+      SELECT
+        id, source, "sourceId", title, content, metadata,
+        1 - (embedding <=> ${embedding}::vector) as similarity
+      FROM "KnowledgeChunk"
+      WHERE embedding IS NOT NULL
+        AND source::text != ALL(${excludeSources})
+      ORDER BY embedding <=> ${embedding}::vector
+      LIMIT ${limit}
+    `
+  } else {
+    // Search all sources
+    results = await db.$queryRaw`
+      SELECT
+        id, source, "sourceId", title, content, metadata,
+        1 - (embedding <=> ${embedding}::vector) as similarity
+      FROM "KnowledgeChunk"
+      WHERE embedding IS NOT NULL
+      ORDER BY embedding <=> ${embedding}::vector
+      LIMIT ${limit}
+    `
+  }
 
   return results.filter(r => r.similarity >= minSimilarity)
 }
