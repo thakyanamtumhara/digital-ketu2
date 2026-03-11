@@ -338,6 +338,7 @@ app.get('/api/filters/stats', async (c) => {
     orderIdDetected,
     angryBuyer,
     informing,
+    websiteIssue,
     totalReplied,
     totalMessages,
   ] = await Promise.all([
@@ -356,11 +357,12 @@ app.get('/api/filters/stats', async (c) => {
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'order_id_detected' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'angry_buyer' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'informing' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'website_issue' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, status: 'REPLIED', totalTokens: { gt: 0 } } }),
     db.messageLog.count({ where: { createdAt: { gte: since } } }),
   ])
 
-  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb + orderIdDetected + angryBuyer + informing
+  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb + orderIdDetected + angryBuyer + informing + websiteIssue
 
   // Acknowledgment keywords list (same as process.js)
   // Also strips trailing honorifics (sir, ji, bhai, boss, bro, sahab, saheb, g) before matching
@@ -508,6 +510,22 @@ app.get('/api/filters/stats', async (c) => {
         tokens: 0,
         triggered: informing,
         action: 'Auto-reply: "Ok noted sir 👍"',
+      },
+      {
+        id: 'website_issue',
+        name: 'Website Issue Detection',
+        description: 'Buyer reports site not opening / not working — auto-reply with reassurance',
+        type: 'keyword',
+        currentState: 'Active',
+        keywords: [
+          'open nahi', 'open ni', 'open nhi', 'khul nahi', 'khul ni',
+          'site issue', 'site problem', 'website issue', 'website problem',
+          'not opening', 'not working', 'not loading', 'site down', 'website down',
+          'error aa raha', 'blank page', 'page not found', 'server error',
+        ],
+        tokens: 0,
+        triggered: websiteIssue,
+        action: 'Auto-reply: reassure + try again later',
       },
       {
         id: 'greeting_detection',

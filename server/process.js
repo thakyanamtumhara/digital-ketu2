@@ -277,6 +277,37 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  // --- Check: Website issue — buyer says site not opening / not working ---
+  // Auto-reply directly, 0 tokens. Reply is always the same.
+  const websiteIssueKeywords = [
+    'open nahi', 'open ni', 'open nhi', 'khul nahi', 'khul ni', 'khul nhi',
+    'site issue', 'site par issue', 'site pe issue', 'site problem',
+    'website issue', 'website problem', 'website nahi', 'website ni',
+    'site nahi', 'site ni', 'nahi khul', 'nhi khul',
+    'not opening', 'not working', 'not loading', 'load nahi',
+    'error aa raha', 'error aa rahi', 'error aata', 'error show',
+    'blank page', 'page not found', 'kaam nahi kar raha',
+    'site down', 'website down', 'server error',
+  ]
+  const hasWebsiteIssue = websiteIssueKeywords.some(kw => lowerMsg.includes(kw))
+  if (hasWebsiteIssue) {
+    const websiteIssueReply = 'Sir, issue toh nahi hai. Network ya server ka temporary issue hoga. Thodi der baad try kariye, open ho jaayega 👍'
+    await sendReplyViaWwbun(whatsappNumber, websiteIssueReply)
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'REPLIED',
+      deferReason: 'website_issue',
+      aiReply: websiteIssueReply,
+      processingMs: Date.now() - startTime,
+      sentViaWwbun: true,
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      costUsd: 0,
+    })
+    console.log(`[WebsiteIssue] ${whatsappNumber} — site issue reported, auto-replied, 0 tokens`)
+    return
+  }
+
   // --- Check: Defer to Ketu list (skip for greetings) ---
   // If a correction exists (correctReply), use it directly instead of deferring
   if (!isGreeting) {
