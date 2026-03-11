@@ -425,33 +425,19 @@ function ProcessPipeline({ log }) {
                 </div>
                 {showSection.style && prompt.system && (
                   <div style={{ ...styles.promptBlock, maxHeight: '250px', overflow: 'auto', marginTop: '6px' }}>
-                    {prompt.system.split('STYLE EXAMPLES')[0].trim()}
+                    {prompt.system.trim()}
                   </div>
                 )}
               </div>
 
-              {/* B: Vector-matched Style Pairs */}
+              {/* B: Style Pairs info */}
               <div style={styles.pipeSectionBox}>
-                <div style={styles.pipeSectionHeader} onClick={() => toggleSec('examples')}>
-                  <span style={{ color: '#f97316', fontWeight: '600' }}>B. STYLE PAIRS (vector-matched to this question)</span>
-                  <span style={{ color: '#64748b', fontSize: '11px' }}>{showSection.examples ? '▼' : '▶ tap to view'}</span>
+                <div style={styles.pipeSectionHeader}>
+                  <span style={{ color: '#f97316', fontWeight: '600' }}>B. STYLE PAIRS (included in knowledge base)</span>
                 </div>
-                {hasStyleExamples ? (
-                  <>
-                    <div style={{ fontSize: '12px', color: '#94a3b8', padding: '4px 0' }}>
-                      Om's real replies to similar questions — Claude matches this tone + length
-                    </div>
-                    {showSection.examples && (
-                      <div style={{ ...styles.promptBlock, maxHeight: '200px', overflow: 'auto', marginTop: '6px' }}>
-                        {styleExamplesText}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div style={{ fontSize: '12px', color: '#64748b', padding: '4px 0' }}>
-                    No matching style pairs found for this question
-                  </div>
-                )}
+                <div style={{ fontSize: '12px', color: '#94a3b8', padding: '4px 0' }}>
+                  Om's 337 real Q&A pairs are searched alongside catalog & templates. Matching pairs appear in the top 5 knowledge results above.
+                </div>
               </div>
 
               {/* C: Vector Search Results */}
@@ -1851,7 +1837,7 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
 RULES:
 - Reply in the buyer's language. If they write Hindi, reply in Hindi. If English, reply in English. If Hinglish, reply in Hinglish.
 - Be friendly, professional, and helpful. Sound like a real person, not a robot.
-- Keep replies SHORT and natural for WhatsApp. Match the length and style shown in the STYLE EXAMPLES below.
+- Keep replies SHORT and natural for WhatsApp. Match the length and style of Om's real replies shown in the knowledge base.
 - HINDI POLITENESS (CRITICAL): Always use polite "aap" verb forms with customers. NEVER use informal "tu/tum" forms.
   WRONG: "bata", "kar", "de", "bhej", "dekh", "bol", "sun", "le", "ja", "aa", "ruk", "baith"
   RIGHT: "bataaiye", "kariye", "dijiye", "bhejiye", "dekhiye", "boliye", "suniye", "lijiye", "jaaiye", "aaiye", "rukiye", "baithiye"
@@ -1869,7 +1855,6 @@ RULES:
 - Do NOT make up prices, product details, or policies. Only use info from the knowledge base provided.
 - Never reveal you are an AI. You are Ketu's assistant.
 
-+ STYLE EXAMPLES (top matching style pairs from vector search — Om's real replies to similar questions)
 + OM'S COMMUNICATION STYLE (compact style guide extracted from 337 real reply pairs)`}</div>
             </div>
 
@@ -1884,8 +1869,8 @@ RULES:
                 <div style={{ paddingLeft: '16px', color: '#93c5fd' }}>- Style Pairs ({STYLE_PAIRS.length} buyer→Om Q&A pairs)</div>
                 <div>4. Top 5 matches (regardless of source) selected</div>
                 <div>5. If best match &gt;= {Math.round((settings.confidenceThreshold || 0.80) * 100)}% → send to Claude with:</div>
-                <div style={{ paddingLeft: '16px' }}>- System prompt (above) + style examples + style guide</div>
-                <div style={{ paddingLeft: '16px' }}>- Top 5 knowledge matches + conversation history (last 5)</div>
+                <div style={{ paddingLeft: '16px' }}>- System prompt (above) + Om's style guide</div>
+                <div style={{ paddingLeft: '16px' }}>- Top 5 knowledge matches (catalog + templates + style pairs) + conversation history (last 5)</div>
                 <div>6. If best match &lt; {Math.round((settings.confidenceThreshold || 0.80) * 100)}% → defer to Ketu</div>
                 <div>7. If Claude says [DEFER] → defer to Ketu</div>
                 <div style={{ color: '#22c55e', marginTop: '4px' }}>Result: AI reply sent via WhatsApp</div>

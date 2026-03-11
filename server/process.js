@@ -451,13 +451,13 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     ? Math.max(...allVectorResults.map(r => Number(r.similarity)))
     : 0
 
-  // Split results for prompt building (style pairs → system prompt as examples, rest → user prompt as knowledge)
-  const knowledgeResults = allVectorResults.filter(r => r.source !== 'STYLE_PAIR')
-  const stylePairResults = allVectorResults.filter(r => r.source === 'STYLE_PAIR')
+  // All top 5 results go to the user prompt as knowledge (style pairs are both knowledge AND style reference)
+  const knowledgeResults = allVectorResults
+  const stylePairResults = [] // no longer separated — all results treated as knowledge
 
-  console.log(`[Vector] ${whatsappNumber} — ${knowledgeResults.length} knowledge + ${stylePairResults.length} style pairs (top 5 from all sources), best: ${(bestSimilarity * 100).toFixed(1)}%`)
+  console.log(`[Vector] ${whatsappNumber} — ${allVectorResults.length} results (top 5 from all 3 sources), best: ${(bestSimilarity * 100).toFixed(1)}%`)
 
-  // --- CONFIDENCE CHECK: Zone 1 (≥85%) → answer, Zone 2/3 (<85%) → defer ---
+  // --- CONFIDENCE CHECK: ≥80% → answer with Claude, <80% → defer to Ketu ---
   const confidenceThreshold = settings.confidenceThreshold || 0.80
 
   if (bestSimilarity < confidenceThreshold) {
@@ -594,7 +594,7 @@ function buildSystemPrompt({ settings, styleGuide, stylePairs }) {
 RULES:
 - Reply in the buyer's language. If they write Hindi, reply in Hindi. If English, reply in English. If Hinglish, reply in Hinglish.
 - Be friendly, professional, and helpful. Sound like a real person, not a robot.
-- Keep replies SHORT and natural for WhatsApp. Match the length and style shown in the STYLE EXAMPLES below.
+- Keep replies SHORT and natural for WhatsApp. Match the length and style of Om's real replies shown in the knowledge base.
 - HINDI POLITENESS (CRITICAL): Always use polite "aap" verb forms with customers. NEVER use informal "tu/tum" forms.
   WRONG: "bata", "kar", "de", "bhej", "dekh", "bol", "sun", "le", "ja", "aa", "ruk", "baith"
   RIGHT: "bataaiye", "kariye", "dijiye", "bhejiye", "dekhiye", "boliye", "suniye", "lijiye", "jaaiye", "aaiye", "rukiye", "baithiye"
@@ -611,19 +611,6 @@ RULES:
 - Mention sale91.com only if relevant and only ONCE per conversation (check history).
 - Do NOT make up prices, product details, or policies. Only use info from the knowledge base provided.
 - Never reveal you are an AI. You are Ketu's assistant.`
-
-  // Style pairs from vector search (matched to this specific message — shows how Om replies to SIMILAR questions)
-  if (stylePairs && stylePairs.length > 0) {
-    prompt += `\n\nSTYLE EXAMPLES (Om's REAL replies to similar questions — match this tone, length, and word choice):`
-    for (const pair of stylePairs) {
-      const meta = typeof pair.metadata === 'string' ? JSON.parse(pair.metadata) : (pair.metadata || {})
-      if (meta.buyerMessage && meta.omReply) {
-        prompt += `\nBuyer: "${meta.buyerMessage}" → Om: "${meta.omReply}"`
-      } else {
-        prompt += `\n${pair.content}`
-      }
-    }
-  }
 
   // Om's extracted style guide (compact — extracted once from 337 real reply pairs)
   if (styleGuide) {
