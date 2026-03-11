@@ -1091,7 +1091,7 @@ Extract SHORT keywords/phrases (1-3 words, Hindi/English/Hinglish) that could de
 Reply as JSON array only: [{ "keyword": "...", "confidence": 0.95 }]`
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6-20250514',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 2000,
     messages: [{ role: 'user', content: prompt }],
   })

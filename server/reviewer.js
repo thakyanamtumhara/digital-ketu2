@@ -10,8 +10,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
 
-const REVIEWER_MODEL = 'claude-sonnet-4-6-20250514'
-const HISTORY_PULL_MODEL = 'claude-sonnet-4-6-20250514' // Sonnet 4.6 (upgrade to Opus when available on your API key)
+const REVIEWER_MODEL = 'claude-haiku-4-5-20251001'
+const HISTORY_PULL_MODEL = 'claude-haiku-4-5-20251001' // Using Haiku 4.5 (proven to work). Upgrade to Sonnet/Opus when available.
 const BATCH_SIZE = 20
 const HISTORY_PULL_BATCH_SIZE = 50 // Bigger batches for history pull — more context per call
 
