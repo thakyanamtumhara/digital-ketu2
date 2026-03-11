@@ -495,6 +495,7 @@ app.get('/api/filters/stats', async (c) => {
     angryBuyer,
     informing,
     websiteIssue,
+    repeatMessage,
     totalReplied,
     totalMessages,
   ] = await Promise.all([
@@ -514,11 +515,12 @@ app.get('/api/filters/stats', async (c) => {
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'angry_buyer' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'informing' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'website_issue' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'repeat_message' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, status: 'REPLIED', totalTokens: { gt: 0 } } }),
     db.messageLog.count({ where: { createdAt: { gte: since } } }),
   ])
 
-  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb + orderIdDetected + angryBuyer + informing + websiteIssue
+  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb + orderIdDetected + angryBuyer + informing + websiteIssue + repeatMessage
 
   // Acknowledgment keywords list (same as process.js)
   // Also strips trailing honorifics (sir, ji, bhai, boss, bro, sahab, saheb, g) before matching
@@ -682,6 +684,16 @@ app.get('/api/filters/stats', async (c) => {
         tokens: 0,
         triggered: websiteIssue,
         action: 'Auto-reply: reassure + try again later',
+      },
+      {
+        id: 'repeat_message',
+        name: 'Repeat Message Detection',
+        description: 'Skip if same buyer sent the exact same message within 5 minutes and AI already replied',
+        type: 'message',
+        currentState: '5 min window',
+        tokens: 0,
+        triggered: repeatMessage,
+        action: 'Skip silently (already replied)',
       },
       {
         id: 'greeting_detection',

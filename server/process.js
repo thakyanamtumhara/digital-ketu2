@@ -136,6 +136,28 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  // --- Check: Repeat message detection ---
+  // If same buyer sent the same (or very similar) message recently and AI already replied, skip
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000)
+  const recentReply = await db.messageLog.findFirst({
+    where: {
+      conversationId: conversation.id,
+      status: 'REPLIED',
+      buyerMessage: mergedText.trim(),
+      createdAt: { gte: fiveMinAgo },
+    },
+    select: { id: true },
+  })
+  if (recentReply) {
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'SKIPPED',
+      deferReason: 'repeat_message',
+      processingMs: Date.now() - startTime,
+    })
+    console.log(`[Repeat] ${whatsappNumber} — same message already replied to within 5 min, skipping`)
+    return
+  }
+
   // --- Check: Cooldown (Om intervened) ---
   if (conversation.cooldownUntil && new Date() < new Date(conversation.cooldownUntil)) {
     await createLog(db, conversation.id, mergedText, messageIds, {
