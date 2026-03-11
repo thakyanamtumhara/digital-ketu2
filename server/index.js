@@ -1358,6 +1358,310 @@ async function runScheduledReview() {
 // setInterval(runScheduledReview, 60 * 60 * 1000)
 
 // ===========================================
+// Export Premium Pairs (Rules 1-4)
+// ===========================================
+
+// Classification logic for Rules 3 & 4 (context-based & temporary detection)
+function classifyPair(buyerMsg, omReply) {
+  const b = buyerMsg.toLowerCase()
+  const o = omReply.toLowerCase()
+
+  // ===== CONTEXT-BASED DETECTION (SKIP) =====
+  if (/(?:order|tracking|dispatch|deliver|ship|parcel|courier|pickup|bill|invoice)/i.test(b) &&
+      /(?:update|status|nahi hua|nhi hua|abhi tak|where|kab|received|aayi|aaya|yet|still|pending)/i.test(b)) {
+    return { keep: false, reason: 'CONTEXT: asking about existing order status' }
+  }
+  if (/(?:bill bhej|send.*bill|kaun sa order|which order|order id|tracking bhej|send.*tracking)/i.test(o)) {
+    return { keep: false, reason: 'CONTEXT: Om asking to identify specific order' }
+  }
+  if (/(?:any update|koi update|update on|iska update)/i.test(b)) {
+    return { keep: false, reason: 'CONTEXT: asking for update on prior matter' }
+  }
+  if (/(?:pichle|pichli|last time|last order|previous|purana order|pehle ke order)/i.test(b) &&
+      /(?:defect|damage|missing|kam|hole|issue|problem|change|return|replace)/i.test(b)) {
+    return { keep: false, reason: 'CONTEXT: complaint about past specific order' }
+  }
+  if (/(?:next order mein add|1 pc add|2 pc add|extra.*next|add.*next)/i.test(o)) {
+    return { keep: false, reason: 'CONTEXT: Om compensating for specific order issue' }
+  }
+  if (/(?:abhi tk|abhi tak|still.*not|nahi aaya|nhi aaya|merpe koi.*nhi|phone nahi)/i.test(b) &&
+      !(/(?:do you|kya.*sell|available|stock mein|print)/i.test(b))) {
+    return { keep: false, reason: 'CONTEXT: follow-up on pending action' }
+  }
+  if (/(?:address|pin\s*code|pincode|gst.*\d|gstin|H\.no|street no|nagar)/i.test(b) && b.length < 200) {
+    return { keep: false, reason: 'CONTEXT: sharing address/logistics for specific order' }
+  }
+  if (/(?:mera order|meri order|my order|maine.*order kiya|humne order|i ordered|order kar diya)/i.test(b) &&
+      /(?:dispatch|deliver|track|pickup|receive|nikal|pahuch|aaya|reach|ship)/i.test(b)) {
+    return { keep: false, reason: 'CONTEXT: inquiry about their specific order' }
+  }
+  if (/(?:nikal diya|bhej diya|dispatch.*diya|kar diya.*dispatch|ready hai.*aapka)/i.test(o) &&
+      !(/(?:we sell|we only|we make|hota hai|milega|available)/i.test(o))) {
+    return { keep: false, reason: 'CONTEXT: Om confirming specific order action' }
+  }
+  if (/(?:porter|bike number|driver|neeraj|agent.*call|bus.*bilti|train number)/i.test(b) ||
+      /(?:porter|bike number|driver.*call|neeraj|agent.*call)/i.test(o)) {
+    return { keep: false, reason: 'CONTEXT: specific logistics coordination' }
+  }
+  if (/(?:remind.*(?:tomorrow|kal|10am|11am)|kal.*pooch|ek baar.*(?:yaad|remind))/i.test(o)) {
+    return { keep: false, reason: 'CONTEXT: Om asking buyer to follow up later' }
+  }
+  if (/(?:payment.*screenshot|otp|order.*confirm|order id.*\d|invoice.*\d)/i.test(b)) {
+    return { keep: false, reason: 'CONTEXT: sharing specific transaction details' }
+  }
+  if (/(?:defect|damage|hole|miti lagi|manufacturing defect|bubble|pilling.*come)/i.test(b) &&
+      /(?:photo bhej|screenshot|send.*photo|bill bhej|kaun sa|which item)/i.test(o)) {
+    return { keep: false, reason: 'CONTEXT: handling specific defect complaint' }
+  }
+  if (/^(?:han|haan|yes|but|lekin|par|per)\s*(?:,|but|lekin|par|\.)/i.test(b) && b.length < 80) {
+    return { keep: false, reason: 'CONTEXT: continuation of previous conversation' }
+  }
+  if (/^(?:wo|woh|that|this|ye|yeh)\s/i.test(b) && b.length < 60 &&
+      !(/(?:do you|available|sell|product|tshirt|hoodie|polo)/i.test(b))) {
+    return { keep: false, reason: 'CONTEXT: referencing previous context' }
+  }
+  if (/(?:\d+\s*(?:baje|pm|am)\s*(?:tak|mein|pe)|thodi der mein|abhi bhej|wait.*sir)/i.test(o) &&
+      !(/(?:open|timing|we sell|hota hai|milta hai)/i.test(o))) {
+    return { keep: false, reason: 'CONTEXT: Om giving specific time for action' }
+  }
+
+  // ===== TEMPORARY ANSWER DETECTION (SKIP) =====
+  if (/(?:available|stock|restock|kab tak|kab.*aaye|when will|refill|out of stock|launch)/i.test(b) &&
+      /(?:\d+\s*(?:days?|din|ghant|week|month)|soon|jaldi|coming|under production|next winter|will update)/i.test(o)) {
+    return { keep: false, reason: 'TEMPORARY: stock availability with time-bound answer' }
+  }
+  if (/(?:abhi.*nahi|currently.*not|out of stock|sudden.*out|abhi to nahi|abhi nahi)/i.test(o) &&
+      !(/(?:we dont|we only|not allowed|nahi karte)/i.test(o))) {
+    return { keep: false, reason: 'TEMPORARY: current unavailability (may change)' }
+  }
+  if (/(?:kal.*aa|aa.*kal|tomorrow|(\d+)\s*(to\s*\d+\s*)?days?|(\d+)\s*(to\s*\d+\s*)?din)/i.test(o) &&
+      /(?:aa|come|available|milega|restock|refill|ho jaay)/i.test(o)) {
+    return { keep: false, reason: 'TEMPORARY: time-bound availability answer' }
+  }
+  if (/(?:within \d+|in \d+ (?:to \d+ )?days?|(\d+) se (\d+) din)/i.test(o) &&
+      !(/(?:we sell|delivery|courier|shipping|dispatch)/i.test(o))) {
+    return { keep: false, reason: 'TEMPORARY: time-bound future availability' }
+  }
+  if (/(?:only.*currently|keval abhi|abhi keval|M hai keval|only M|only.*available)/i.test(o) && o.length < 50) {
+    return { keep: false, reason: 'TEMPORARY: current stock status (changes daily)' }
+  }
+  if (/(?:closed? hai|band hai|off.*hai|chhuti|holiday)/i.test(o) &&
+      !(/(?:sunday|monday|timing|10.*6|11.*4)/i.test(o))) {
+    return { keep: false, reason: 'TEMPORARY: current business status' }
+  }
+
+  // ===== PERMANENT + NON-CONTEXT (KEEP) =====
+  const permanentSignals = [
+    /we only sell blank/i, /we.*dont.*make|custom order.*dont/i,
+    /fixed price|tight margin/i, /only prepaid/i,
+    /return.*replacement.*not.*allowed/i, /only plain we sell/i,
+    /we manufactu/i, /cotton.*only|100%.*cotton|keval cotton/i,
+    /cloth we dont sell/i, /dropshipping/i, /gst.*included|5%.*gst/i,
+    /biowash.*biowash|double biowash|single biowash/i, /size chart/i,
+    /shipping calculator/i, /hd photos/i, /how to order/i,
+    /printer.*https/i, /print related.*talk to/i,
+    /custom order ke liye/i, /catalog check/i, /website.*order/i,
+    /any quantity|no moq|jitna.*chahiye/i, /10 pcs.*bulk/i,
+    /polyester.*sublimation|sublimation.*polyester|cotton feel.*polyester/i,
+    /self pickup/i, /delhivery|bluedart/i,
+  ]
+  const isPermanent = permanentSignals.some(p => p.test(o))
+  if (isPermanent) return { keep: true, reason: 'PERMANENT: business policy/fact' }
+
+  if (/(?:do you.*sell|kya.*(?:sell|bech)|do you.*(?:make|print|deliver)|kya.*(?:karte|dete|krte))/i.test(b) &&
+      /(?:we only|we dont|nahi|yes|haan|no sir)/i.test(o)) {
+    return { keep: true, reason: 'PERMANENT: product/service availability question' }
+  }
+  if (/(?:difference|farak|alawa|compare|between|aur kya)/i.test(b) && o.length > 15) {
+    return { keep: true, reason: 'PERMANENT: product comparison/difference' }
+  }
+  if (/(?:moq|minimum.*order|minimum.*quantity|kitne.*order|kitni.*order)/i.test(b)) {
+    return { keep: true, reason: 'PERMANENT: MOQ policy question' }
+  }
+  if (/(?:discount|negotiate|price.*kam|kam.*price|rate.*kam)/i.test(b) &&
+      /(?:fixed|tight margin|kaafi tight)/i.test(o)) {
+    return { keep: true, reason: 'PERMANENT: pricing policy' }
+  }
+  if (/(?:return|replace|exchange|refund)/i.test(b)) {
+    return { keep: true, reason: 'PERMANENT: return/replacement policy' }
+  }
+  if (/(?:cod|cash on delivery|payment|prepaid)/i.test(b)) {
+    return { keep: true, reason: 'PERMANENT: payment policy' }
+  }
+  if (/(?:timing|open.*kab|kab.*open|shop.*open|kitne baje)/i.test(b) &&
+      /(?:sunday|monday|10|11|4|6|timing)/i.test(o)) {
+    return { keep: true, reason: 'PERMANENT: business hours' }
+  }
+  if (/(?:delivery.*(?:time|charge|kitne din)|courier.*kitne|shipping.*charge|kitne din)/i.test(b) &&
+      /(?:calculator|4 to 5|shipping|days? by)/i.test(o)) {
+    return { keep: true, reason: 'PERMANENT: general delivery info' }
+  }
+  if (/(?:manufacturer|wholesaler|where.*located|factory)/i.test(b)) {
+    return { keep: true, reason: 'PERMANENT: business identity' }
+  }
+  if (/(?:sample|how.*order|kaise.*order|website se)/i.test(b) &&
+      /(?:how to order|website|youtube|yes.*order|mil jaayega)/i.test(o)) {
+    return { keep: true, reason: 'PERMANENT: ordering process' }
+  }
+  if (/(?:custom|customize|on order|stitch|tailor|apne.*size|our.*size)/i.test(b)) {
+    return { keep: true, reason: 'PERMANENT: custom manufacturing policy' }
+  }
+  if (/(?:international|abroad|uae|usa|uk|export|outside india)/i.test(b) &&
+      /(?:we dont|not available|only india)/i.test(o)) {
+    return { keep: true, reason: 'PERMANENT: international shipping policy' }
+  }
+  if (/(?:cotton|polyester|fabric|material|percent)/i.test(b) &&
+      /(?:100%|cotton|polyester|fabric)/i.test(o)) {
+    return { keep: true, reason: 'PERMANENT: product material info' }
+  }
+  if (/(?:women|ladies|girl|kids|baby|romper)/i.test(b) &&
+      /(?:we.*sell|only.*men|currently.*men|not available|dont|march|coming)/i.test(o)) {
+    if (/(?:\d+\s*days?|march|month|soon|coming)/i.test(o)) {
+      return { keep: false, reason: 'TEMPORARY: future product launch timeline' }
+    }
+    return { keep: true, reason: 'PERMANENT: product range info' }
+  }
+
+  // ===== ADDITIONAL CONTEXT/TEMPORARY CATCHES =====
+  if (b.length < 40 && /(?:bhi|also|aur|and|fir|then|but|lekin)/i.test(b) &&
+      !(/(?:do you|kya|available|sell|print|order)/i.test(b))) {
+    return { keep: false, reason: 'CONTEXT: likely continuation of conversation' }
+  }
+  if (o.length < 30 && !isPermanent && !(/(?:we|nahi|yes|haan|no sir|fixed|only)/i.test(o))) {
+    return { keep: false, reason: 'CONTEXT: short reply likely referencing prior context' }
+  }
+  if (/(?:aaj|kal|abhi|tomorrow|today|shaam|subah|raat)\s/i.test(o) &&
+      /(?:aa|nikal|bhej|milega|hoga|kar|ready|dispatch|update)/i.test(o) && o.length < 80) {
+    return { keep: false, reason: 'TEMPORARY: time-specific action/availability' }
+  }
+  if (/\d+\s*(?:baje|pm|am|ghante)/i.test(o) && o.length < 80 &&
+      !(/(?:timing|open|sunday|monday)/i.test(o))) {
+    return { keep: false, reason: 'TEMPORARY: time-specific response' }
+  }
+  if (/(?:kaun sa|which.*(?:order|item|color)|bhej(?:na|o).*(?:once|ek baar)|share.*(?:once|ek baar)|send me your)/i.test(o) && o.length < 80) {
+    return { keep: false, reason: 'CONTEXT: Om asking for specifics' }
+  }
+  if (o.length < 40 && !(/(?:we|sir|hota hai|milta|nahi karte|only)/i.test(o)) && !isPermanent) {
+    return { keep: false, reason: 'CONTEXT: short ambiguous reply' }
+  }
+  if (/(?:parcel|courier|pickup|dispatch|nikal|deliver|track|ship|bus pe|train se|porter)/i.test(b) &&
+      !(/(?:kitne din|charge|timing|how long|delivery time)/i.test(b))) {
+    return { keep: false, reason: 'CONTEXT: logistics for specific order' }
+  }
+  if (/(?:aa gya|aa gyi|aa gayi|aa gaye|mil gaya|mil gayi|aaya kya|aayi kya)/i.test(b)) {
+    return { keep: false, reason: 'TEMPORARY: checking if stock has arrived' }
+  }
+  if (/(?:ready kar|pack kar|nikal.*do|bhej.*do|dispatch kar|send kar)/i.test(b) &&
+      !(/(?:how|kaise|website|print|contact|number)/i.test(b))) {
+    return { keep: false, reason: 'CONTEXT: requesting action on specific order' }
+  }
+  if (/(?:dekh.*lena|check.*karna|apne.*pas|in dono|ye dono|us.*ka|unka)/i.test(b) && b.length < 80) {
+    return { keep: false, reason: 'CONTEXT: vague reference to prior discussion' }
+  }
+  if (/(?:client|party|customer.*baat|quantity.*bada|push|badane)/i.test(b)) {
+    return { keep: false, reason: 'CONTEXT: ongoing negotiation' }
+  }
+  if (/(?:kal.*chahiye|jaldi.*chahiye|urgent|asap|jldi)/i.test(b) &&
+      !(/(?:delivery|shipping|dispatch|kitne din)/i.test(b))) {
+    return { keep: false, reason: 'CONTEXT: urgency for specific order' }
+  }
+  if (/^ok\b/i.test(o) && /(?:kar|bhej|add|send|nikal|dispatch|done)/i.test(o) && o.length < 60) {
+    return { keep: false, reason: 'CONTEXT: Om confirming specific action' }
+  }
+  if (/(?:dealing|regular.*customer|costumer|3 years|repeat|purana)/i.test(b)) {
+    return { keep: false, reason: 'CONTEXT: referencing past relationship' }
+  }
+  if (/(?:L-\d|XL-\d|M-\d|S-\d|\d+\s*(?:pc|pcs|piece|qty))/i.test(b) &&
+      !(/(?:moq|minimum|bulk rate)/i.test(b))) {
+    return { keep: false, reason: 'CONTEXT: specific order request' }
+  }
+  if (/(?:mil\s*(?:skta|sakta|jayega|jaayega|payega)|available\s*(?:hai|h|nhi|nahi))/i.test(b) &&
+      /(?:black|white|navy|red|maroon|charcoal|M|L|XL|S\b|\d+\s*size)/i.test(b)) {
+    return { keep: false, reason: 'TEMPORARY: asking about specific item availability' }
+  }
+
+  return { keep: true, reason: 'UNCERTAIN: keeping as potentially permanent' }
+}
+
+app.post('/api/export/premium-pairs', async (c) => {
+  try {
+    const { fromDate, toDate } = await c.req.json()
+    if (!fromDate || !toDate) {
+      return c.json({ error: 'fromDate and toDate are required' }, 400)
+    }
+
+    const settings = await getSettings()
+    const WWBUN_API_URL = settings.wwbunApiUrl || process.env.WWBUN_API_URL
+    const DIGITAL_KETU_SECRET = settings.digitalKetuSecret || process.env.DIGITAL_KETU_SECRET
+
+    if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) {
+      return c.json({ error: 'WWBUN_API_URL or DIGITAL_KETU_SECRET not configured' }, 500)
+    }
+
+    // Step 1: Fetch pairs from wwbun with date range (Rules 1 & 2 applied by wwbun)
+    const url = `${WWBUN_API_URL}/api/messages/export-style-pairs?limit=5000&fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}`
+    const response = await fetch(url, {
+      headers: { 'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET },
+    })
+
+    if (!response.ok) {
+      const errText = await response.text()
+      return c.json({ error: `wwbun API error: ${response.status} — ${errText}` }, 502)
+    }
+
+    const mechanicalPairs = await response.json()
+
+    // Step 2: Apply Rules 3 & 4 (context-based & temporary classification)
+    const kept = []
+    const skipped = []
+    for (const pair of mechanicalPairs) {
+      const result = classifyPair(pair.buyerMessage, pair.omReply)
+      if (result.keep) {
+        kept.push({ ...pair, classifyReason: result.reason })
+      } else {
+        skipped.push({ ...pair, classifyReason: result.reason })
+      }
+    }
+
+    // Step 3: Build text export
+    const header = `PREMIUM STYLE PAIRS EXPORT — BulkPlainTshirt.com\n` +
+      `${'='.repeat(70)}\n` +
+      `Exported: ${new Date().toISOString()}\n` +
+      `Date range: ${fromDate} to ${toDate}\n` +
+      `Total premium pairs: ${kept.length} (${mechanicalPairs.length} mechanical, ${skipped.length} skipped)\n` +
+      `Rules applied:\n` +
+      `  1. Thought bundling (messages within 5s = one thought)\n` +
+      `  2. Quality: 4+ words on both buyer & seller side\n` +
+      `  3. Non-context only (skip order-specific, follow-ups)\n` +
+      `  4. Permanent only (skip time-bound, stock status answers)\n` +
+      `  + De-duplicated, skip media/URLs/greetings/acks\n` +
+      `${'='.repeat(70)}\n\n`
+
+    let body = ''
+    for (let i = 0; i < kept.length; i++) {
+      const p = kept[i]
+      const date = new Date(p.timestamp).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+      body += `--- Pair #${i + 1}  [${date}]  ${p.classifyReason} ${'---'.repeat(10)}\n\n`
+      body += `BUYER:\n${p.buyerMessage}\n\n`
+      body += `OM REPLY:\n${p.omReply}\n\n`
+    }
+
+    const footer = `${'='.repeat(70)}\nEND OF EXPORT — ${kept.length} premium pairs\n`
+
+    return c.json({
+      totalMechanical: mechanicalPairs.length,
+      totalPremium: kept.length,
+      totalSkipped: skipped.length,
+      pairs: kept,
+      textExport: header + body + footer,
+    })
+  } catch (err) {
+    console.error('[Export] Premium pairs failed:', err)
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// ===========================================
 // Serve Dashboard (Static Frontend)
 // ===========================================
 

@@ -1803,6 +1803,45 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
   const [showSection, setShowSection] = useState({ instructions: true, conditionalRules: false, policies: false, catalog: false, replies: false, styleGuide: false, stylePairs: false, deferList: false, history: false })
   const toggle = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
 
+  // Export premium pairs state
+  const [exportFromDate, setExportFromDate] = useState('')
+  const [exportToDate, setExportToDate] = useState(new Date().toISOString().split('T')[0])
+  const [exporting, setExporting] = useState(false)
+  const [exportResult, setExportResult] = useState(null)
+  const [exportError, setExportError] = useState(null)
+
+  const handleExportPairs = async () => {
+    if (!exportFromDate || !exportToDate) return
+    setExporting(true)
+    setExportError(null)
+    setExportResult(null)
+    try {
+      const res = await fetch('/api/export/premium-pairs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromDate: exportFromDate, toDate: exportToDate }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Export failed')
+      setExportResult(data)
+    } catch (err) {
+      setExportError(err.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const downloadExport = () => {
+    if (!exportResult?.textExport) return
+    const blob = new Blob([exportResult.textExport], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `premium-pairs-${exportFromDate}-to-${exportToDate}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const catalogItems = knowledge?.chunks?.CATALOG || []
   const savedReplies = knowledge?.chunks?.SAVED_REPLY || []
   const policies = knowledge?.chunks?.POLICY || []
@@ -1828,6 +1867,36 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
             {syncing ? 'Syncing...' : 'Sync Now'}
           </button>
         </div>
+      </div>
+
+      {/* Export Premium Pairs */}
+      <div style={{ ...styles.syncInfo, marginTop: '12px', borderColor: '#854d0e' }}>
+        <div style={{ fontWeight: '600', color: '#fbbf24', fontSize: '14px', marginBottom: '8px' }}>Export Premium Style Pairs</div>
+        <p style={{ margin: '0 0 8px', color: '#94a3b8', fontSize: '12px' }}>
+          Extract high-quality buyer→Om reply pairs (Rules 1-4: thought bundling, 4+ words, non-context, permanent only). Downloads as text file.
+        </p>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ color: '#94a3b8', fontSize: '12px' }}>From:</label>
+          <input type="date" value={exportFromDate} onChange={e => setExportFromDate(e.target.value)}
+            style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '4px', padding: '4px 8px', fontSize: '13px' }} />
+          <label style={{ color: '#94a3b8', fontSize: '12px' }}>To:</label>
+          <input type="date" value={exportToDate} onChange={e => setExportToDate(e.target.value)}
+            style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '4px', padding: '4px 8px', fontSize: '13px' }} />
+          <button style={{ ...styles.btnPrimary, background: '#854d0e' }} onClick={handleExportPairs} disabled={exporting || !exportFromDate}>
+            {exporting ? 'Exporting...' : 'Export Pairs'}
+          </button>
+          {exportResult && (
+            <button style={{ ...styles.btnPrimary, background: '#166534' }} onClick={downloadExport}>
+              Download ({exportResult.totalPremium} pairs)
+            </button>
+          )}
+        </div>
+        {exportResult && (
+          <p style={{ margin: '8px 0 0', color: '#4ade80', fontSize: '12px' }}>
+            {exportResult.totalMechanical} mechanical pairs → {exportResult.totalPremium} premium (skipped {exportResult.totalSkipped} context/temporary)
+          </p>
+        )}
+        {exportError && <p style={{ margin: '8px 0 0', color: '#f87171', fontSize: '12px' }}>{exportError}</p>}
       </div>
 
       {/* AI Instructions (System Prompt) */}
