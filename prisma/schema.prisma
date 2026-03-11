@@ -129,6 +129,7 @@ model Settings {
   deferMessage        String   @default("Ketu will get back to you shortly on this.")
   mediaMessage        String   @default("Sir, Ketu is not available right now. I'm not able to see images or listen to audio at the moment — could you please write your query in text? I'll read and reply right away.")
   confidenceThreshold Float    @default(0.80)       // single threshold: ≥80% → Claude answers, <80% → defer to Ketu
+  deferThreshold      Float    @default(0.80)       // deprecated — kept for DB compatibility, use confidenceThreshold instead
   mergeWindowMs       Int      @default(3000)       // message merge window (3 sec)
   cooldownMinutes     Int      @default(10)         // cooldown after Om intervenes
   scheduleEnabled     Boolean  @default(false)
