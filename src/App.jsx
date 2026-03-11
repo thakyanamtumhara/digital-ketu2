@@ -1718,6 +1718,31 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
     setReplyTemplates(prev => prev.filter((_, i) => i !== index))
   }
 
+  // Import knowledge to vector DB
+  const [importing, setImporting] = useState(false)
+  const [importStatus, setImportStatus] = useState(null)
+  const importAllKnowledge = async () => {
+    setImporting(true)
+    setImportStatus('Importing reply templates...')
+    try {
+      const tRes = await fetch('/api/sync/import-reply-templates', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templates: replyTemplates }),
+      })
+      const tData = await tRes.json()
+      setImportStatus(`Templates: ${tData.imported || 0}. Importing ${STYLE_PAIRS.length} style pairs (may take a minute)...`)
+      const sRes = await fetch('/api/sync/import-style-pairs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pairs: STYLE_PAIRS }),
+      })
+      const sData = await sRes.json()
+      setImportStatus(`Done! Templates: ${tData.imported || 0}, Style Pairs: ${sData.imported || 0} imported to vector DB`)
+    } catch (err) {
+      setImportStatus(`Error: ${err.message}`)
+    }
+    setImporting(false)
+  }
+
   // Export premium pairs state
   const [exportFromDate, setExportFromDate] = useState('')
   const [exportToDate, setExportToDate] = useState(new Date().toISOString().split('T')[0])
@@ -1766,6 +1791,22 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
           </div>
           <button style={styles.btnPrimary} onClick={onSync} disabled={syncing}>
             {syncing ? 'Syncing Catalog...' : 'Sync Catalog'}
+          </button>
+        </div>
+      </div>
+
+      {/* Import All Knowledge to Vector DB */}
+      <div style={{ ...styles.syncInfo, marginTop: '12px', borderColor: '#059669' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+          <div>
+            <div style={{ fontWeight: '600', color: '#22c55e', fontSize: '14px', marginBottom: '4px' }}>Import Knowledge to Vector DB</div>
+            <p style={{ margin: 0, color: '#94a3b8', fontSize: '12px' }}>
+              Import all {replyTemplates.length} reply templates + {STYLE_PAIRS.length} style pairs into the vector database with Voyage AI embeddings. Required for AI to search and match.
+            </p>
+            {importStatus && <p style={{ margin: '6px 0 0', color: '#60a5fa', fontSize: '12px' }}>{importStatus}</p>}
+          </div>
+          <button style={{ ...styles.btnPrimary, background: '#059669' }} onClick={importAllKnowledge} disabled={importing}>
+            {importing ? 'Importing...' : 'Import All'}
           </button>
         </div>
       </div>

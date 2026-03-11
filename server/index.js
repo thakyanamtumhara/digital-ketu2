@@ -5,7 +5,7 @@ import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage } from './process.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
-import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured } from './embeddings.js'
+import { getEmbedding, getVoyageBatch, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured } from './embeddings.js'
 import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
 
 const app = new Hono()
@@ -1326,6 +1326,91 @@ app.post('/api/sync/catalog', async (c) => {
     const result = await syncCatalog(db, anthropic)
     return c.json(result)
   } catch (err) {
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// Bulk import reply templates directly (from frontend hardcoded data)
+app.post('/api/sync/import-reply-templates', async (c) => {
+  try {
+    const { templates } = await c.req.json()
+    if (!templates || !Array.isArray(templates) || templates.length === 0) {
+      return c.json({ error: 'Missing templates array' }, 400)
+    }
+
+    const existingCount = await db.knowledgeChunk.count({ where: { source: 'SAVED_REPLY' } })
+    await db.knowledgeChunk.deleteMany({ where: { source: 'SAVED_REPLY' } })
+    console.log(`[Import] Cleared ${existingCount} existing SAVED_REPLY chunks, importing ${templates.length} new ones...`)
+
+    const texts = templates.map(t => `/${t.shortcut}: ${t.content}`)
+    const embeddings = await getVoyageBatch(texts)
+
+    let inserted = 0
+    for (let i = 0; i < templates.length; i++) {
+      try {
+        await db.$executeRaw`
+          INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
+          VALUES (${crypto.randomUUID()}, 'SAVED_REPLY', ${templates[i].shortcut}, ${'/' + templates[i].shortcut}, ${texts[i]}, ${embeddings[i]}::vector, ${JSON.stringify({ category: templates[i].category, mediaType: templates[i].mediaType })}::jsonb, NOW(), NOW())
+        `
+        inserted++
+      } catch (err) {
+        console.error(`[Import] Failed to insert template ${i}:`, err.message)
+      }
+    }
+
+    console.log(`[Import] Reply templates: ${inserted}/${templates.length} imported with embeddings`)
+    return c.json({ status: 'success', imported: inserted, total: templates.length })
+  } catch (err) {
+    console.error('[Import] Reply templates failed:', err.message)
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// Bulk import style pairs directly (from frontend hardcoded data)
+app.post('/api/sync/import-style-pairs', async (c) => {
+  try {
+    const { pairs } = await c.req.json()
+    if (!pairs || !Array.isArray(pairs) || pairs.length === 0) {
+      return c.json({ error: 'Missing pairs array' }, 400)
+    }
+
+    // Check how many STYLE_PAIR chunks already exist
+    const existingCount = await db.knowledgeChunk.count({ where: { source: 'STYLE_PAIR' } })
+    if (existingCount >= pairs.length) {
+      return c.json({ status: 'already_imported', existing: existingCount, requested: pairs.length })
+    }
+
+    // Delete existing style pair chunks (fresh import)
+    await db.knowledgeChunk.deleteMany({ where: { source: 'STYLE_PAIR' } })
+    console.log(`[Import] Cleared ${existingCount} existing STYLE_PAIR chunks, importing ${pairs.length} new ones...`)
+
+    // Prepare texts for batch embedding
+    const texts = pairs.map(p => `Buyer: "${p.buyer}"\nOm's reply: "${p.reply}"`)
+
+    // Batch embed (128 at a time via Voyage AI)
+    const embeddings = await getVoyageBatch(texts)
+
+    // Insert all chunks
+    let inserted = 0
+    for (let i = 0; i < pairs.length; i++) {
+      const sourceId = `style_${i}`
+      const content = texts[i]
+      const title = `Style: "${pairs[i].buyer.substring(0, 60)}"`
+      try {
+        await db.$executeRaw`
+          INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
+          VALUES (${crypto.randomUUID()}, 'STYLE_PAIR', ${sourceId}, ${title}, ${content}, ${embeddings[i]}::vector, ${JSON.stringify({ buyerMessage: pairs[i].buyer, omReply: pairs[i].reply })}::jsonb, NOW(), NOW())
+        `
+        inserted++
+      } catch (err) {
+        console.error(`[Import] Failed to insert pair ${i}:`, err.message)
+      }
+    }
+
+    console.log(`[Import] Style pairs: ${inserted}/${pairs.length} imported with embeddings`)
+    return c.json({ status: 'success', imported: inserted, total: pairs.length })
+  } catch (err) {
+    console.error('[Import] Style pairs failed:', err.message)
     return c.json({ error: err.message }, 500)
   }
 })

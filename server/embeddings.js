@@ -36,6 +36,10 @@ async function getVoyageEmbedding(text) {
  * Batch embedding: send multiple texts in one API call (max 128 per call)
  * Returns array of pgvector-compatible embedding strings
  */
+export async function getVoyageBatch(texts) {
+  return getVoyageEmbeddingsBatch(texts)
+}
+
 async function getVoyageEmbeddingsBatch(texts) {
   const BATCH_SIZE = 128
   const allResults = []
