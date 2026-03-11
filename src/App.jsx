@@ -220,6 +220,7 @@ function App() {
         {['live', 'analytics', 'defer', 'filters', 'learning', 'pulled', 'settings', 'sync'].map(t => (
           <button
             key={t}
+            data-tab={t}
             style={{ ...styles.tab, ...(tab === t ? styles.activeTab : {}) }}
             onClick={() => {
               setTab(t)
@@ -1693,6 +1694,7 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
               {historyPullProgress.status === 'running'
                 ? historyPullProgress.phase === 'fetching' ? 'Fetching pairs from WhatsApp...'
                 : historyPullProgress.phase === 'stored' ? `Stored ${historyPullProgress.stored} pairs, starting review...`
+                : historyPullProgress.phase === 'discovering_keywords' ? 'Discovering keywords for Pre-AI filters...'
                 : `Reviewing batch ${historyPullProgress.batchNumber}...`
                 : historyPullProgress.status === 'complete' ? 'History pull complete!'
                 : `Failed: ${historyPullProgress.error}`}
@@ -1714,6 +1716,34 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
                     </span>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Keyword Discovery Results */}
+            {historyPullProgress.keywordsDiscovered && (historyPullProgress.keywordsDiscovered.autoAdded > 0 || historyPullProgress.keywordsDiscovered.pending > 0) && (
+              <div style={{ marginTop: 10, padding: 10, background: '#7c3aed15', borderRadius: 6, border: '1px solid #7c3aed33' }}>
+                <div style={{ color: '#a78bfa', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                  Keywords Discovered for Pre-AI Filters
+                </div>
+                <div style={{ display: 'flex', gap: 16, color: '#cbd5e1', fontSize: 12 }}>
+                  <span style={{ color: '#22c55e' }}>{historyPullProgress.keywordsDiscovered.autoAdded} auto-added</span>
+                  <span style={{ color: '#f59e0b' }}>{historyPullProgress.keywordsDiscovered.pending} need your review</span>
+                </div>
+                {historyPullProgress.keywordsDiscovered.pending > 0 && historyPullProgress.status === 'complete' && (
+                  <button
+                    onClick={() => {
+                      // Switch to Pre-AI Filters tab (parent handles this via a callback)
+                      // For now, just inform the user
+                      document.querySelector('[data-tab="filters"]')?.click()
+                    }}
+                    style={{
+                      marginTop: 8, padding: '5px 14px', borderRadius: 6, border: '1px solid #7c3aed',
+                      background: 'transparent', color: '#a78bfa', fontSize: 12, cursor: 'pointer',
+                    }}
+                  >
+                    View in Pre-AI Filters →
+                  </button>
+                )}
               </div>
             )}
           </div>
