@@ -1600,6 +1600,26 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
         ))}
       </div>
 
+      {/* Reset manual pairs for re-review */}
+      {stats.stats.pendingManualPairs === 0 && stats.stats.totalManualReviewed > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <button
+            onClick={async () => {
+              if (!confirm(`Reset ${stats.stats.totalManualReviewed} reviewed manual pairs for re-review with Sonnet?`)) return
+              const res = await fetch(`${API}/learning/reset-manual-pairs`, { method: 'POST' })
+              if (res.ok) {
+                const data = await res.json()
+                alert(data.message)
+                onRefresh()
+              }
+            }}
+            style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #f59e0b', background: 'transparent', color: '#f59e0b', cursor: 'pointer', fontSize: 12 }}
+          >
+            Reset {stats.stats.totalManualReviewed} Manual Pairs for Re-review
+          </button>
+        </div>
+      )}
+
       {/* What I learned today */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>

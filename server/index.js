@@ -233,6 +233,15 @@ app.post('/api/learning/run', async (c) => {
   }
 })
 
+// Reset manual pairs that were reviewed by wrong model (skipped/haiku) so they can be re-reviewed
+app.post('/api/learning/reset-manual-pairs', async (c) => {
+  const result = await db.manualReplyPair.updateMany({
+    where: { reviewedAt: { not: null } },
+    data: { reviewedAt: null, reviewResult: null, reviewNote: null, category: null },
+  })
+  return c.json({ reset: result.count, message: `Reset ${result.count} manual pairs for re-review` })
+})
+
 // One-time backlog review — review ALL past AI replies
 let backlogRunning = false
 let backlogProgress = null
@@ -1091,7 +1100,7 @@ Extract SHORT keywords/phrases (1-3 words, Hindi/English/Hinglish) that could de
 Reply as JSON array only: [{ "keyword": "...", "confidence": 0.95 }]`
 
   const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    model: 'claude-sonnet-4-6',
     max_tokens: 2000,
     messages: [{ role: 'user', content: prompt }],
   })
