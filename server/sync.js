@@ -87,12 +87,13 @@ export async function syncSavedReplies(db, anthropic) {
         }
       }
     } else {
-      // Process wwbun templates
+      // Process wwbun templates (pre-cleaned by wwbun API — no catalog-redundant, temp, or internal templates)
       itemsFound = templates.length
       for (const template of templates) {
         const content = template.content || ''
         const shortcut = template.shortcut || ''
-        const title = shortcut ? `/${shortcut}` : `Template ${template.id}`
+        const category = template.category || 'general'
+        const title = shortcut ? `/${shortcut} (${category})` : `Template ${template.id}`
 
         const result = await storeChunkWithEmbedding(db, anthropic, {
           source: 'SAVED_REPLY',
@@ -101,6 +102,7 @@ export async function syncSavedReplies(db, anthropic) {
           content,
           metadata: {
             shortcut,
+            category,
             hasMedia: !!template.mediaUrl,
             mediaType: template.mediaType || null,
           },
