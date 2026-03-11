@@ -10,8 +10,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
 
-const REVIEWER_MODEL = 'claude-sonnet-4-6'
-const HISTORY_PULL_MODEL = 'claude-opus-4-6' // Opus 4.6 for one-time history pulls (best quality for Hindi/Hinglish)
+const REVIEWER_MODEL = 'claude-opus-4-6' // Opus 4.6 — best quality, used for manual "Run Now" reviews
+const HISTORY_PULL_MODEL = 'claude-opus-4-6' // Opus 4.6 for one-time history pulls
 const BATCH_SIZE = 20
 const HISTORY_PULL_BATCH_SIZE = 50 // Bigger batches for history pull — more context per call
 
