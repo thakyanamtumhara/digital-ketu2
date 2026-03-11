@@ -279,17 +279,22 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   // --- Check: Website issue — buyer says site not opening / not working ---
   // Auto-reply directly, 0 tokens. Reply is always the same.
-  const websiteIssueKeywords = [
+  // Uses combo detection: message must mention site/website AND an issue word.
+  const siteWords = ['site', 'website', 'sale91', 'page']
+  const issueWords = ['issue', 'problem', 'error', 'down', 'nahi', 'ni', 'nhi', 'not']
+  const hasSiteWord = siteWords.some(w => lowerMsg.includes(w))
+  const hasIssueWord = issueWords.some(w => lowerMsg.includes(w))
+  // Also catch direct phrases about not opening (no site word needed)
+  const directWebsiteIssueKws = [
     'open nahi', 'open ni', 'open nhi', 'khul nahi', 'khul ni', 'khul nhi',
-    'site issue', 'site par issue', 'site pe issue', 'site problem',
-    'website issue', 'website problem', 'website nahi', 'website ni',
-    'site nahi', 'site ni', 'nahi khul', 'nhi khul',
-    'not opening', 'not working', 'not loading', 'load nahi',
-    'error aa raha', 'error aa rahi', 'error aata', 'error show',
-    'blank page', 'page not found', 'kaam nahi kar raha',
-    'site down', 'website down', 'server error',
+    'nahi khul', 'nhi khul', 'not opening', 'not working', 'not loading',
+    'load nahi', 'blank page', 'page not found', 'server error',
   ]
-  const hasWebsiteIssue = websiteIssueKeywords.some(kw => lowerMsg.includes(kw))
+  const hasDirectIssue = directWebsiteIssueKws.some(kw => lowerMsg.includes(kw))
+  // Exclude if buyer is talking about a product issue ON the website (not the site itself)
+  const productIssueWords = ['product', 'tshirt', 't-shirt', 'shirt', 'item', 'listed', 'price', 'rate', 'photo', 'image', 'color', 'colour', 'size']
+  const isProductIssue = productIssueWords.some(w => lowerMsg.includes(w))
+  const hasWebsiteIssue = ((hasSiteWord && hasIssueWord) || hasDirectIssue) && !isProductIssue
   if (hasWebsiteIssue) {
     const websiteIssueReply = 'Sir, issue toh nahi hai. Network ya server ka temporary issue hoga. Thodi der baad try kariye, open ho jaayega 👍'
     await sendReplyViaWwbun(whatsappNumber, websiteIssueReply)
