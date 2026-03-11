@@ -131,8 +131,11 @@ app.post('/api/incoming', async (c) => {
 // wwbun calls this when Om sends a manual message in a conversation
 
 app.post('/api/intervention', async (c) => {
-  const { whatsappNumber, ketuReply, buyerMessage, aiReply, aiRepliedAt } = await c.req.json()
+  const { whatsappNumber, ketuReply, messageType, buyerMessage, aiReply, aiRepliedAt } = await c.req.json()
   if (!whatsappNumber) return c.json({ error: 'Missing whatsappNumber' }, 400)
+
+  // Skip learning for non-text replies (audio, video, image, etc.) — only set cooldown
+  const isTextReply = !messageType || messageType === 'TEXT'
 
   // 1. Set cooldown (existing behavior)
   const settings = await getSettings()
@@ -153,7 +156,7 @@ app.post('/api/intervention', async (c) => {
 
   let learned = null
 
-  if (isIntervention && buyerMessage && ketuReply) {
+  if (isTextReply && isIntervention && buyerMessage && ketuReply) {
     try {
       const embedding = await getEmbedding(anthropic, buyerMessage)
       await db.$executeRaw`
@@ -168,7 +171,7 @@ app.post('/api/intervention', async (c) => {
   }
 
   // 3. SELF-LEARNING: If AI was OFF (no recent AI reply), store pair for batch review
-  if (!isIntervention && buyerMessage && ketuReply) {
+  if (isTextReply && !isIntervention && buyerMessage && ketuReply) {
     try {
       await db.manualReplyPair.create({
         data: { whatsappNumber, buyerMessage, ketuReply },
