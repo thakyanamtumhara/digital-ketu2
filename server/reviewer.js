@@ -11,15 +11,15 @@ import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
 
 const REVIEWER_MODEL = 'claude-sonnet-4-6'
-const HISTORY_PULL_MODEL = 'claude-sonnet-4-6' // Sonnet 4.6 for best Hindi/Hinglish understanding
+const HISTORY_PULL_MODEL = 'claude-opus-4-6' // Opus 4.6 for one-time history pulls (best quality for Hindi/Hinglish)
 const BATCH_SIZE = 20
 const HISTORY_PULL_BATCH_SIZE = 50 // Bigger batches for history pull — more context per call
 
 // Pricing (per token)
 const SONNET_INPUT_PRICE = 3.0 / 1_000_000   // $3 per 1M input tokens
 const SONNET_OUTPUT_PRICE = 15.0 / 1_000_000  // $15 per 1M output tokens
-const OPUS_INPUT_PRICE = 15.0 / 1_000_000     // $15 per 1M input tokens
-const OPUS_OUTPUT_PRICE = 75.0 / 1_000_000    // $75 per 1M output tokens
+const OPUS_INPUT_PRICE = 5.0 / 1_000_000      // $5 per 1M input tokens (Opus 4.6)
+const OPUS_OUTPUT_PRICE = 25.0 / 1_000_000    // $25 per 1M output tokens (Opus 4.6)
 
 // ===========================
 // Mode 1: Review AI Replies
