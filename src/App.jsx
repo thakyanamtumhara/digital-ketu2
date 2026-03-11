@@ -1605,7 +1605,7 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
         <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
           <button
             onClick={async () => {
-              if (!confirm(`Reset ${stats.stats.totalManualReviewed} reviewed manual pairs for re-review with Sonnet 4.6?`)) return
+              if (!confirm(`Reset ${stats.stats.totalManualReviewed} reviewed manual pairs for re-review with Opus 4.6?`)) return
               const res = await fetch(`${API}/learning/reset-manual-pairs`, { method: 'POST' })
               if (res.ok) {
                 const data = await res.json()
@@ -1619,7 +1619,7 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
           >
             Reset {stats.stats.totalManualReviewed} Reviewed Pairs for Re-review
           </button>
-          <span style={{ color: '#64748b', fontSize: 11 }}>Pairs reviewed by wrong model can be re-reviewed with Sonnet 4.6</span>
+          <span style={{ color: '#64748b', fontSize: 11 }}>Pairs reviewed by wrong model can be re-reviewed with Opus 4.6</span>
         </div>
       )}
 
