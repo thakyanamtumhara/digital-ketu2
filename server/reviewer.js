@@ -10,6 +10,16 @@ import Anthropic from '@anthropic-ai/sdk'
 import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
 
+// Quality filter: both sides need 4+ words, no media/reaction placeholders
+const wordCount = (s) => (s || '').split(/\s+/).filter(w => w.length > 0).length
+const isQualityPair = (buyer, reply) => {
+  if (!buyer || !reply) return false
+  if (wordCount(buyer) < 4 || wordCount(reply) < 4) return false
+  // Skip reactions, audio, media placeholders
+  if (/^\[/.test(buyer) || /^\[/.test(reply)) return false
+  return true
+}
+
 const REVIEWER_MODEL = 'claude-opus-4-6' // Opus 4.6 — best quality, used for manual "Run Now" reviews
 const HISTORY_PULL_MODEL = 'claude-opus-4-6' // Opus 4.6 for one-time history pulls
 const BATCH_SIZE = 20
@@ -130,8 +140,8 @@ export async function reviewAiReplies(db) {
     const msg = messages.find(m => m.id === result.id)
     if (!msg) continue
 
-    // Auto-correct bad replies
-    if (result.rating <= 2 && result.suggestedReply) {
+    // Auto-correct bad replies (only for quality pairs with 4+ words on both sides)
+    if (result.rating <= 2 && result.suggestedReply && isQualityPair(msg.buyerMessage, result.suggestedReply)) {
       try {
         const embedding = await getEmbedding(null, msg.buyerMessage)
         await db.$executeRaw`
@@ -262,7 +272,7 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
     const pair = pairs.find(p => p.id === result.id)
     if (!pair) continue
 
-    if (result.aiWouldFail) {
+    if (result.aiWouldFail && isQualityPair(pair.buyerMessage, pair.ketuReply)) {
       try {
         const embedding = await getEmbedding(null, pair.buyerMessage)
         await db.$executeRaw`
@@ -275,12 +285,16 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
       }
     }
 
+    // Still record the review result and category even for low-quality pairs (for analytics)
+    const wouldBeCorrection = result.aiWouldFail && isQualityPair(pair.buyerMessage, pair.ketuReply)
     await db.manualReplyPair.update({
       where: { id: pair.id },
       data: {
         reviewedAt: new Date(),
-        reviewResult: result.aiWouldFail ? 'correction_added' : 'ai_would_handle',
-        reviewNote: result.reason || null,
+        reviewResult: wouldBeCorrection ? 'correction_added' : result.aiWouldFail ? 'skipped' : 'ai_would_handle',
+        reviewNote: result.aiWouldFail && !isQualityPair(pair.buyerMessage, pair.ketuReply)
+          ? 'Skipped — low quality pair (under 4 words or media placeholder)'
+          : (result.reason || null),
         category: result.category || null,
       },
     })
@@ -326,6 +340,9 @@ export async function pullAndReviewHistory(db, onProgress, { limit = 1000 } = {}
   let stored = 0
   for (const pair of pairs) {
     try {
+      // Quality filter: skip low-quality pairs (under 4 words or media placeholders)
+      if (!isQualityPair(pair.buyerMessage, pair.omReply)) continue
+
       // Check if this exact pair already exists
       const existing = await db.manualReplyPair.findFirst({
         where: { buyerMessage: pair.buyerMessage, ketuReply: pair.omReply },
