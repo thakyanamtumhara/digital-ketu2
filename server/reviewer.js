@@ -11,7 +11,7 @@ import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
 
 const REVIEWER_MODEL = 'claude-sonnet-4-6-20250514'
-const HISTORY_PULL_MODEL = 'claude-opus-4-6-20250514' // Best model for one-time history pull
+const HISTORY_PULL_MODEL = 'claude-sonnet-4-6-20250514' // Sonnet 4.6 (upgrade to Opus when available on your API key)
 const BATCH_SIZE = 20
 const HISTORY_PULL_BATCH_SIZE = 50 // Bigger batches for history pull — more context per call
 
