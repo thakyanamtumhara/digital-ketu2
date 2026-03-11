@@ -487,6 +487,33 @@ Reply as JSON array only: [{ "keyword": "...", "category": "...", "confidence": 
 
   let autoAdded = 0, pending = 0
 
+  // --- CROSS-VALIDATION: Count how many distinct messages each keyword actually appears in ---
+  // This ensures we don't trust a keyword that only appeared in 1 message
+  const keywordFrequency = {}
+  for (const d of discoveries) {
+    if (!d.keyword || !d.category) continue
+    const kw = d.keyword.toLowerCase().trim()
+    const cat = d.category
+    const key = `${kw}|||${cat}`
+
+    if (!keywordFrequency[key]) {
+      keywordFrequency[key] = { keyword: kw, category: cat, count: 0 }
+    }
+
+    // Count how many messages in this category actually contain this keyword
+    const categoryMessages = byCategory[cat] || []
+    let matchCount = 0
+    for (const msg of categoryMessages) {
+      if (msg.toLowerCase().includes(kw)) matchCount++
+    }
+    keywordFrequency[key].count = matchCount
+  }
+
+  console.log('[KeywordExtract] Cross-validation frequency counts:')
+  for (const [key, info] of Object.entries(keywordFrequency)) {
+    console.log(`  "${info.keyword}" (${info.category}): found in ${info.count}/${(byCategory[info.category] || []).length} messages`)
+  }
+
   for (const d of discoveries) {
     if (!d.keyword || !d.category) continue
 
@@ -502,8 +529,33 @@ Reply as JSON array only: [{ "keyword": "...", "category": "...", "confidence": 
     })
     if (existingDiscovery) continue
 
-    // AUTO-ADD: High confidence + existing category
-    if (d.confidence >= 0.85 && existingNames.includes(d.category) && targetFilter) {
+    // --- CROSS-VALIDATION CHECK ---
+    // Keyword must appear in at least 2 different messages of the same category
+    // If it only appears in 1 message, it might be a one-off word, not a reliable filter keyword
+    const freqKey = `${keyword}|||${d.category}`
+    const freq = keywordFrequency[freqKey]
+    const messageCount = freq ? freq.count : 0
+    const MIN_FREQUENCY = 2 // Must appear in at least 2 messages
+
+    if (messageCount < MIN_FREQUENCY) {
+      console.log(`[KeywordExtract] SKIPPED "${keyword}" (${d.category}): only in ${messageCount} message(s), need ${MIN_FREQUENCY}+`)
+      continue
+    }
+
+    // Boost or penalize confidence based on actual frequency
+    // More messages = more reliable keyword
+    const categoryTotal = (byCategory[d.category] || []).length
+    const frequencyRatio = categoryTotal > 0 ? messageCount / categoryTotal : 0
+    // If keyword appears in 50%+ of messages in category, boost confidence
+    // If keyword appears in <20% of messages, reduce confidence
+    let adjustedConfidence = d.confidence
+    if (frequencyRatio >= 0.5) adjustedConfidence = Math.min(1.0, d.confidence + 0.05)
+    else if (frequencyRatio < 0.2) adjustedConfidence = Math.max(0, d.confidence - 0.10)
+
+    console.log(`[KeywordExtract] "${keyword}" (${d.category}): AI=${d.confidence.toFixed(2)}, freq=${messageCount}/${categoryTotal} (${(frequencyRatio * 100).toFixed(0)}%), adjusted=${adjustedConfidence.toFixed(2)}`)
+
+    // AUTO-ADD: High adjusted confidence + existing category + verified across multiple messages
+    if (adjustedConfidence >= 0.85 && existingNames.includes(d.category) && targetFilter) {
       const updatedKeywords = targetFilter.keywords
         ? targetFilter.keywords + ',' + keyword
         : keyword
@@ -521,7 +573,7 @@ Reply as JSON array only: [{ "keyword": "...", "category": "...", "confidence": 
         data: {
           keyword,
           category: d.category,
-          confidence: d.confidence,
+          confidence: adjustedConfidence,
           source: 'auto_review',
           status: 'auto_added',
           filterId: targetFilter.id,
@@ -529,17 +581,19 @@ Reply as JSON array only: [{ "keyword": "...", "category": "...", "confidence": 
         },
       })
       autoAdded++
+      console.log(`[KeywordExtract] AUTO-ADDED "${keyword}" → ${d.category} (confidence=${adjustedConfidence.toFixed(2)}, verified in ${messageCount} messages)`)
     } else {
       // MANUAL REVIEW: Low confidence OR new category
       await db.discoveredKeyword.create({
         data: {
           keyword,
           category: d.category,
-          confidence: d.confidence,
+          confidence: adjustedConfidence,
           source: 'auto_review',
           status: 'pending',
         },
       })
+      console.log(`[KeywordExtract] PENDING "${keyword}" → ${d.category} (confidence=${adjustedConfidence.toFixed(2)}, verified in ${messageCount} messages)`)
       pending++
     }
   }
