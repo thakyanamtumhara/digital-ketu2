@@ -3,9 +3,9 @@
 //
 // Vector-based system (v2):
 // 1. Buyer message → Voyage AI embedding
-// 2. Vector search ALL 3 sources (style pairs, templates, catalog)
+// 2. Single vector search across ALL 3 sources (catalog, reply templates, 337 style pairs) → top 5
 // 3. Best match ≥ 80% (confidenceThreshold) → send top 5 to Claude → reply
-// 4. Best match < 85% → defer to Ketu (not enough knowledge)
+// 4. Best match < 80% → defer to Ketu (not enough knowledge)
 
 import { vectorSearch, vectorSearchDeferList } from './embeddings.js'
 
@@ -438,29 +438,24 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
   }
 
-  // --- VECTOR SEARCH: Find relevant knowledge from all 3 sources ---
-  // Search 1: Knowledge (catalog + templates + policies) — top 5
-  // Search 2: Style pairs (Om's real replies) — top 3 for tone/style reference
-  const [knowledgeResults, stylePairResults] = await Promise.all([
-    vectorSearch(db, anthropic, mergedText, {
-      limit: 5,
-      minSimilarity: 0.0,
-      excludeSources: ['STYLE_PAIR', 'STYLE_GUIDE'],
-    }),
-    vectorSearch(db, anthropic, mergedText, {
-      limit: 3,
-      minSimilarity: 0.0,
-      sources: ['STYLE_PAIR'],
-    }),
-  ])
+  // --- VECTOR SEARCH: Single search across all 3 knowledge sources ---
+  // Catalog + Reply Templates + Style Pairs (337 quality Q&A pairs) — top 5 overall
+  // Style Guide excluded (it's a compact summary, not a searchable chunk)
+  const allVectorResults = await vectorSearch(db, anthropic, mergedText, {
+    limit: 5,
+    minSimilarity: 0.0,
+    excludeSources: ['STYLE_GUIDE'],
+  })
 
-  // Combine all results and find best similarity
-  const allVectorResults = [...knowledgeResults, ...stylePairResults]
   const bestSimilarity = allVectorResults.length > 0
     ? Math.max(...allVectorResults.map(r => Number(r.similarity)))
     : 0
 
-  console.log(`[Vector] ${whatsappNumber} — ${knowledgeResults.length} knowledge + ${stylePairResults.length} style pairs, best: ${(bestSimilarity * 100).toFixed(1)}%`)
+  // Split results for prompt building (style pairs → system prompt as examples, rest → user prompt as knowledge)
+  const knowledgeResults = allVectorResults.filter(r => r.source !== 'STYLE_PAIR')
+  const stylePairResults = allVectorResults.filter(r => r.source === 'STYLE_PAIR')
+
+  console.log(`[Vector] ${whatsappNumber} — ${knowledgeResults.length} knowledge + ${stylePairResults.length} style pairs (top 5 from all sources), best: ${(bestSimilarity * 100).toFixed(1)}%`)
 
   // --- CONFIDENCE CHECK: Zone 1 (≥85%) → answer, Zone 2/3 (<85%) → defer ---
   const confidenceThreshold = settings.confidenceThreshold || 0.80

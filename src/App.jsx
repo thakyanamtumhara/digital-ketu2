@@ -1834,87 +1834,62 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
         {templateError && <p style={{ margin: '8px 0 0', color: '#f87171', fontSize: '12px' }}>{templateError}</p>}
       </div>
 
-      {/* AI Rules & System Prompt (Conditional Rules + System Prompt merged) */}
+      {/* AI System Prompt (exact copy from server/process.js) */}
       <div style={styles.kbSection}>
         <div style={styles.kbHeader} onClick={() => toggle('rules')}>
-          <span style={styles.kbHeaderTitle}>AI Rules & System Prompt</span>
+          <span style={styles.kbHeaderTitle}>AI System Prompt (sent to Claude)</span>
           <span style={{ color: '#64748b' }}>{showSection.rules ? '\u25BC' : '\u25B6'}</span>
         </div>
         {showSection.rules && (
           <div style={styles.kbContent}>
-            {/* System Prompt */}
+            <div style={{ padding: '8px 12px', background: '#0f172a', borderRadius: '6px', fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>
+              This is the exact system prompt from <strong style={{ color: '#60a5fa' }}>server/process.js</strong>. Sent with every message to Claude Haiku 4.5.
+            </div>
             <div style={styles.kbCard}>
-              <div style={{ fontWeight: '600', color: '#f59e0b', fontSize: '13px', marginBottom: '8px' }}>SYSTEM PROMPT -- sent with every message to Claude</div>
-              <div style={styles.promptBlock}>{`You are Ketu's assistant -- an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
+              <div style={styles.promptBlock}>{`You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
 RULES:
-- Reply in the buyer's language. Hindi -> Hindi, English -> English, Hinglish -> Hinglish.
+- Reply in the buyer's language. If they write Hindi, reply in Hindi. If English, reply in English. If Hinglish, reply in Hinglish.
 - Be friendly, professional, and helpful. Sound like a real person, not a robot.
-- Keep replies SHORT -- max 10-15 words. Quick, direct, to the point.
-- Match Ketu's style from STYLE EXAMPLES.
-- Never make up information. Only use the knowledge provided.
-- If not enough info -> respond with EXACTLY: [DEFER]
-- Do NOT make up prices, product details, or policies.
+- Keep replies SHORT and natural for WhatsApp. Match the length and style shown in the STYLE EXAMPLES below.
+- HINDI POLITENESS (CRITICAL): Always use polite "aap" verb forms with customers. NEVER use informal "tu/tum" forms.
+  WRONG: "bata", "kar", "de", "bhej", "dekh", "bol", "sun", "le", "ja", "aa", "ruk", "baith"
+  RIGHT: "bataaiye", "kariye", "dijiye", "bhejiye", "dekhiye", "boliye", "suniye", "lijiye", "jaaiye", "aaiye", "rukiye", "baithiye"
+- Never make up information. Only use the knowledge provided below.
+- If you don't have enough info in the knowledge base to answer accurately, respond with EXACTLY: [DEFER]
+- ORDER-RELATED REQUESTS — respond with EXACTLY: [DEFER] for ANY of these. You CANNOT check orders, look up order details, add/remove items, or do anything with orders. Only Ketu can handle these:
+  • Add/remove/change items in an existing order
+  • Check order status, order details, order number lookup
+  • Replace damaged/defective items
+  • Change delivery address, cancel order, modify order in any way
+  • Buyer shares an order number, bill number, or invoice — you cannot look these up
+  NEVER say "main check kar lunga", "5 min wait karo", "ruko check karta hu" — you cannot check anything. Just [DEFER].
+- Our prices are FIXED. Never offer discounts.
+- Mention sale91.com only if relevant and only ONCE per conversation (check history).
+- Do NOT make up prices, product details, or policies. Only use info from the knowledge base provided.
 - Never reveal you are an AI. You are Ketu's assistant.
-- Natural greetings (Namaste, Hello, Hi, etc.).`}</div>
-            </div>
 
-            {/* Conditional Rules */}
-            <div style={{ padding: '8px 12px', background: '#1e293b', borderRadius: '6px', fontSize: '12px', color: '#94a3b8', margin: '12px 0' }}>
-              Below rules are <strong style={{ color: '#f59e0b' }}>NOT sent with every message</strong>. Only included when buyer's message matches specific keywords.
++ STYLE EXAMPLES (top matching style pairs from vector search — Om's real replies to similar questions)
++ OM'S COMMUNICATION STYLE (compact style guide extracted from 337 real reply pairs)`}</div>
             </div>
 
             <div style={styles.kbCard}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <div style={{ fontWeight: '600', color: '#22c55e', fontSize: '13px' }}>DISPATCH RULE</div>
-                <div style={{ fontSize: '11px', color: '#64748b', background: '#1e293b', padding: '2px 8px', borderRadius: '4px' }}>Conditional</div>
+              <div style={{ fontWeight: '600', color: '#a78bfa', fontSize: '13px', marginBottom: '8px' }}>HOW IT WORKS (Pipeline)</div>
+              <div style={{ fontSize: '12px', color: '#94a3b8', lineHeight: '1.8' }}>
+                <div>1. Buyer message received from WhatsApp</div>
+                <div>2. Message converted to vector (Voyage AI embedding)</div>
+                <div>3. Single vector search across ALL 3 knowledge sources:</div>
+                <div style={{ paddingLeft: '16px', color: '#93c5fd' }}>- Catalog ({catalogItems.length} products)</div>
+                <div style={{ paddingLeft: '16px', color: '#93c5fd' }}>- Reply Templates ({REPLY_TEMPLATES.length} saved replies)</div>
+                <div style={{ paddingLeft: '16px', color: '#93c5fd' }}>- Style Pairs ({STYLE_PAIRS.length} buyer→Om Q&A pairs)</div>
+                <div>4. Top 5 matches (regardless of source) selected</div>
+                <div>5. If best match &gt;= {Math.round((settings.confidenceThreshold || 0.80) * 100)}% → send to Claude with:</div>
+                <div style={{ paddingLeft: '16px' }}>- System prompt (above) + style examples + style guide</div>
+                <div style={{ paddingLeft: '16px' }}>- Top 5 knowledge matches + conversation history (last 5)</div>
+                <div>6. If best match &lt; {Math.round((settings.confidenceThreshold || 0.80) * 100)}% → defer to Ketu</div>
+                <div>7. If Claude says [DEFER] → defer to Ketu</div>
+                <div style={{ color: '#22c55e', marginTop: '4px' }}>Result: AI reply sent via WhatsApp</div>
               </div>
-              <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
-                <div style={{ color: '#60a5fa', marginBottom: '4px' }}>Trigger keywords:</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                  {['dispatch', 'nikal', 'bhej', 'ship', 'send', 'deliver', 'courier'].map(kw => <span key={kw} style={{ background: '#1e3a5f', color: '#93c5fd', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>)}
-                </div>
-              </div>
-              <div style={styles.promptBlock}>{`DISPATCH RULE:
-- "payment done, please dispatch" or "abhi nikal do" -> reassure: "Abhi nikal raha hu sir, thoda time dijiye"
-- Do NOT say "kal nikal jaayega" or give future dates. Just confirm immediate dispatch.
-- If buyer keeps asking too many follow-up dispatch questions -> [DEFER] to Ketu.`}</div>
-            </div>
-
-            <div style={styles.kbCard}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <div style={{ fontWeight: '600', color: '#22c55e', fontSize: '13px' }}>SALE91 RULE</div>
-                <div style={{ fontSize: '11px', color: '#64748b', background: '#1e293b', padding: '2px 8px', borderRadius: '4px' }}>Conditional</div>
-              </div>
-              <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
-                <div style={{ color: '#60a5fa', marginBottom: '4px' }}>Trigger keywords (buying intent):</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                  {['price', 'rate', 'cost', 'kitna', 'kitne', 'order', 'buy', 'bulk', 'wholesale', 'sample', 'catalog'].map(kw => <span key={kw} style={{ background: '#1e3a5f', color: '#93c5fd', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>)}
-                </div>
-              </div>
-              <div style={styles.promptBlock}>{`SALE91 RULE:
-- Mention sale91.com ONLY ONCE. Check conversation history -- if already shared, do NOT repeat it.`}</div>
-            </div>
-
-            <div style={styles.kbCard}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <div style={{ fontWeight: '600', color: '#22c55e', fontSize: '13px' }}>PRICE NEGOTIATION RULE</div>
-                <div style={{ fontSize: '11px', color: '#64748b', background: '#1e293b', padding: '2px 8px', borderRadius: '4px' }}>Conditional</div>
-              </div>
-              <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>
-                <div style={{ color: '#60a5fa', marginBottom: '4px' }}>Trigger keywords:</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                  {['mehnga', 'costly', 'expensive', 'sasta', 'kam karo', 'discount', 'offer', 'deal'].map(kw => <span key={kw} style={{ background: '#3b1a1a', color: '#fca5a5', padding: '2px 6px', borderRadius: '3px', fontSize: '11px' }}>{kw}</span>)}
-                </div>
-              </div>
-              <div style={styles.promptBlock}>{`PRICE NEGOTIATION RULE:
-- Prices are FIXED. We work on very low margins.
-- Do NOT offer any discount or negotiate. Politely tell them price is fixed.
-- Example tone: "Sir, price hamara fix hota hai. Hum log kafi kam margin pe kaam karte hai."`}</div>
-            </div>
-
-            <div style={{ padding: '8px 12px', background: '#422006', borderRadius: '6px', fontSize: '12px', color: '#fbbf24', marginTop: '8px' }}>
-              FIRST-TIME BUYER RULE: When buyer messages for first time ever -> MUST include sale91.com/catalog link in reply
             </div>
           </div>
         )}
