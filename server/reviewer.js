@@ -8,6 +8,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { getEmbedding } from './embeddings.js'
+import { clearFilterCache } from './process.js'
 
 const REVIEWER_MODEL = 'claude-sonnet-4-6-20250514'
 const BATCH_SIZE = 20
@@ -376,6 +377,16 @@ export async function pullAndReviewHistory(db, onProgress, { limit = 500 } = {})
   console.log(`[HistoryPull] Complete: ${pairs.length} fetched, ${stored} stored, ${totalReviewed} reviewed, ${totalCorrections} corrections, $${totalCostUsd.toFixed(4)} cost`)
   console.log(`[HistoryPull] Categories:`, categories)
 
+  // Step 5: Extract keywords from reviewed pairs for Pre-AI filter discovery
+  let keywordsDiscovered = { autoAdded: 0, pending: 0, total: 0 }
+  try {
+    if (onProgress) onProgress({ phase: 'discovering_keywords', fetched: pairs.length, stored, totalReviewed, totalCorrections, totalCostUsd })
+    keywordsDiscovered = await extractKeywordsFromReviewedPairs(db)
+    console.log(`[HistoryPull] Keywords: ${keywordsDiscovered.total} discovered, ${keywordsDiscovered.autoAdded} auto-added, ${keywordsDiscovered.pending} pending review`)
+  } catch (err) {
+    console.error(`[HistoryPull] Keyword extraction failed (non-fatal):`, err.message)
+  }
+
   return {
     fetched: pairs.length,
     stored,
@@ -384,7 +395,158 @@ export async function pullAndReviewHistory(db, onProgress, { limit = 500 } = {})
     costUsd: totalCostUsd,
     batches: batchNumber - 1,
     categories,
+    keywordsDiscovered,
   }
+}
+
+// ===========================
+// Keyword Extraction from Reviewed Pairs
+// ===========================
+// After reviewing pairs, extract keywords that could be used as Pre-AI filters.
+// High-confidence keywords for existing categories → auto-added.
+// Low-confidence or new categories → pending manual review.
+
+async function extractKeywordsFromReviewedPairs(db) {
+  // Get recently reviewed pairs grouped by category
+  const recentPairs = await db.manualReplyPair.findMany({
+    where: { reviewedAt: { not: null }, category: { not: null } },
+    orderBy: { reviewedAt: 'desc' },
+    take: 200,
+    select: { buyerMessage: true, category: true },
+  })
+
+  if (recentPairs.length < 10) return { autoAdded: 0, pending: 0, total: 0 }
+
+  // Group by category
+  const byCategory = {}
+  for (const pair of recentPairs) {
+    if (!byCategory[pair.category]) byCategory[pair.category] = []
+    byCategory[pair.category].push(pair.buyerMessage)
+  }
+
+  // Load existing filters to know what categories exist
+  let existingFilters = []
+  try {
+    existingFilters = await db.preAIFilter.findMany()
+  } catch {
+    return { autoAdded: 0, pending: 0, total: 0 }
+  }
+  const existingNames = existingFilters.map(f => f.name)
+  const existingKeywordsMap = {}
+  for (const f of existingFilters) {
+    existingKeywordsMap[f.name] = f.keywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+  }
+
+  // Build prompt with all categories and sample messages
+  const categorySections = Object.entries(byCategory)
+    .map(([cat, msgs]) => `### ${cat} (${msgs.length} messages)\n${msgs.slice(0, 15).map(m => `- "${m}"`).join('\n')}`)
+    .join('\n\n')
+
+  const existingKwSection = existingFilters
+    .map(f => `- ${f.name}: ${f.keywords.split(',').slice(0, 10).join(', ')}${f.keywords.split(',').length > 10 ? '...' : ''}`)
+    .join('\n')
+
+  const prompt = `You analyze buyer messages from a wholesale blank t-shirt business (BulkPlainTshirt.com).
+
+Existing Pre-AI filter categories and their current keywords:
+${existingKwSection || 'None yet'}
+
+Buyer messages grouped by category from recent conversations:
+${categorySections}
+
+Extract SHORT keywords/phrases (1-3 words, Hindi/English/Hinglish) that could be used as Pre-AI filters.
+
+Rules:
+1. Only include keywords NOT already in the existing lists above
+2. Must be specific enough to avoid false positives (don't use common words like "hai", "kya", "please")
+3. Include Hinglish variants
+4. Assign confidence 0.0-1.0:
+   - 0.9+ = Very sure this keyword uniquely identifies the category
+   - 0.7-0.89 = Fairly sure but could occasionally match other categories
+   - Below 0.7 = Uncertain, needs human review
+5. For categories not in the existing list, still extract keywords with the category name
+
+Reply as JSON array only: [{ "keyword": "...", "category": "...", "confidence": 0.95 }]`
+
+  const anthropic = new Anthropic()
+  const response = await anthropic.messages.create({
+    model: REVIEWER_MODEL,
+    max_tokens: 4000,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  let discoveries
+  try {
+    const text = response.content[0].text
+    const jsonMatch = text.match(/\[[\s\S]*\]/)
+    discoveries = JSON.parse(jsonMatch ? jsonMatch[0] : text)
+  } catch {
+    console.error('[KeywordExtract] Failed to parse Sonnet response')
+    return { autoAdded: 0, pending: 0, total: 0 }
+  }
+
+  let autoAdded = 0, pending = 0
+
+  for (const d of discoveries) {
+    if (!d.keyword || !d.category) continue
+
+    const keyword = d.keyword.toLowerCase().trim()
+    const targetFilter = existingFilters.find(f => f.name === d.category)
+
+    // Skip if keyword already exists in the target filter
+    if (targetFilter && existingKeywordsMap[d.category]?.includes(keyword)) continue
+
+    // Check if this keyword was already discovered before
+    const existingDiscovery = await db.discoveredKeyword.findFirst({
+      where: { keyword, category: d.category },
+    })
+    if (existingDiscovery) continue
+
+    // AUTO-ADD: High confidence + existing category
+    if (d.confidence >= 0.85 && existingNames.includes(d.category) && targetFilter) {
+      const updatedKeywords = targetFilter.keywords
+        ? targetFilter.keywords + ',' + keyword
+        : keyword
+
+      await db.preAIFilter.update({
+        where: { id: targetFilter.id },
+        data: { keywords: updatedKeywords },
+      })
+
+      // Update local cache
+      existingKeywordsMap[d.category].push(keyword)
+      targetFilter.keywords = updatedKeywords
+
+      await db.discoveredKeyword.create({
+        data: {
+          keyword,
+          category: d.category,
+          confidence: d.confidence,
+          source: 'auto_review',
+          status: 'auto_added',
+          filterId: targetFilter.id,
+          processedAt: new Date(),
+        },
+      })
+      autoAdded++
+    } else {
+      // MANUAL REVIEW: Low confidence OR new category
+      await db.discoveredKeyword.create({
+        data: {
+          keyword,
+          category: d.category,
+          confidence: d.confidence,
+          source: 'auto_review',
+          status: 'pending',
+        },
+      })
+      pending++
+    }
+  }
+
+  if (autoAdded > 0) clearFilterCache()
+
+  return { autoAdded, pending, total: autoAdded + pending }
 }
 
 // ===========================

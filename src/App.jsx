@@ -90,6 +90,24 @@ function App() {
     }
   }
 
+  // Dynamic Pre-AI filter management
+  const [dbFilters, setDbFilters] = useState([])
+  const [discovered, setDiscovered] = useState({ pending: [], autoAdded: [] })
+
+  const fetchDbFilters = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/filters`)
+      if (res.ok) setDbFilters(await res.json())
+    } catch { /* DB might not be ready */ }
+  }, [])
+
+  const fetchDiscovered = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/filters/discovered`)
+      if (res.ok) setDiscovered(await res.json())
+    } catch { /* DB might not be ready */ }
+  }, [])
+
   const [historyPullProgress, setHistoryPullProgress] = useState(null)
   const [pulledPairsData, setPulledPairsData] = useState(null)
   const [pulledPairsPage, setPulledPairsPage] = useState(1)
@@ -208,7 +226,7 @@ function App() {
               if (t === 'defer') fetchDeferList()
               if (t === 'sync') { fetchSyncLogs(); fetchKnowledge() }
               if (t === 'analytics') fetchAnalytics()
-              if (t === 'filters') fetchFilterStats()
+              if (t === 'filters') { fetchFilterStats(); fetchDbFilters(); fetchDiscovered() }
               if (t === 'learning') fetchLearningStats()
               if (t === 'pulled') fetchPulledPairs(1, '', '')
             }}
@@ -226,7 +244,7 @@ function App() {
         {tab === 'live' && <LiveMonitor logs={logs} expandedLog={expandedLog} setExpandedLog={setExpandedLog} />}
         {tab === 'analytics' && <Analytics analytics={analytics} period={period} setPeriod={setPeriod} />}
         {tab === 'defer' && <DeferManager list={deferList} onDelete={deleteDefer} settings={settings} updateSetting={updateSetting} />}
-        {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={fetchFilterStats} />}
+        {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={() => { fetchFilterStats(); fetchDbFilters(); fetchDiscovered() }} dbFilters={dbFilters} discovered={discovered} />}
         {tab === 'learning' && <LearningPanel stats={learningStats} settings={settings} onRun={triggerLearningRun} running={learningRunning} onToggle={toggleLearning} onRefresh={fetchLearningStats} onBacklog={triggerBacklog} backlogProgress={backlogProgress} onHistoryPull={triggerHistoryPull} historyPullProgress={historyPullProgress} />}
         {tab === 'pulled' && <PulledPairsPanel data={pulledPairsData} page={pulledPairsPage} filter={pulledPairsFilter} onPageChange={(p) => { setPulledPairsPage(p); fetchPulledPairs(p, pulledPairsFilter.category, pulledPairsFilter.result) }} onFilterChange={(f) => { setPulledPairsFilter(f); setPulledPairsPage(1); fetchPulledPairs(1, f.category, f.result) }} />}
         {tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
@@ -747,8 +765,12 @@ function SettingTextarea({ label, value, onChange, rows = 3 }) {
   )
 }
 
-function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
+function PreAIFilters({ stats, period, setPeriod, onRefresh, dbFilters, discovered }) {
   const [expandedFilter, setExpandedFilter] = useState(null)
+  const [newKeyword, setNewKeyword] = useState('')
+  const [aiDiscovering, setAiDiscovering] = useState(null)
+  const [addCategoryMode, setAddCategoryMode] = useState(null) // category name being added
+  const [newCategoryForm, setNewCategoryForm] = useState({ displayName: '', matchType: 'partial', action: 'skip', autoReplyText: '' })
 
   useEffect(() => { onRefresh() }, [period])
 
@@ -772,11 +794,97 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
     'post-ai': 'Post-AI',
   }
 
+  // --- Keyword management handlers ---
+  const removeKeyword = async (filterId, keyword) => {
+    await fetch(`${API}/filters/${filterId}/keywords/${encodeURIComponent(keyword)}`, { method: 'DELETE' })
+    onRefresh()
+  }
+
+  const addKeyword = async (filterId) => {
+    if (!newKeyword.trim()) return
+    await fetch(`${API}/filters/${filterId}/keywords`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keyword: newKeyword.trim() }),
+    })
+    setNewKeyword('')
+    onRefresh()
+  }
+
+  const toggleFilter = async (filterId, enabled) => {
+    await fetch(`${API}/filters/${filterId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    })
+    onRefresh()
+  }
+
+  const aiDiscover = async (filterId) => {
+    setAiDiscovering(filterId)
+    try {
+      const res = await fetch(`${API}/filters/${filterId}/ai-discover`, { method: 'POST' })
+      const result = await res.json()
+      if (result.error) alert(result.error + (result.count !== undefined ? ` (only ${result.count} pairs available, need ${result.needed})` : ''))
+      else alert(`Found ${result.total} keywords: ${result.autoAdded} auto-added, ${result.pending} need your review`)
+      onRefresh()
+    } catch (err) {
+      alert('AI discover failed: ' + err.message)
+    } finally {
+      setAiDiscovering(null)
+    }
+  }
+
+  const approveDiscovered = async (discoveredId, filterId) => {
+    await fetch(`${API}/filters/discovered/${discoveredId}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filterId }),
+    })
+    onRefresh()
+  }
+
+  const dismissDiscovered = async (discoveredId) => {
+    await fetch(`${API}/filters/discovered/${discoveredId}/dismiss`, { method: 'POST' })
+    onRefresh()
+  }
+
+  const createCategory = async (categoryName) => {
+    const res = await fetch(`${API}/filters`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: categoryName,
+        displayName: newCategoryForm.displayName || categoryName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        matchType: newCategoryForm.matchType,
+        action: newCategoryForm.action,
+        autoReplyText: newCategoryForm.action === 'auto_reply' ? newCategoryForm.autoReplyText : null,
+      }),
+    })
+    if (res.ok) {
+      setAddCategoryMode(null)
+      setNewCategoryForm({ displayName: '', matchType: 'partial', action: 'skip', autoReplyText: '' })
+      onRefresh()
+    }
+  }
+
+  const deleteFilter = async (filterId) => {
+    if (!confirm('Delete this filter category?')) return
+    await fetch(`${API}/filters/${filterId}`, { method: 'DELETE' })
+    onRefresh()
+  }
+
   if (!stats) return <div style={{ padding: 20, color: '#94a3b8' }}>Loading filter stats...</div>
 
   const totalSaved = stats.totalFiltered
   const totalMessages = stats.totalMessages
   const savedPct = totalMessages > 0 ? ((totalSaved / totalMessages) * 100).toFixed(1) : '0'
+
+  // Group discovered by: new categories vs existing categories
+  const existingFilterNames = dbFilters.map(f => f.name)
+  const pendingForExisting = discovered.pending?.filter(d => existingFilterNames.includes(d.category)) || []
+  const pendingNewCategories = discovered.pending?.filter(d => !existingFilterNames.includes(d.category)) || []
+  const newCategoryNames = [...new Set(pendingNewCategories.map(d => d.category))]
 
   return (
     <div>
@@ -851,12 +959,15 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
 
       {/* Filter List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {stats.filters.map((filter) => (
+        {stats.filters.map((filter) => {
+          const isDbFilter = !!filter.dbFilterId
+          return (
           <div
             key={filter.id}
             style={{
               background: '#1e293b', borderRadius: 10, padding: '14px 16px', cursor: 'pointer',
               border: expandedFilter === filter.id ? `1px solid ${typeColors[filter.type] || '#475569'}` : '1px solid transparent',
+              opacity: filter.enabled === false ? 0.5 : 1,
             }}
             onClick={() => setExpandedFilter(expandedFilter === filter.id ? null : filter.id)}
           >
@@ -869,8 +980,24 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
                   {typeLabels[filter.type] || filter.type}
                 </span>
                 <span style={{ color: '#f1f5f9', fontSize: 14, fontWeight: 500 }}>{filter.name}</span>
+                {filter.isSystem === false && (
+                  <span style={{ background: '#7c3aed22', color: '#a78bfa', fontSize: 9, padding: '1px 6px', borderRadius: 4 }}>CUSTOM</span>
+                )}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {/* Enable/Disable toggle for DB filters */}
+                {isDbFilter && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleFilter(filter.dbFilterId, !filter.enabled) }}
+                    style={{
+                      padding: '3px 10px', borderRadius: 4, border: 'none', cursor: 'pointer', fontSize: 11,
+                      background: filter.enabled ? '#22c55e33' : '#ef444433',
+                      color: filter.enabled ? '#22c55e' : '#ef4444',
+                    }}
+                  >
+                    {filter.enabled ? 'ON' : 'OFF'}
+                  </button>
+                )}
                 <span style={{
                   color: typeof filter.triggered === 'number' && filter.triggered > 0 ? '#f59e0b' : '#64748b',
                   fontSize: 13, fontWeight: 600,
@@ -888,7 +1015,7 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
             </div>
 
             {expandedFilter === filter.id && (
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #334155' }}>
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #334155' }} onClick={(e) => e.stopPropagation()}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
                   <div>
                     <span style={{ color: '#64748b' }}>Description: </span>
@@ -903,7 +1030,62 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
                     <span style={{ color: '#cbd5e1' }}>{filter.action}</span>
                   </div>
                 </div>
-                {filter.keywords && (
+
+                {/* Editable Keywords for DB filters */}
+                {isDbFilter && filter.keywords && filter.keywords.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ color: '#64748b', fontSize: 12 }}>Keywords ({filter.keywords.length}): </span>
+                      <button
+                        onClick={() => aiDiscover(filter.dbFilterId)}
+                        disabled={aiDiscovering === filter.dbFilterId}
+                        style={{
+                          padding: '4px 12px', borderRadius: 6, border: '1px solid #7c3aed', cursor: 'pointer',
+                          background: aiDiscovering === filter.dbFilterId ? '#7c3aed44' : 'transparent',
+                          color: '#a78bfa', fontSize: 11, fontWeight: 600,
+                        }}
+                      >
+                        {aiDiscovering === filter.dbFilterId ? 'Discovering...' : 'AI Discover'}
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                      {filter.keywords.map(kw => (
+                        <span key={kw} style={{
+                          background: '#334155', color: '#94a3b8', padding: '2px 8px',
+                          borderRadius: 4, fontSize: 11, display: 'flex', alignItems: 'center', gap: 4,
+                        }}>
+                          {kw}
+                          <span
+                            onClick={() => removeKeyword(filter.dbFilterId, kw)}
+                            style={{ color: '#ef4444', cursor: 'pointer', marginLeft: 2, fontWeight: 700, fontSize: 13 }}
+                            title="Remove keyword"
+                          >x</span>
+                        </span>
+                      ))}
+                      {/* Add keyword input */}
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <input
+                          type="text"
+                          placeholder="+ add keyword"
+                          value={expandedFilter === filter.id ? newKeyword : ''}
+                          onChange={(e) => setNewKeyword(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { addKeyword(filter.dbFilterId); e.preventDefault() } }}
+                          style={{
+                            background: '#0f172a', color: '#f1f5f9', border: '1px solid #475569',
+                            borderRadius: 4, padding: '2px 8px', fontSize: 11, width: 100,
+                          }}
+                        />
+                        <button
+                          onClick={() => addKeyword(filter.dbFilterId)}
+                          style={{ background: '#22c55e33', color: '#22c55e', border: 'none', borderRadius: 4, padding: '2px 8px', fontSize: 11, cursor: 'pointer' }}
+                        >+</button>
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Non-DB filter keywords (read-only) */}
+                {!isDbFilter && filter.keywords && (
                   <div style={{ marginTop: 10 }}>
                     <span style={{ color: '#64748b', fontSize: 12 }}>Keywords: </span>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
@@ -918,11 +1100,13 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
                     </div>
                   </div>
                 )}
-                {filter.honorificSuffixes && (
+
+                {/* Honorific suffixes */}
+                {stats.honorificSuffixes && filter.matchType === 'exact' && (
                   <div style={{ marginTop: 8 }}>
                     <span style={{ color: '#64748b', fontSize: 12 }}>Also matches with trailing: </span>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                      {filter.honorificSuffixes.map(s => (
+                      {stats.honorificSuffixes.map(s => (
                         <span key={s} style={{
                           background: '#3b2f1e', color: '#f59e0b', padding: '2px 8px',
                           borderRadius: 4, fontSize: 11,
@@ -933,11 +1117,186 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
                     </div>
                   </div>
                 )}
+
+                {/* Delete button for custom (non-system) filters */}
+                {isDbFilter && filter.isSystem === false && (
+                  <div style={{ marginTop: 12, textAlign: 'right' }}>
+                    <button
+                      onClick={() => deleteFilter(filter.dbFilterId)}
+                      style={{ background: '#ef444433', color: '#ef4444', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 11, cursor: 'pointer' }}
+                    >Delete Category</button>
+                  </div>
+                )}
               </div>
             )}
           </div>
-        ))}
+        )})}
       </div>
+
+      {/* === DISCOVERED FROM LEARNING === */}
+      {(discovered.autoAdded?.length > 0 || discovered.pending?.length > 0) && (
+        <div style={{ marginTop: 24, background: '#1e293b', borderRadius: 10, padding: 16, border: '1px solid #334155' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ margin: 0, color: '#f1f5f9', fontSize: 15 }}>Discovered from Learning</h3>
+            <button onClick={onRefresh} style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, cursor: 'pointer' }}>Refresh</button>
+          </div>
+
+          {/* Auto-Added (last 7 days) */}
+          {discovered.autoAdded?.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <h4 style={{ margin: '0 0 8px', color: '#22c55e', fontSize: 12, textTransform: 'uppercase' }}>Auto-Added (last 7 days)</h4>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {discovered.autoAdded.map(d => (
+                  <span key={d.id} style={{
+                    background: '#22c55e15', border: '1px solid #22c55e33', color: '#86efac',
+                    padding: '3px 10px', borderRadius: 6, fontSize: 11,
+                  }}>
+                    "{d.keyword}" → {d.category.replace(/_/g, ' ')}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Pending: Keywords for existing categories */}
+          {pendingForExisting.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <h4 style={{ margin: '0 0 8px', color: '#f59e0b', fontSize: 12, textTransform: 'uppercase' }}>Needs Your Review</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {pendingForExisting.map(d => {
+                  const targetFilter = dbFilters.find(f => f.name === d.category)
+                  return (
+                    <div key={d.id} style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      background: '#0f172a', padding: '6px 12px', borderRadius: 6,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ color: '#f1f5f9', fontSize: 13 }}>"{d.keyword}"</span>
+                        <span style={{ color: '#64748b', fontSize: 11 }}>→ {d.category.replace(/_/g, ' ')}</span>
+                        <span style={{ color: '#64748b', fontSize: 10 }}>({Math.round(d.confidence * 100)}%)</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {targetFilter && (
+                          <button
+                            onClick={() => approveDiscovered(d.id, targetFilter.id)}
+                            style={{ background: '#22c55e33', color: '#22c55e', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 11, cursor: 'pointer' }}
+                          >+ Add</button>
+                        )}
+                        <button
+                          onClick={() => dismissDiscovered(d.id)}
+                          style={{ background: '#ef444433', color: '#ef4444', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 11, cursor: 'pointer' }}
+                        >x Dismiss</button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Pending: New categories */}
+          {newCategoryNames.length > 0 && (
+            <div>
+              <h4 style={{ margin: '0 0 8px', color: '#a78bfa', fontSize: 12, textTransform: 'uppercase' }}>New Categories Discovered</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {newCategoryNames.map(catName => {
+                  const catKeywords = pendingNewCategories.filter(d => d.category === catName)
+                  return (
+                    <div key={catName} style={{ background: '#0f172a', borderRadius: 8, padding: 12, border: '1px solid #7c3aed33' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <div>
+                          <span style={{ color: '#f1f5f9', fontSize: 14, fontWeight: 500 }}>
+                            {catName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                          </span>
+                          <span style={{ color: '#64748b', fontSize: 11, marginLeft: 8 }}>({catKeywords.length} keywords)</span>
+                        </div>
+                        {addCategoryMode !== catName ? (
+                          <button
+                            onClick={() => setAddCategoryMode(catName)}
+                            style={{ background: '#7c3aed33', color: '#a78bfa', border: '1px solid #7c3aed', borderRadius: 6, padding: '4px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}
+                          >+ Add Category</button>
+                        ) : (
+                          <button
+                            onClick={() => setAddCategoryMode(null)}
+                            style={{ background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 6, padding: '4px 14px', fontSize: 12, cursor: 'pointer' }}
+                          >Cancel</button>
+                        )}
+                      </div>
+
+                      {/* Keywords preview */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: addCategoryMode === catName ? 12 : 0 }}>
+                        {catKeywords.map(d => (
+                          <span key={d.id} style={{
+                            background: '#334155', color: '#94a3b8', padding: '2px 8px', borderRadius: 4, fontSize: 11,
+                          }}>
+                            {d.keyword} ({Math.round(d.confidence * 100)}%)
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* Add category form */}
+                      {addCategoryMode === catName && (
+                        <div style={{ background: '#1e293b', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ color: '#64748b', fontSize: 11 }}>Display Name</label>
+                              <input
+                                type="text"
+                                value={newCategoryForm.displayName || catName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                                onChange={(e) => setNewCategoryForm(f => ({ ...f, displayName: e.target.value }))}
+                                style={{ width: '100%', background: '#0f172a', color: '#f1f5f9', border: '1px solid #475569', borderRadius: 4, padding: '4px 8px', fontSize: 13 }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ color: '#64748b', fontSize: 11 }}>Match Type</label>
+                              <select
+                                value={newCategoryForm.matchType}
+                                onChange={(e) => setNewCategoryForm(f => ({ ...f, matchType: e.target.value }))}
+                                style={{ background: '#0f172a', color: '#f1f5f9', border: '1px solid #475569', borderRadius: 4, padding: '4px 8px', fontSize: 13 }}
+                              >
+                                <option value="partial">Partial (message contains keyword)</option>
+                                <option value="exact">Exact (message IS the keyword)</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label style={{ color: '#64748b', fontSize: 11 }}>Action</label>
+                              <select
+                                value={newCategoryForm.action}
+                                onChange={(e) => setNewCategoryForm(f => ({ ...f, action: e.target.value }))}
+                                style={{ background: '#0f172a', color: '#f1f5f9', border: '1px solid #475569', borderRadius: 4, padding: '4px 8px', fontSize: 13 }}
+                              >
+                                <option value="skip">Skip silently</option>
+                                <option value="defer">Defer to Ketu</option>
+                                <option value="auto_reply">Auto-reply</option>
+                              </select>
+                            </div>
+                          </div>
+                          {newCategoryForm.action === 'auto_reply' && (
+                            <div>
+                              <label style={{ color: '#64748b', fontSize: 11 }}>Auto-reply text</label>
+                              <input
+                                type="text"
+                                value={newCategoryForm.autoReplyText}
+                                onChange={(e) => setNewCategoryForm(f => ({ ...f, autoReplyText: e.target.value }))}
+                                placeholder="e.g., Ok noted sir"
+                                style={{ width: '100%', background: '#0f172a', color: '#f1f5f9', border: '1px solid #475569', borderRadius: 4, padding: '4px 8px', fontSize: 13 }}
+                              />
+                            </div>
+                          )}
+                          <button
+                            onClick={() => createCategory(catName)}
+                            style={{ background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 16px', fontSize: 13, cursor: 'pointer', fontWeight: 600, alignSelf: 'flex-end' }}
+                          >Create Filter Category</button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Legend */}
       <div style={{ marginTop: 20, background: '#1e293b', borderRadius: 10, padding: 14 }}>

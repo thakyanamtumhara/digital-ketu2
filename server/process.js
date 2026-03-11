@@ -3,6 +3,59 @@
 
 import { getAllChunks, vectorSearchDeferList } from './embeddings.js'
 
+// ===========================================
+// Dynamic Pre-AI Filter Cache
+// ===========================================
+let filterCache = { filters: null, loadedAt: 0 }
+const FILTER_CACHE_TTL = 5 * 60 * 1000 // 5 min
+
+async function loadKeywordFilters(db) {
+  if (filterCache.filters && Date.now() - filterCache.loadedAt < FILTER_CACHE_TTL) {
+    return filterCache.filters
+  }
+  try {
+    const filters = await db.preAIFilter.findMany({
+      where: { enabled: true, filterType: 'keyword' },
+      orderBy: { priority: 'asc' },
+    })
+    if (filters.length > 0) {
+      filterCache = { filters, loadedAt: Date.now() }
+      return filters
+    }
+  } catch {
+    // Table might not exist yet (migration not run) — fall back to null
+  }
+  return null // null = use hardcoded fallback
+}
+
+export function clearFilterCache() {
+  filterCache = { filters: null, loadedAt: 0 }
+}
+
+function checkKeywordMatch(text, lowerMsg, filter) {
+  if (filter.matchType === 'exact') {
+    const keywords = filter.keywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+    return keywords.includes(text)
+  }
+  if (filter.matchType === 'partial') {
+    const keywords = filter.keywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+    return keywords.some(kw => lowerMsg.includes(kw))
+  }
+  if (filter.matchType === 'combo') {
+    try {
+      const config = JSON.parse(filter.keywords)
+      const hasSiteWord = config.siteWords.some(w => lowerMsg.includes(w))
+      const hasIssueWord = config.issueWords.some(w => lowerMsg.includes(w))
+      const hasDirectKw = config.directKws.some(kw => lowerMsg.includes(kw))
+      const hasExclude = config.excludeWords && config.excludeWords.some(w => lowerMsg.includes(w))
+      return ((hasSiteWord && hasIssueWord) || hasDirectKw) && !hasExclude
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
 const WWBUN_API_URL = process.env.WWBUN_API_URL
 const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 
@@ -168,8 +221,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
-  // --- Check: Acknowledgment messages — always skip ---
-  // If buyer just says ok/okay/hmm etc., AI should stay silent regardless of context
+  // --- Normalize text for keyword matching ---
   // Strip trailing honorifics (sir, ji, bhai, boss) before matching
   const normalizedText = mergedText.trim().toLowerCase()
     .replace(/[.!?,।]+$/g, '')
@@ -177,50 +229,165 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     .replace(/\s+(sir|ji|bhai|boss|bro|sahab|saheb|g)$/i, '')
     .trim()
 
-  const ackPatterns = [
-    'ok', 'okay', 'fine', 'sure', 'thanks', 'thank you', 'alright',
-    'got it', 'noted', 'understood', 'no problem', 'np', 'cool',
-    'great', 'good', 'right', 'yes', 'yep', 'ya', 'yaa',
-    'theek hai', 'thik hai', 'accha', 'acha', 'sahi hai',
-    'ji', 'haan', 'ha', 'dhanyavaad', 'shukriya', 'bas',
-    'theek', 'thik', 'achchha', 'hmm', 'hm', 'k', 'kk',
-    'done', 'bilkul', 'zaroor', 'thx', 'ty',
-  ]
-
-  if (ackPatterns.includes(normalizedText)) {
-    await createLog(db, conversation.id, mergedText, messageIds, {
-      status: 'SKIPPED',
-      deferReason: 'acknowledgment',
-      processingMs: Date.now() - startTime,
-    })
-    return
-  }
-
-  // --- Check: Is this a greeting? Skip defer-to-ketu for greetings ---
-  const greetingPatterns = [
-    'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
-    'helo', 'hllo', 'helloo', 'hellooo',
-    'namaste', 'namaskar', 'namaskaar',
-    'good morning', 'good afternoon', 'good evening',
-    'gm', 'morning', 'evening',
-    'hy', 'hye', 'hola', 'yo',
-  ]
+  // Normalized for greeting detection (also strip emojis)
   const normalizedForGreeting = mergedText.trim().toLowerCase()
     .replace(/[.!?,।🙏👋]+/g, '')
     .trim()
-  const isGreeting = greetingPatterns.includes(normalizedForGreeting)
+
+  // --- Dynamic Pre-AI Keyword Filters ---
+  // Load from DB (cached 5 min). Falls back to hardcoded if DB not ready.
+  const dynamicFilters = await loadKeywordFilters(db)
+  let isGreeting = false
+
+  if (dynamicFilters) {
+    // === DYNAMIC PATH: filters from database ===
+    for (const filter of dynamicFilters) {
+      // For exact match filters, use normalizedText (honorifics stripped)
+      // For greeting, use normalizedForGreeting (emojis also stripped)
+      const textForMatch = filter.name === 'greeting' ? normalizedForGreeting : normalizedText
+      const matched = checkKeywordMatch(textForMatch, lowerMsg, filter)
+
+      if (!matched) continue
+
+      if (filter.action === 'skip') {
+        await createLog(db, conversation.id, mergedText, messageIds, {
+          status: 'SKIPPED',
+          deferReason: filter.name,
+          processingMs: Date.now() - startTime,
+        })
+        console.log(`[${filter.displayName}] ${whatsappNumber} — skipped, 0 tokens`)
+        return
+      }
+
+      if (filter.action === 'defer') {
+        await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
+        await createLog(db, conversation.id, mergedText, messageIds, {
+          status: 'DEFERRED',
+          deferReason: filter.name,
+          aiReply: settings.deferMessage,
+          processingMs: Date.now() - startTime,
+          sentViaWwbun: true,
+        })
+        console.log(`[${filter.displayName}] ${whatsappNumber} — deferred to Ketu`)
+        return
+      }
+
+      if (filter.action === 'auto_reply') {
+        const replyText = filter.autoReplyText || 'Ok noted sir 👍'
+        await sendReplyViaWwbun(whatsappNumber, replyText)
+        await createLog(db, conversation.id, mergedText, messageIds, {
+          status: 'REPLIED',
+          deferReason: filter.name,
+          aiReply: replyText,
+          processingMs: Date.now() - startTime,
+          sentViaWwbun: true,
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          costUsd: 0,
+        })
+        console.log(`[${filter.displayName}] ${whatsappNumber} — auto-replied, 0 tokens`)
+        return
+      }
+
+      if (filter.action === 'welcome_bypass') {
+        isGreeting = true
+        // Don't return — greeting has special welcome flow below
+        break
+      }
+    }
+  } else {
+    // === HARDCODED FALLBACK: DB not ready (migration not run) ===
+    const ackPatterns = [
+      'ok', 'okay', 'fine', 'sure', 'thanks', 'thank you', 'alright',
+      'got it', 'noted', 'understood', 'no problem', 'np', 'cool',
+      'great', 'good', 'right', 'yes', 'yep', 'ya', 'yaa',
+      'theek hai', 'thik hai', 'accha', 'acha', 'sahi hai',
+      'ji', 'haan', 'ha', 'dhanyavaad', 'shukriya', 'bas',
+      'theek', 'thik', 'achchha', 'hmm', 'hm', 'k', 'kk',
+      'done', 'bilkul', 'zaroor', 'thx', 'ty',
+    ]
+    if (ackPatterns.includes(normalizedText)) {
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'SKIPPED',
+        deferReason: 'acknowledgment',
+        processingMs: Date.now() - startTime,
+      })
+      return
+    }
+
+    const greetingPatterns = [
+      'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
+      'helo', 'hllo', 'helloo', 'hellooo',
+      'namaste', 'namaskar', 'namaskaar',
+      'good morning', 'good afternoon', 'good evening',
+      'gm', 'morning', 'evening',
+      'hy', 'hye', 'hola', 'yo',
+    ]
+    isGreeting = greetingPatterns.includes(normalizedForGreeting)
+
+    // Informing
+    const informingKwsEarly = parseKeywords(settings.informingKeywords, DEFAULT_INFORMING_KEYWORDS)
+    if (informingKwsEarly.some(kw => lowerMsg.includes(kw))) {
+      const informingReply = 'Ok noted sir 👍'
+      await sendReplyViaWwbun(whatsappNumber, informingReply)
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'REPLIED', deferReason: 'informing', aiReply: informingReply,
+        processingMs: Date.now() - startTime, sentViaWwbun: true,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+      })
+      return
+    }
+
+    // Website issue
+    const siteWords = ['site', 'website', 'sale91', 'page']
+    const issueWords = ['issue', 'problem', 'error', 'down', 'nahi', 'ni', 'nhi', 'not']
+    const directWebsiteIssueKws = [
+      'open nahi', 'open ni', 'open nhi', 'khul nahi', 'khul ni', 'khul nhi',
+      'nahi khul', 'nhi khul', 'not opening', 'not working', 'not loading',
+      'load nahi', 'blank page', 'page not found', 'server error',
+    ]
+    const productIssueWords = ['product', 'tshirt', 't-shirt', 'shirt', 'item', 'listed', 'price', 'rate', 'photo', 'image', 'color', 'colour', 'size']
+    const hasSiteWord = siteWords.some(w => lowerMsg.includes(w))
+    const hasIssueWord = issueWords.some(w => lowerMsg.includes(w))
+    const hasDirectIssue = directWebsiteIssueKws.some(kw => lowerMsg.includes(kw))
+    const isProductIssue = productIssueWords.some(w => lowerMsg.includes(w))
+    if (((hasSiteWord && hasIssueWord) || hasDirectIssue) && !isProductIssue) {
+      const websiteIssueReply = 'Sir, issue toh nahi hai. Network ya server ka temporary issue hoga. Thodi der baad try kariye, open ho jaayega 👍'
+      await sendReplyViaWwbun(whatsappNumber, websiteIssueReply)
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'REPLIED', deferReason: 'website_issue', aiReply: websiteIssueReply,
+        processingMs: Date.now() - startTime, sentViaWwbun: true,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+      })
+      return
+    }
+
+    // Angry buyer
+    const angryKeywords = [
+      'bakwas', 'bekar', 'ghatiya', 'worst', 'scam', 'fraud', 'cheat',
+      'dhoka', 'dhokha', 'complaint', 'consumer forum', 'legal',
+      'reply nahi karte', 'response nahi', 'koi jawab nahi',
+      'bahut bura', 'very bad', 'terrible', 'horrible', 'pathetic',
+      'pagal', 'bewakoof', 'stupid',
+    ]
+    if (angryKeywords.some(kw => lowerMsg.includes(kw))) {
+      await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'DEFERRED', deferReason: 'angry_buyer', aiReply: settings.deferMessage,
+        processingMs: Date.now() - startTime, sentViaWwbun: true,
+      })
+      return
+    }
+  }
 
   // --- WELCOME MESSAGE BYPASS ---
   // ONLY for greetings ("hi", "hello", etc.) from first-time buyers or returning after 7+ days
-  // Non-greeting messages (order requests, questions, etc.) ALWAYS skip welcome and go through
-  // the normal flow: defer check → Claude. This prevents sending catalog links when buyers
-  // ask specific questions like "add that t-shirt to my order".
   const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
   const lastMessageAge = previousLastMessageAt
     ? Date.now() - new Date(previousLastMessageAt).getTime()
     : Infinity
   const isFirstTime = !existingConversation
-  // Key fix: welcome ONLY fires for greetings. Non-greetings always go to defer/Claude.
   let shouldSendWelcome = isGreeting && (isFirstTime || lastMessageAge > SEVEN_DAYS_MS)
 
   // Extra safety: check message logs too — if there are recent logs (within 7 days), don't send welcome
@@ -239,15 +406,12 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   if (shouldSendWelcome) {
-    // Fetch the /welcome saved reply from knowledge base
     const welcomeChunk = await db.knowledgeChunk.findFirst({
       where: { source: 'SAVED_REPLY', sourceId: 'welcome' },
       select: { content: true },
     })
     const welcomeMessage = welcomeChunk?.content || 'https://sale91.com/catalog\n\nCheck rates, color and buy 👆'
-
     await sendReplyViaWwbun(whatsappNumber, welcomeMessage)
-
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'REPLIED',
       aiReply: welcomeMessage,
@@ -260,8 +424,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   // --- Check: Order ID / tracking number detection ---
-  // Long numeric strings (10+ digits) are order IDs, AWB numbers, or tracking numbers.
-  // The AI cannot look these up — defer to Ketu immediately.
   const trimmedText = mergedText.trim()
   const isOrderId = /^\d{10,}$/.test(trimmedText)
   if (isOrderId) {
@@ -274,64 +436,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       sentViaWwbun: true,
     })
     console.log(`[OrderID] ${whatsappNumber} — detected order/tracking ID, deferred to Ketu`)
-    return
-  }
-
-  // --- Check: Informing detection — buyer sharing info, not asking questions ---
-  // Auto-reply directly, 0 tokens. No need for Claude.
-  const informingKwsEarly = parseKeywords(settings.informingKeywords, DEFAULT_INFORMING_KEYWORDS)
-  const isInforming = informingKwsEarly.some(kw => lowerMsg.includes(kw))
-  if (isInforming) {
-    const informingReply = 'Ok noted sir 👍'
-    await sendReplyViaWwbun(whatsappNumber, informingReply)
-    await createLog(db, conversation.id, mergedText, messageIds, {
-      status: 'REPLIED',
-      deferReason: 'informing',
-      aiReply: informingReply,
-      processingMs: Date.now() - startTime,
-      sentViaWwbun: true,
-      promptTokens: 0,
-      completionTokens: 0,
-      totalTokens: 0,
-      costUsd: 0,
-    })
-    console.log(`[Informing] ${whatsappNumber} — buyer informing, auto-replied, 0 tokens`)
-    return
-  }
-
-  // --- Check: Website issue — buyer says site not opening / not working ---
-  // Auto-reply directly, 0 tokens. Reply is always the same.
-  // Uses combo detection: message must mention site/website AND an issue word.
-  const siteWords = ['site', 'website', 'sale91', 'page']
-  const issueWords = ['issue', 'problem', 'error', 'down', 'nahi', 'ni', 'nhi', 'not']
-  const hasSiteWord = siteWords.some(w => lowerMsg.includes(w))
-  const hasIssueWord = issueWords.some(w => lowerMsg.includes(w))
-  // Also catch direct phrases about not opening (no site word needed)
-  const directWebsiteIssueKws = [
-    'open nahi', 'open ni', 'open nhi', 'khul nahi', 'khul ni', 'khul nhi',
-    'nahi khul', 'nhi khul', 'not opening', 'not working', 'not loading',
-    'load nahi', 'blank page', 'page not found', 'server error',
-  ]
-  const hasDirectIssue = directWebsiteIssueKws.some(kw => lowerMsg.includes(kw))
-  // Exclude if buyer is talking about a product issue ON the website (not the site itself)
-  const productIssueWords = ['product', 'tshirt', 't-shirt', 'shirt', 'item', 'listed', 'price', 'rate', 'photo', 'image', 'color', 'colour', 'size']
-  const isProductIssue = productIssueWords.some(w => lowerMsg.includes(w))
-  const hasWebsiteIssue = ((hasSiteWord && hasIssueWord) || hasDirectIssue) && !isProductIssue
-  if (hasWebsiteIssue) {
-    const websiteIssueReply = 'Sir, issue toh nahi hai. Network ya server ka temporary issue hoga. Thodi der baad try kariye, open ho jaayega 👍'
-    await sendReplyViaWwbun(whatsappNumber, websiteIssueReply)
-    await createLog(db, conversation.id, mergedText, messageIds, {
-      status: 'REPLIED',
-      deferReason: 'website_issue',
-      aiReply: websiteIssueReply,
-      processingMs: Date.now() - startTime,
-      sentViaWwbun: true,
-      promptTokens: 0,
-      completionTokens: 0,
-      totalTokens: 0,
-      costUsd: 0,
-    })
-    console.log(`[WebsiteIssue] ${whatsappNumber} — site issue reported, auto-replied, 0 tokens`)
     return
   }
 
@@ -474,29 +578,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     'competitor', 'compare', 'other seller', 'other supplier',
   ]
   const hasCompetitorIntent = competitorKeywords.some(kw => lowerMsg.includes(kw))
-
-  // Detect angry/frustrated buyer — defer immediately, don't let AI handle
-  const angryKeywords = [
-    'bakwas', 'bekar', 'ghatiya', 'worst', 'scam', 'fraud', 'cheat',
-    'dhoka', 'dhokha', 'complaint', 'consumer forum', 'legal',
-    'reply nahi karte', 'response nahi', 'koi jawab nahi',
-    'bahut bura', 'very bad', 'terrible', 'horrible', 'pathetic',
-    'pagal', 'bewakoof', 'stupid',
-  ]
-  const isAngryBuyer = angryKeywords.some(kw => lowerMsg.includes(kw))
-
-  if (isAngryBuyer) {
-    await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
-    await createLog(db, conversation.id, mergedText, messageIds, {
-      status: 'DEFERRED',
-      deferReason: 'angry_buyer',
-      aiReply: settings.deferMessage,
-      processingMs: Date.now() - startTime,
-      sentViaWwbun: true,
-    })
-    console.log(`[AngryBuyer] ${whatsappNumber} — angry/frustrated buyer detected, deferred to Ketu`)
-    return
-  }
 
   // Detect informing intent: buyer is sharing future plans, not inquiring
   const informingKws = parseKeywords(settings.informingKeywords, DEFAULT_INFORMING_KEYWORDS)

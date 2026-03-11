@@ -168,6 +168,40 @@ model ManualReplyPair {
   @@index([category])
 }
 
+// --- Pre-AI Filters (dynamic keyword filters) ---
+
+model PreAIFilter {
+  id            String   @id @default(cuid())
+  name          String   @unique    // "acknowledgment", "greeting", "angry_buyer", etc.
+  displayName   String               // "Acknowledgment", "Greeting", "Angry Buyer"
+  description   String?              // "Skip messages that are just acknowledgments"
+  filterType    String               // "keyword" | "system"
+  matchType     String               // "exact" | "partial" | "combo"
+  action        String               // "skip" | "defer" | "auto_reply" | "welcome_bypass"
+  autoReplyText String?              // Text for auto_reply action
+  keywords      String   @default("") // CSV of keywords
+  enabled       Boolean  @default(true)
+  isSystem      Boolean  @default(true)  // true = seeded, false = user-created
+  priority      Int      @default(100)   // lower = checked first
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model DiscoveredKeyword {
+  id            String    @id @default(cuid())
+  keyword       String               // The discovered keyword/phrase
+  category      String               // Which filter category it belongs to
+  confidence    Float                // 0.0 to 1.0
+  source        String               // "auto_review" | "manual_review"
+  status        String    @default("pending") // "pending" | "approved" | "dismissed" | "auto_added"
+  filterId      String?              // If approved, which PreAIFilter it was added to
+  discoveredAt  DateTime  @default(now())
+  processedAt   DateTime?            // When approved/dismissed/auto-added
+
+  @@index([status])
+  @@index([category])
+}
+
 // --- Sync Log ---
 
 model SyncLog {

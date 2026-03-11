@@ -688,41 +688,185 @@ app.get('/api/filters/stats', async (c) => {
 
   const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb + orderIdDetected + angryBuyer + informing + websiteIssue + repeatMessage
 
-  // Acknowledgment keywords list (same as process.js)
-  // Also strips trailing honorifics (sir, ji, bhai, boss, bro, sahab, saheb, g) before matching
-  const ackPatterns = [
-    'ok', 'okay', 'fine', 'sure', 'thanks', 'thank you', 'alright',
-    'got it', 'noted', 'understood', 'no problem', 'np', 'cool',
-    'great', 'good', 'right', 'yes', 'yep', 'ya', 'yaa',
-    'theek hai', 'thik hai', 'accha', 'acha', 'sahi hai',
-    'ji', 'haan', 'ha', 'dhanyavaad', 'shukriya', 'bas',
-    'theek', 'thik', 'achchha', 'hmm', 'hm', 'k', 'kk',
-    'done', 'bilkul', 'zaroor', 'thx', 'ty',
-  ]
   const honorificSuffixes = ['sir', 'ji', 'bhai', 'boss', 'bro', 'sahab', 'saheb', 'g']
 
-  // Informing keywords (from settings or defaults in process.js)
-  const informingKws = settings.informingKeywords
-    ? settings.informingKeywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
-    : [
-        'just to inform', 'inform', 'batana tha', 'bata raha', 'bata rahi',
-        'plan hai', 'plan kar', 'planning', 'soch raha', 'soch rahi', 'socha hai',
-        'future mein', 'future me', 'aage', 'baad mein', 'baad me',
-        'purchased', 'order kiya', 'order kar diya', 'order de diya',
-        'order placed', 'order done', 'order ho gaya',
-        'website se order', 'website se liya', 'online order',
-        'le liya', 'kharid liya', 'payment done', 'payment kar diya',
-        'video dekhi', 'video dekha', 'reel dekhi', 'reel dekha',
-        'interested', 'interest hai',
-      ]
+  // Load dynamic keyword filters from DB (or use fallback display)
+  let dynamicFilterCards = []
+  try {
+    const dbFilters = await db.preAIFilter.findMany({ orderBy: { priority: 'asc' } })
+    if (dbFilters.length > 0) {
+      // Count triggers for each dynamic filter by name
+      const dynamicCounts = await Promise.all(
+        dbFilters.map(f => db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: f.name } }))
+      )
+      dynamicFilterCards = dbFilters.map((f, i) => ({
+        id: f.id,
+        dbFilterId: f.id,
+        name: f.displayName,
+        description: f.description || '',
+        type: 'keyword',
+        matchType: f.matchType,
+        currentState: f.enabled ? `${f.matchType === 'combo' ? 'combo logic' : f.keywords.split(',').filter(Boolean).length + ' keywords'} active` : 'Disabled',
+        keywords: f.matchType === 'combo' ? [] : f.keywords.split(',').map(k => k.trim()).filter(Boolean),
+        tokens: 0,
+        triggered: dynamicCounts[i],
+        action: f.action === 'skip' ? 'Skip silently' : f.action === 'defer' ? 'Defer message' : f.action === 'auto_reply' ? `Auto-reply: "${(f.autoReplyText || '').substring(0, 40)}"` : 'Welcome bypass',
+        enabled: f.enabled,
+        isSystem: f.isSystem,
+        filterAction: f.action,
+        autoReplyText: f.autoReplyText,
+      }))
+    }
+  } catch {
+    // DB not ready, dynamicFilterCards stays empty
+  }
 
-  const greetingPatterns = [
-    'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
-    'helo', 'hllo', 'helloo', 'hellooo',
-    'namaste', 'namaskar', 'namaskaar',
-    'good morning', 'good afternoon', 'good evening',
-    'gm', 'morning', 'evening',
-    'hy', 'hye', 'hola', 'yo',
+  // System filters (hardcoded, not editable)
+  const systemFilters = [
+    {
+      id: 'system_active',
+      name: 'System ON/OFF',
+      description: 'AI is turned OFF — all messages skipped',
+      type: 'system',
+      currentState: settings.isActive ? 'Active (AI ON)' : 'Inactive (AI OFF)',
+      tokens: 0,
+      triggered: offHours,
+      action: 'Skip silently',
+    },
+    {
+      id: 'schedule',
+      name: 'Working Hours',
+      description: `Only process messages during ${settings.scheduleStart || 'N/A'} - ${settings.scheduleEnd || 'N/A'} IST`,
+      type: 'system',
+      currentState: settings.scheduleEnabled ? `${settings.scheduleStart} - ${settings.scheduleEnd}` : 'Disabled',
+      tokens: 0,
+      triggered: offHours,
+      action: 'Skip silently',
+    },
+    {
+      id: 'daily_budget',
+      name: 'Daily Budget Limit',
+      description: `Stop AI when daily spend reaches Rs ${settings.dailyBudgetInr}`,
+      type: 'system',
+      currentState: `Rs ${(settings.dailySpentUsd * 85).toFixed(0)} / Rs ${settings.dailyBudgetInr}`,
+      tokens: 0,
+      triggered: dailyLimit,
+      action: 'Skip silently',
+    },
+    {
+      id: 'emoji_reaction',
+      name: 'Emoji Reactions',
+      description: 'Skip reactions like thumbs up, heart, etc.',
+      type: 'message',
+      currentState: 'Always active',
+      tokens: 0,
+      triggered: emojiReaction,
+      action: 'Skip silently',
+    },
+    {
+      id: 'media_only',
+      name: 'Media-Only Messages',
+      description: 'Auto-reply to images, audio, video, documents',
+      type: 'message',
+      currentState: `Reply: "${settings.mediaMessage || 'N/A'}"`,
+      tokens: 0,
+      triggered: mediaOnly,
+      action: 'Auto-reply (media message)',
+    },
+    {
+      id: 'bill_document',
+      name: 'BillNo PDF Detection',
+      description: 'Detect invoice PDFs (BillNo*.pdf) and auto-acknowledge dispatch',
+      type: 'keyword',
+      currentState: 'Regex: [Document:.*BillNo.*\\.pdf]',
+      tokens: 0,
+      triggered: billDocument,
+      action: 'Auto-reply: "Ok noted sir, dispatching ASAP"',
+    },
+    {
+      id: 'empty_message',
+      name: 'Empty / Spam Messages',
+      description: 'Skip messages with no text content',
+      type: 'message',
+      currentState: 'Always active',
+      tokens: 0,
+      triggered: spam,
+      action: 'Skip silently',
+    },
+    {
+      id: 'cooldown',
+      name: 'Manual Intervention Cooldown',
+      description: `AI pauses for ${settings.cooldownMinutes} min after you reply manually`,
+      type: 'user',
+      currentState: `${settings.cooldownMinutes} min cooldown`,
+      tokens: 0,
+      triggered: cooldown,
+      action: 'Skip silently',
+    },
+    {
+      id: 'repeat_message',
+      name: 'Repeat Message Detection',
+      description: 'Skip if same buyer sent the exact same message within 5 minutes and AI already replied',
+      type: 'message',
+      currentState: '5 min window',
+      tokens: 0,
+      triggered: repeatMessage,
+      action: 'Skip silently (already replied)',
+    },
+  ]
+
+  // Post-filter items (not keyword-based)
+  const postFilters = [
+    {
+      id: 'welcome_bypass',
+      name: 'Welcome Message Bypass',
+      description: 'First-time buyer or returning after 7+ days → send welcome directly',
+      type: 'auto-reply',
+      currentState: 'Active (7-day gap)',
+      tokens: 0,
+      triggered: welcomeBypass,
+      action: 'Auto-reply with welcome message',
+    },
+    {
+      id: 'order_id_detected',
+      name: 'Order ID / Tracking Number',
+      description: 'Detect long numeric strings (10+ digits) as order/tracking IDs and defer immediately',
+      type: 'keyword',
+      currentState: 'Regex: ^\\d{10,}$',
+      tokens: 0,
+      triggered: orderIdDetected,
+      action: 'Defer message (0 tokens)',
+    },
+    {
+      id: 'defer_to_ketu',
+      name: 'Defer to Ketu (Vector Match)',
+      description: 'Questions matching defer list → use correction or defer',
+      type: 'ai-match',
+      currentState: `Threshold: ${settings.deferThreshold}`,
+      tokens: 0,
+      triggered: deferToKetu,
+      action: 'Auto-reply with correction OR defer message',
+    },
+    {
+      id: 'empty_kb',
+      name: 'Empty Knowledge Base',
+      description: 'If no knowledge synced yet, defer all messages',
+      type: 'system',
+      currentState: 'Safety check',
+      tokens: 0,
+      triggered: emptyKb,
+      action: 'Defer message',
+    },
+    {
+      id: 'claude_deferred',
+      name: 'Claude [DEFER] Marker',
+      description: 'Claude itself says it cannot answer — defers to you',
+      type: 'post-ai',
+      currentState: 'Active',
+      tokens: 'Yes (Claude called first)',
+      triggered: claudeDeferred,
+      action: 'Defer message (tokens consumed)',
+    },
   ]
 
   return c.json({
@@ -731,215 +875,275 @@ app.get('/api/filters/stats', async (c) => {
     totalMessages,
     totalFiltered,
     totalReachedClaude: totalReplied + claudeDeferred,
+    honorificSuffixes,
     filters: [
-      {
-        id: 'system_active',
-        name: 'System ON/OFF',
-        description: 'AI is turned OFF — all messages skipped',
-        type: 'system',
-        currentState: settings.isActive ? 'Active (AI ON)' : 'Inactive (AI OFF)',
-        tokens: 0,
-        triggered: offHours,
-        action: 'Skip silently',
-      },
-      {
-        id: 'schedule',
-        name: 'Working Hours',
-        description: `Only process messages during ${settings.scheduleStart || 'N/A'} - ${settings.scheduleEnd || 'N/A'} IST`,
-        type: 'system',
-        currentState: settings.scheduleEnabled ? `${settings.scheduleStart} - ${settings.scheduleEnd}` : 'Disabled',
-        tokens: 0,
-        triggered: offHours,
-        action: 'Skip silently',
-      },
-      {
-        id: 'daily_budget',
-        name: 'Daily Budget Limit',
-        description: `Stop AI when daily spend reaches Rs ${settings.dailyBudgetInr}`,
-        type: 'system',
-        currentState: `Rs ${(settings.dailySpentUsd * 85).toFixed(0)} / Rs ${settings.dailyBudgetInr}`,
-        tokens: 0,
-        triggered: dailyLimit,
-        action: 'Skip silently',
-      },
-      {
-        id: 'emoji_reaction',
-        name: 'Emoji Reactions',
-        description: 'Skip reactions like thumbs up, heart, etc.',
-        type: 'message',
-        currentState: 'Always active',
-        tokens: 0,
-        triggered: emojiReaction,
-        action: 'Skip silently',
-      },
-      {
-        id: 'media_only',
-        name: 'Media-Only Messages',
-        description: 'Auto-reply to images, audio, video, documents',
-        type: 'message',
-        currentState: `Reply: "${settings.mediaMessage || 'N/A'}"`,
-        tokens: 0,
-        triggered: mediaOnly,
-        action: 'Auto-reply (media message)',
-      },
-      {
-        id: 'bill_document',
-        name: 'BillNo PDF Detection',
-        description: 'Detect invoice PDFs (BillNo*.pdf) and auto-acknowledge dispatch',
-        type: 'keyword',
-        currentState: 'Regex: [Document:.*BillNo.*\\.pdf]',
-        tokens: 0,
-        triggered: billDocument,
-        action: 'Auto-reply: "Ok noted sir, dispatching ASAP"',
-      },
-      {
-        id: 'empty_message',
-        name: 'Empty / Spam Messages',
-        description: 'Skip messages with no text content',
-        type: 'message',
-        currentState: 'Always active',
-        tokens: 0,
-        triggered: spam,
-        action: 'Skip silently',
-      },
-      {
-        id: 'cooldown',
-        name: 'Manual Intervention Cooldown',
-        description: `AI pauses for ${settings.cooldownMinutes} min after you reply manually`,
-        type: 'user',
-        currentState: `${settings.cooldownMinutes} min cooldown`,
-        tokens: 0,
-        triggered: cooldown,
-        action: 'Skip silently',
-      },
-      {
-        id: 'acknowledgment',
-        name: 'Acknowledgment Keywords',
-        description: 'Skip when buyer just says ok, thanks, hmm, etc. Also strips trailing honorifics before matching.',
-        type: 'keyword',
-        currentState: `${ackPatterns.length} keywords active`,
-        keywords: ackPatterns,
-        honorificSuffixes,
-        tokens: 0,
-        triggered: acknowledgment,
-        action: 'Skip silently (AI stays quiet)',
-      },
-      {
-        id: 'informing',
-        name: 'Informing / Purchase Confirmation',
-        description: 'Buyer sharing info or confirming a purchase — auto-reply "Ok noted sir", 0 tokens',
-        type: 'keyword',
-        currentState: `${informingKws.length} keywords active`,
-        keywords: informingKws,
-        tokens: 0,
-        triggered: informing,
-        action: 'Auto-reply: "Ok noted sir 👍"',
-      },
-      {
-        id: 'website_issue',
-        name: 'Website Issue Detection',
-        description: 'Buyer reports site not opening / not working — auto-reply with reassurance',
-        type: 'keyword',
-        currentState: 'Active',
-        keywords: [
-          'open nahi', 'open ni', 'open nhi', 'khul nahi', 'khul ni',
-          'site issue', 'site problem', 'website issue', 'website problem',
-          'not opening', 'not working', 'not loading', 'site down', 'website down',
-          'error aa raha', 'blank page', 'page not found', 'server error',
-        ],
-        tokens: 0,
-        triggered: websiteIssue,
-        action: 'Auto-reply: reassure + try again later',
-      },
-      {
-        id: 'repeat_message',
-        name: 'Repeat Message Detection',
-        description: 'Skip if same buyer sent the exact same message within 5 minutes and AI already replied',
-        type: 'message',
-        currentState: '5 min window',
-        tokens: 0,
-        triggered: repeatMessage,
-        action: 'Skip silently (already replied)',
-      },
-      {
-        id: 'greeting_detection',
-        name: 'Greeting Detection',
-        description: 'Detect greetings to skip defer-list check (still goes to Claude)',
-        type: 'keyword',
-        currentState: `${greetingPatterns.length} patterns`,
-        keywords: greetingPatterns,
-        tokens: 'Varies (Claude called)',
-        triggered: 'N/A (not a blocker)',
-        action: 'Passes to Claude (skips defer check)',
-      },
-      {
-        id: 'welcome_bypass',
-        name: 'Welcome Message Bypass',
-        description: 'First-time buyer or returning after 7+ days → send welcome directly',
-        type: 'auto-reply',
-        currentState: 'Active (7-day gap)',
-        tokens: 0,
-        triggered: welcomeBypass,
-        action: 'Auto-reply with welcome message',
-      },
-      {
-        id: 'order_id_detected',
-        name: 'Order ID / Tracking Number',
-        description: 'Detect long numeric strings (10+ digits) as order/tracking IDs and defer immediately',
-        type: 'keyword',
-        currentState: 'Regex: ^\\d{10,}$',
-        tokens: 0,
-        triggered: orderIdDetected,
-        action: 'Defer message (0 tokens)',
-      },
-      {
-        id: 'angry_buyer',
-        name: 'Angry / Frustrated Buyer',
-        description: 'Detect angry or abusive messages and defer to Ketu immediately',
-        type: 'keyword',
-        currentState: `${['bakwas', 'bekar', 'ghatiya', 'worst', 'scam', 'fraud', 'cheat', 'dhoka', 'complaint', 'consumer forum', 'legal', 'terrible', 'horrible', 'pathetic'].length}+ keywords active`,
-        keywords: [
-          'bakwas', 'bekar', 'ghatiya', 'worst', 'scam', 'fraud', 'cheat',
-          'dhoka', 'dhokha', 'complaint', 'consumer forum', 'legal',
-          'reply nahi karte', 'response nahi', 'koi jawab nahi',
-          'bahut bura', 'very bad', 'terrible', 'horrible', 'pathetic',
-          'pagal', 'bewakoof', 'stupid',
-        ],
-        tokens: 0,
-        triggered: angryBuyer,
-        action: 'Defer message (0 tokens)',
-      },
-      {
-        id: 'defer_to_ketu',
-        name: 'Defer to Ketu (Vector Match)',
-        description: 'Questions matching defer list → use correction or defer',
-        type: 'ai-match',
-        currentState: `Threshold: ${settings.deferThreshold}`,
-        tokens: 0,
-        triggered: deferToKetu,
-        action: 'Auto-reply with correction OR defer message',
-      },
-      {
-        id: 'empty_kb',
-        name: 'Empty Knowledge Base',
-        description: 'If no knowledge synced yet, defer all messages',
-        type: 'system',
-        currentState: 'Safety check',
-        tokens: 0,
-        triggered: emptyKb,
-        action: 'Defer message',
-      },
-      {
-        id: 'claude_deferred',
-        name: 'Claude [DEFER] Marker',
-        description: 'Claude itself says it cannot answer — defers to you',
-        type: 'post-ai',
-        currentState: 'Active',
-        tokens: 'Yes (Claude called first)',
-        triggered: claudeDeferred,
-        action: 'Defer message (tokens consumed)',
-      },
+      ...systemFilters,
+      ...dynamicFilterCards,
+      ...postFilters,
     ],
+  })
+})
+
+// ===========================================
+// Pre-AI Filter Management (CRUD)
+// ===========================================
+
+import { clearFilterCache } from './process.js'
+
+// Get all filters
+app.get('/api/filters', async (c) => {
+  try {
+    const filters = await db.preAIFilter.findMany({ orderBy: { priority: 'asc' } })
+    return c.json(filters)
+  } catch {
+    return c.json([])
+  }
+})
+
+// Update filter (toggle enabled, change autoReplyText, etc.)
+app.put('/api/filters/:id', async (c) => {
+  const { id } = c.req.param()
+  const body = await c.req.json()
+  // Only allow safe fields to be updated
+  const allowed = ['enabled', 'displayName', 'description', 'autoReplyText', 'matchType', 'action', 'priority']
+  const updates = {}
+  for (const key of allowed) {
+    if (body[key] !== undefined) updates[key] = body[key]
+  }
+  const filter = await db.preAIFilter.update({ where: { id }, data: updates })
+  clearFilterCache()
+  return c.json(filter)
+})
+
+// Add keyword to filter
+app.post('/api/filters/:id/keywords', async (c) => {
+  const { id } = c.req.param()
+  const { keyword } = await c.req.json()
+  if (!keyword || !keyword.trim()) return c.json({ error: 'Keyword required' }, 400)
+
+  const filter = await db.preAIFilter.findUnique({ where: { id } })
+  if (!filter) return c.json({ error: 'Filter not found' }, 404)
+
+  const existing = filter.keywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+  if (existing.includes(keyword.trim().toLowerCase())) {
+    return c.json({ error: 'Keyword already exists' }, 400)
+  }
+
+  const updatedKeywords = filter.keywords
+    ? filter.keywords + ',' + keyword.trim().toLowerCase()
+    : keyword.trim().toLowerCase()
+
+  await db.preAIFilter.update({ where: { id }, data: { keywords: updatedKeywords } })
+  clearFilterCache()
+  return c.json({ ok: true })
+})
+
+// Remove keyword from filter
+app.delete('/api/filters/:id/keywords/:keyword', async (c) => {
+  const { id, keyword } = c.req.param()
+  const filter = await db.preAIFilter.findUnique({ where: { id } })
+  if (!filter) return c.json({ error: 'Filter not found' }, 404)
+
+  const keywords = filter.keywords.split(',').map(k => k.trim()).filter(k => k.toLowerCase() !== decodeURIComponent(keyword).toLowerCase())
+  await db.preAIFilter.update({ where: { id }, data: { keywords: keywords.join(',') } })
+  clearFilterCache()
+  return c.json({ ok: true })
+})
+
+// Create new filter (from discovered category)
+app.post('/api/filters', async (c) => {
+  const body = await c.req.json()
+  if (!body.name || !body.displayName) return c.json({ error: 'name and displayName required' }, 400)
+
+  // Sanitize name to snake_case
+  const name = body.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
+
+  const filter = await db.preAIFilter.create({
+    data: {
+      name,
+      displayName: body.displayName,
+      description: body.description || null,
+      filterType: 'keyword',
+      matchType: body.matchType || 'partial',
+      action: body.action || 'skip',
+      autoReplyText: body.autoReplyText || null,
+      keywords: body.keywords || '',
+      enabled: true,
+      isSystem: false,
+      priority: body.priority || 100,
+    },
+  })
+  clearFilterCache()
+  return c.json(filter)
+})
+
+// Delete a user-created filter (not system filters)
+app.delete('/api/filters/:id', async (c) => {
+  const { id } = c.req.param()
+  const filter = await db.preAIFilter.findUnique({ where: { id } })
+  if (!filter) return c.json({ error: 'Filter not found' }, 404)
+  if (filter.isSystem) return c.json({ error: 'Cannot delete system filters' }, 400)
+
+  await db.preAIFilter.delete({ where: { id } })
+  clearFilterCache()
+  return c.json({ ok: true })
+})
+
+// ===========================================
+// Discovered Keywords (from AI learning)
+// ===========================================
+
+// Get pending + recently auto-added
+app.get('/api/filters/discovered', async (c) => {
+  try {
+    const [pending, autoAdded] = await Promise.all([
+      db.discoveredKeyword.findMany({
+        where: { status: 'pending' },
+        orderBy: { discoveredAt: 'desc' },
+      }),
+      db.discoveredKeyword.findMany({
+        where: {
+          status: 'auto_added',
+          processedAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+        },
+        orderBy: { processedAt: 'desc' },
+      }),
+    ])
+    return c.json({ pending, autoAdded })
+  } catch {
+    return c.json({ pending: [], autoAdded: [] })
+  }
+})
+
+// Approve discovered keyword → add to filter
+app.post('/api/filters/discovered/:id/approve', async (c) => {
+  const { id } = c.req.param()
+  const { filterId } = await c.req.json()
+
+  const discovered = await db.discoveredKeyword.findUnique({ where: { id } })
+  if (!discovered) return c.json({ error: 'Not found' }, 404)
+
+  // Add keyword to the target filter
+  const filter = await db.preAIFilter.findUnique({ where: { id: filterId } })
+  if (!filter) return c.json({ error: 'Filter not found' }, 404)
+
+  const existing = filter.keywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+  if (!existing.includes(discovered.keyword.toLowerCase())) {
+    const updatedKeywords = filter.keywords
+      ? filter.keywords + ',' + discovered.keyword.toLowerCase()
+      : discovered.keyword.toLowerCase()
+    await db.preAIFilter.update({ where: { id: filterId }, data: { keywords: updatedKeywords } })
+  }
+
+  await db.discoveredKeyword.update({
+    where: { id },
+    data: { status: 'approved', filterId, processedAt: new Date() },
+  })
+
+  clearFilterCache()
+  return c.json({ ok: true })
+})
+
+// Dismiss discovered keyword
+app.post('/api/filters/discovered/:id/dismiss', async (c) => {
+  const { id } = c.req.param()
+  await db.discoveredKeyword.update({
+    where: { id },
+    data: { status: 'dismissed', processedAt: new Date() },
+  })
+  return c.json({ ok: true })
+})
+
+// AI-discover keywords for a specific filter category
+app.post('/api/filters/:id/ai-discover', async (c) => {
+  const { id } = c.req.param()
+  const filter = await db.preAIFilter.findUnique({ where: { id } })
+  if (!filter) return c.json({ error: 'Filter not found' }, 404)
+
+  // Get recent pairs of this category
+  const pairs = await db.manualReplyPair.findMany({
+    where: { category: filter.name },
+    take: 100,
+    orderBy: { createdAt: 'desc' },
+  })
+
+  if (pairs.length < 3) {
+    return c.json({ error: 'Not enough data yet', count: pairs.length, needed: 3 })
+  }
+
+  const currentKeywords = filter.keywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+
+  const prompt = `You analyze buyer messages from a wholesale blank t-shirt business (BulkPlainTshirt.com).
+
+These messages belong to the "${filter.displayName}" category (action: ${filter.action}).
+
+Current keywords already in this filter: ${currentKeywords.join(', ') || 'none'}
+
+Buyer messages in this category:
+${pairs.map(p => `- "${p.buyerMessage}"`).join('\n')}
+
+Extract SHORT keywords/phrases (1-3 words, Hindi/English/Hinglish) that could detect similar messages.
+- Only include keywords NOT already in the current list
+- Must be specific enough to avoid false positives
+- Assign confidence 0.0-1.0 (0.9+ = very sure, 0.7-0.89 = fairly sure, below 0.7 = uncertain)
+
+Reply as JSON array only: [{ "keyword": "...", "confidence": 0.95 }]`
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6-20250514',
+    max_tokens: 2000,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  let newKeywords
+  try {
+    const text = response.content[0].text
+    const jsonMatch = text.match(/\[[\s\S]*\]/)
+    newKeywords = JSON.parse(jsonMatch ? jsonMatch[0] : text)
+  } catch {
+    return c.json({ error: 'Failed to parse AI response' }, 500)
+  }
+
+  let autoAddedCount = 0
+  let pendingCount = 0
+
+  for (const kw of newKeywords) {
+    if (!kw.keyword || currentKeywords.includes(kw.keyword.toLowerCase())) continue
+
+    const isHighConfidence = kw.confidence >= 0.85
+
+    await db.discoveredKeyword.create({
+      data: {
+        keyword: kw.keyword.toLowerCase(),
+        category: filter.name,
+        confidence: kw.confidence,
+        source: 'manual_review',
+        status: isHighConfidence ? 'auto_added' : 'pending',
+        filterId: isHighConfidence ? filter.id : null,
+        processedAt: isHighConfidence ? new Date() : null,
+      },
+    })
+
+    if (isHighConfidence) {
+      // Auto-add to filter
+      const updatedKeywords = filter.keywords
+        ? filter.keywords + ',' + kw.keyword.toLowerCase()
+        : kw.keyword.toLowerCase()
+      await db.preAIFilter.update({ where: { id: filter.id }, data: { keywords: updatedKeywords } })
+      filter.keywords = updatedKeywords // Update local copy for next iteration
+      currentKeywords.push(kw.keyword.toLowerCase())
+      autoAddedCount++
+    } else {
+      pendingCount++
+    }
+  }
+
+  clearFilterCache()
+  return c.json({
+    total: newKeywords.length,
+    autoAdded: autoAddedCount,
+    pending: pendingCount,
+    message: `Found ${newKeywords.length} keywords: ${autoAddedCount} auto-added, ${pendingCount} need your review`,
   })
 })
 
