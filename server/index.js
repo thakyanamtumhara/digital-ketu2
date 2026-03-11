@@ -1176,6 +1176,67 @@ Reply as JSON array only: [{ "keyword": "...", "confidence": 0.95 }]`
   })
 })
 
+// ===========================================
+// Knowledge Base Browsing (Vector DB contents)
+// ===========================================
+
+// Stats: how many chunks per source type
+app.get('/api/knowledge/stats', async (c) => {
+  const [bySource, totalWithEmbedding, totalWithoutEmbedding, deferCount] = await Promise.all([
+    db.knowledgeChunk.groupBy({
+      by: ['source'],
+      _count: { id: true },
+      orderBy: { _count: { id: 'desc' } },
+    }),
+    db.knowledgeChunk.count({ where: { embedding: { not: null } } }),
+    db.knowledgeChunk.count({ where: { embedding: null } }),
+    db.deferToKetu.count(),
+  ])
+
+  const sources = {}
+  for (const s of bySource) {
+    sources[s.source] = s._count.id
+  }
+
+  return c.json({
+    total: Object.values(sources).reduce((a, b) => a + b, 0),
+    withEmbedding: totalWithEmbedding,
+    withoutEmbedding: totalWithoutEmbedding,
+    deferToKetuItems: deferCount,
+    sources,
+  })
+})
+
+// Browse chunks by source type (paginated)
+app.get('/api/knowledge/chunks', async (c) => {
+  const source = c.req.query('source') || null
+  const page = parseInt(c.req.query('page') || '1')
+  const pageSize = parseInt(c.req.query('pageSize') || '50')
+  const search = c.req.query('search') || null
+
+  const where = {}
+  if (source) where.source = source
+  if (search) {
+    where.OR = [
+      { title: { contains: search, mode: 'insensitive' } },
+      { content: { contains: search, mode: 'insensitive' } },
+    ]
+  }
+
+  const [chunks, total] = await Promise.all([
+    db.knowledgeChunk.findMany({
+      where,
+      select: { id: true, source: true, sourceId: true, title: true, content: true, metadata: true, updatedAt: true },
+      orderBy: { updatedAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    db.knowledgeChunk.count({ where }),
+  ])
+
+  return c.json({ chunks, total, page, pageSize })
+})
+
 // Knowledge base download
 app.get('/api/knowledge/download', async (c) => {
   const [chunks, deferList, settings] = await Promise.all([

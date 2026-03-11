@@ -18,6 +18,13 @@ function App() {
   const [learningStats, setLearningStats] = useState(null)
   const [learningRunning, setLearningRunning] = useState(false)
 
+  // Knowledge base browsing
+  const [kbStats, setKbStats] = useState(null)
+  const [kbChunks, setKbChunks] = useState(null)
+  const [kbSource, setKbSource] = useState('')
+  const [kbPage, setKbPage] = useState(1)
+  const [kbSearch, setKbSearch] = useState('')
+
   // Fetch data
   const fetchSettings = useCallback(async () => {
     const res = await fetch(`${API}/settings`)
@@ -57,6 +64,19 @@ function App() {
   const fetchLearningStats = useCallback(async () => {
     const res = await fetch(`${API}/learning/stats`)
     if (res.ok) setLearningStats(await res.json())
+  }, [])
+
+  const fetchKbStats = useCallback(async () => {
+    const res = await fetch(`${API}/knowledge/stats`)
+    if (res.ok) setKbStats(await res.json())
+  }, [])
+
+  const fetchKbChunks = useCallback(async (source = '', page = 1, search = '') => {
+    const params = new URLSearchParams({ page, pageSize: 20 })
+    if (source) params.set('source', source)
+    if (search) params.set('search', search)
+    const res = await fetch(`${API}/knowledge/chunks?${params}`)
+    if (res.ok) setKbChunks(await res.json())
   }, [])
 
   const triggerLearningRun = async () => {
@@ -217,7 +237,7 @@ function App() {
 
       {/* Tabs */}
       <nav style={styles.tabs}>
-        {['live', 'analytics', 'defer', 'filters', 'learning', 'settings', 'sync'].map(t => (
+        {['live', 'knowledge', 'analytics', 'defer', 'filters', 'learning', 'settings', 'sync'].map(t => (
           <button
             key={t}
             data-tab={t}
@@ -229,9 +249,10 @@ function App() {
               if (t === 'analytics') fetchAnalytics()
               if (t === 'filters') { fetchFilterStats(); fetchDbFilters(); fetchDiscovered() }
               if (t === 'learning') fetchLearningStats()
+              if (t === 'knowledge') { fetchKbStats(); fetchKbChunks('', 1, '') }
             }}
           >
-            {{live:'Live Monitor', analytics:'Analytics', defer:'Defer to Ketu', filters:'Pre-AI Filters', learning:'Learning', settings:'Settings', sync:'Sync'}[t]}
+            {{live:'Live Monitor', knowledge:'Knowledge Base', analytics:'Analytics', defer:'Defer to Ketu', filters:'Pre-AI Filters', learning:'Learning', settings:'Settings', sync:'Sync'}[t]}
           </button>
         ))}
       </nav>
@@ -242,6 +263,7 @@ function App() {
       {/* Tab Content */}
       <main style={styles.main}>
         {tab === 'live' && <LiveMonitor logs={logs} expandedLog={expandedLog} setExpandedLog={setExpandedLog} />}
+        {tab === 'knowledge' && <KnowledgeBasePanel stats={kbStats} chunks={kbChunks} source={kbSource} page={kbPage} search={kbSearch} onSourceChange={(s) => { setKbSource(s); setKbPage(1); fetchKbChunks(s, 1, kbSearch) }} onPageChange={(p) => { setKbPage(p); fetchKbChunks(kbSource, p, kbSearch) }} onSearch={(s) => { setKbSearch(s); setKbPage(1); fetchKbChunks(kbSource, 1, s) }} onRefresh={() => { fetchKbStats(); fetchKbChunks(kbSource, kbPage, kbSearch) }} />}
         {tab === 'analytics' && <Analytics analytics={analytics} period={period} setPeriod={setPeriod} />}
         {tab === 'defer' && <DeferManager list={deferList} onDelete={deleteDefer} settings={settings} updateSetting={updateSetting} />}
         {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={() => { fetchFilterStats(); fetchDbFilters(); fetchDiscovered() }} dbFilters={dbFilters} discovered={discovered} />}
@@ -594,6 +616,191 @@ function ProcessPipeline({ log }) {
             </div>
           </div>
         </>
+      )}
+    </div>
+  )
+}
+
+// ===========================================
+// Knowledge Base Panel
+// ===========================================
+
+const SOURCE_LABELS = {
+  STYLE_PAIR: 'Quality Pairs (Om\'s Real Replies)',
+  SAVED_REPLY: 'Reply Templates (from wwbun)',
+  CATALOG: 'Product Catalog',
+  POLICY: 'Business Policies',
+  STYLE_GUIDE: 'Om\'s Style Guide (extracted)',
+  FAQ: 'FAQ',
+}
+
+const SOURCE_COLORS = {
+  STYLE_PAIR: '#c4b5fd',
+  SAVED_REPLY: '#60a5fa',
+  CATALOG: '#86efac',
+  POLICY: '#fbbf24',
+  STYLE_GUIDE: '#f97316',
+  FAQ: '#94a3b8',
+}
+
+const SOURCE_BG = {
+  STYLE_PAIR: '#1e1b4b',
+  SAVED_REPLY: '#172554',
+  CATALOG: '#14532d',
+  POLICY: '#422006',
+  STYLE_GUIDE: '#431407',
+  FAQ: '#1e293b',
+}
+
+function KnowledgeBasePanel({ stats, chunks, source, page, search, onSourceChange, onPageChange, onSearch, onRefresh }) {
+  const [expandedChunk, setExpandedChunk] = useState(null)
+  const [searchInput, setSearchInput] = useState(search || '')
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={styles.sectionTitle}>Knowledge Base (Vector DB)</h2>
+        <button style={styles.btnPrimary} onClick={onRefresh}>Refresh</button>
+      </div>
+
+      {/* Stats Overview */}
+      {stats && (
+        <div style={{ background: '#1e293b', borderRadius: 10, padding: 16, marginBottom: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+            <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#f1f5f9' }}>{stats.total}</div>
+              <div style={{ fontSize: 11, color: '#64748b' }}>Total Chunks</div>
+            </div>
+            <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#22c55e' }}>{stats.withEmbedding}</div>
+              <div style={{ fontSize: 11, color: '#64748b' }}>With Embeddings</div>
+            </div>
+            <div style={{ background: '#0f172a', borderRadius: 8, padding: 12, textAlign: 'center' }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#f59e0b' }}>{stats.deferToKetuItems}</div>
+              <div style={{ fontSize: 11, color: '#64748b' }}>Defer-to-Ketu Rules</div>
+            </div>
+          </div>
+
+          {/* Per-source breakdown */}
+          <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {Object.entries(stats.sources || {}).map(([src, count]) => (
+              <div
+                key={src}
+                style={{
+                  background: SOURCE_BG[src] || '#1e293b',
+                  borderRadius: 8,
+                  padding: '8px 14px',
+                  cursor: 'pointer',
+                  border: source === src ? '2px solid ' + (SOURCE_COLORS[src] || '#94a3b8') : '2px solid transparent',
+                }}
+                onClick={() => onSourceChange(source === src ? '' : src)}
+              >
+                <div style={{ fontSize: 18, fontWeight: 700, color: SOURCE_COLORS[src] || '#f1f5f9' }}>{count}</div>
+                <div style={{ fontSize: 11, color: '#94a3b8' }}>{SOURCE_LABELS[src] || src}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Search + Filter Bar */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input
+          type="text"
+          placeholder="Search knowledge base..."
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && onSearch(searchInput)}
+          style={{ ...styles.input, flex: 1 }}
+        />
+        <button style={styles.btnSecondary} onClick={() => onSearch(searchInput)}>Search</button>
+        {(source || search) && (
+          <button style={{ ...styles.btnSecondary, color: '#ef4444' }} onClick={() => { setSearchInput(''); onSourceChange(''); onSearch('') }}>Clear</button>
+        )}
+      </div>
+
+      {/* Active filter indicator */}
+      {source && (
+        <div style={{ marginBottom: 12, padding: '6px 12px', background: SOURCE_BG[source] || '#1e293b', borderRadius: 6, fontSize: 13, color: SOURCE_COLORS[source] || '#f1f5f9' }}>
+          Showing: {SOURCE_LABELS[source] || source} ({chunks?.total || 0} items)
+        </div>
+      )}
+
+      {/* Chunks list */}
+      {chunks && chunks.chunks?.length > 0 ? (
+        <>
+          {chunks.chunks.map(chunk => (
+            <div
+              key={chunk.id}
+              style={{
+                background: '#0f172a',
+                borderRadius: 8,
+                padding: 12,
+                marginBottom: 8,
+                borderLeft: `3px solid ${SOURCE_COLORS[chunk.source] || '#64748b'}`,
+                cursor: 'pointer',
+              }}
+              onClick={() => setExpandedChunk(expandedChunk === chunk.id ? null : chunk.id)}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span style={{ fontSize: 11, color: SOURCE_COLORS[chunk.source] || '#94a3b8', fontWeight: 600 }}>
+                    [{chunk.source}]
+                  </span>
+                  <span style={{ fontSize: 13, color: '#f1f5f9', marginLeft: 8 }}>
+                    {chunk.title || 'Untitled'}
+                  </span>
+                </div>
+                <span style={{ fontSize: 11, color: '#64748b' }}>
+                  {new Date(chunk.updatedAt).toLocaleDateString('en-IN')}
+                </span>
+              </div>
+
+              {expandedChunk === chunk.id && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 12, color: '#cbd5e1', background: '#1e293b', borderRadius: 6, padding: 10, whiteSpace: 'pre-wrap', maxHeight: 300, overflow: 'auto' }}>
+                    {chunk.content}
+                  </div>
+                  {chunk.metadata && (
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                      {chunk.source === 'STYLE_PAIR' && chunk.metadata.buyerMessage && (
+                        <div>
+                          <span style={{ color: '#94a3b8' }}>Buyer:</span> "{chunk.metadata.buyerMessage}"
+                          <br />
+                          <span style={{ color: '#86efac' }}>Om:</span> "{chunk.metadata.omReply}"
+                        </div>
+                      )}
+                      {chunk.source === 'CATALOG' && chunk.metadata.bulkPrice && (
+                        <div>Price: ₹{chunk.metadata.bulkPrice}/pc | Colors: {(chunk.metadata.colors || []).length} | Sizes: {(chunk.metadata.sizes || []).join(', ')}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* Pagination */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16 }}>
+            <button
+              style={styles.btnSecondary}
+              disabled={page <= 1}
+              onClick={() => onPageChange(page - 1)}
+            >← Prev</button>
+            <span style={{ color: '#94a3b8', fontSize: 13, alignSelf: 'center' }}>
+              Page {chunks.page} of {Math.ceil(chunks.total / chunks.pageSize)}
+            </span>
+            <button
+              style={styles.btnSecondary}
+              disabled={page * chunks.pageSize >= chunks.total}
+              onClick={() => onPageChange(page + 1)}
+            >Next →</button>
+          </div>
+        </>
+      ) : chunks ? (
+        <p style={styles.empty}>No chunks found. Click "Sync" tab to sync data from wwbun and catalog.</p>
+      ) : (
+        <p style={styles.empty}>Loading...</p>
       )}
     </div>
   )
