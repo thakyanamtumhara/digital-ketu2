@@ -115,9 +115,12 @@ export async function reviewAiReplies(db) {
 
   let results
   try {
-    results = JSON.parse(response.content[0].text)
+    const text = response.content[0].text
+    const jsonMatch = text.match(/\[[\s\S]*\]/)
+    results = JSON.parse(jsonMatch ? jsonMatch[0] : text)
   } catch (err) {
     console.error('[Reviewer] Failed to parse JSON response:', err.message)
+    console.error('[Reviewer] Raw response:', response.content[0].text?.substring(0, 500))
     return { reviewed: 0, corrections: 0, flagged: 0, costUsd }
   }
 
@@ -237,9 +240,12 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
 
   let results
   try {
-    results = JSON.parse(response.content[0].text)
+    const text = response.content[0].text
+    const jsonMatch = text.match(/\[[\s\S]*\]/)
+    results = JSON.parse(jsonMatch ? jsonMatch[0] : text)
   } catch (err) {
     console.error('[Reviewer] Failed to parse manual review JSON:', err.message)
+    console.error('[Reviewer] Raw response:', response.content[0].text?.substring(0, 500))
     // Mark all as reviewed so we don't keep retrying bad batches
     for (const pair of pairs) {
       await db.manualReplyPair.update({
