@@ -137,6 +137,10 @@ app.post('/api/intervention', async (c) => {
   // Skip learning for non-text replies (audio, video, image, etc.) — only set cooldown
   const isTextReply = !messageType || messageType === 'TEXT'
 
+  // Quality filter: both sides need 4+ words to be worth learning from
+  const wordCount = (s) => (s || '').split(/\s+/).filter(w => w.length > 0).length
+  const isQualityPair = isTextReply && wordCount(buyerMessage) >= 4 && wordCount(ketuReply) >= 4
+
   // 1. Set cooldown (existing behavior)
   const settings = await getSettings()
   const cooldownUntil = new Date(Date.now() + settings.cooldownMinutes * 60 * 1000)
@@ -156,7 +160,7 @@ app.post('/api/intervention', async (c) => {
 
   let learned = null
 
-  if (isTextReply && isIntervention && buyerMessage && ketuReply) {
+  if (isQualityPair && isIntervention && buyerMessage && ketuReply) {
     try {
       const embedding = await getEmbedding(anthropic, buyerMessage)
       await db.$executeRaw`
@@ -171,7 +175,7 @@ app.post('/api/intervention', async (c) => {
   }
 
   // 3. SELF-LEARNING: If AI was OFF (no recent AI reply), store pair for batch review
-  if (isTextReply && !isIntervention && buyerMessage && ketuReply) {
+  if (isQualityPair && !isIntervention && buyerMessage && ketuReply) {
     try {
       await db.manualReplyPair.create({
         data: { whatsappNumber, buyerMessage, ketuReply },
