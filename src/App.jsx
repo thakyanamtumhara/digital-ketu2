@@ -15,6 +15,8 @@ function App() {
   const [knowledge, setKnowledge] = useState(null)
   const [filterStats, setFilterStats] = useState(null)
   const [filterPeriod, setFilterPeriod] = useState('today')
+  const [learningStats, setLearningStats] = useState(null)
+  const [learningRunning, setLearningRunning] = useState(false)
 
   // Fetch data
   const fetchSettings = useCallback(async () => {
@@ -51,6 +53,31 @@ function App() {
     const res = await fetch(`${API}/filters/stats?period=${filterPeriod}`)
     if (res.ok) setFilterStats(await res.json())
   }, [filterPeriod])
+
+  const fetchLearningStats = useCallback(async () => {
+    const res = await fetch(`${API}/learning/stats`)
+    if (res.ok) setLearningStats(await res.json())
+  }, [])
+
+  const triggerLearningRun = async () => {
+    setLearningRunning(true)
+    try {
+      await fetch(`${API}/learning/run`, { method: 'POST' })
+      await fetchLearningStats()
+    } finally {
+      setLearningRunning(false)
+    }
+  }
+
+  const toggleLearning = async (enabled) => {
+    await fetch(`${API}/learning/toggle`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    })
+    await fetchSettings()
+    await fetchLearningStats()
+  }
 
   useEffect(() => {
     fetchSettings()
@@ -116,7 +143,7 @@ function App() {
 
       {/* Tabs */}
       <nav style={styles.tabs}>
-        {['live', 'analytics', 'defer', 'filters', 'settings', 'sync'].map(t => (
+        {['live', 'analytics', 'defer', 'filters', 'learning', 'settings', 'sync'].map(t => (
           <button
             key={t}
             style={{ ...styles.tab, ...(tab === t ? styles.activeTab : {}) }}
@@ -126,9 +153,10 @@ function App() {
               if (t === 'sync') { fetchSyncLogs(); fetchKnowledge() }
               if (t === 'analytics') fetchAnalytics()
               if (t === 'filters') fetchFilterStats()
+              if (t === 'learning') fetchLearningStats()
             }}
           >
-            {t === 'live' ? 'Live Monitor' : t === 'analytics' ? 'Analytics' : t === 'defer' ? 'Defer to Ketu' : t === 'filters' ? 'Pre-AI Filters' : t === 'settings' ? 'Settings' : 'Sync'}
+            {t === 'live' ? 'Live Monitor' : t === 'analytics' ? 'Analytics' : t === 'defer' ? 'Defer to Ketu' : t === 'filters' ? 'Pre-AI Filters' : t === 'learning' ? 'Learning' : t === 'settings' ? 'Settings' : 'Sync'}
           </button>
         ))}
       </nav>
@@ -142,6 +170,7 @@ function App() {
         {tab === 'analytics' && <Analytics analytics={analytics} period={period} setPeriod={setPeriod} />}
         {tab === 'defer' && <DeferManager list={deferList} onDelete={deleteDefer} settings={settings} updateSetting={updateSetting} />}
         {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={fetchFilterStats} />}
+        {tab === 'learning' && <LearningPanel stats={learningStats} settings={settings} onRun={triggerLearningRun} running={learningRunning} onToggle={toggleLearning} onRefresh={fetchLearningStats} />}
         {tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
         {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} onSync={triggerSync} syncing={syncing} knowledge={knowledge} />}
       </main>
@@ -862,6 +891,128 @@ function PreAIFilters({ stats, period, setPeriod, onRefresh }) {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh }) {
+  if (!stats) return <div style={{ padding: 20, color: '#94a3b8' }}>Loading learning stats...</div>
+
+  const costInr = (stats.dailyCost.spent * 85).toFixed(1)
+  const budgetInr = (stats.dailyCost.budget * 85).toFixed(0)
+
+  return (
+    <div style={{ padding: 16 }}>
+      {/* Header with toggle */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ color: '#f1f5f9', margin: 0, fontSize: 18 }}>Self-Learning AI</h2>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            onClick={onRun}
+            disabled={running || !settings?.learningEnabled}
+            style={{
+              padding: '6px 14px', borderRadius: 6, border: 'none', cursor: running ? 'wait' : 'pointer',
+              background: '#3b82f6', color: '#fff', fontSize: 13, opacity: running ? 0.6 : 1,
+            }}
+          >
+            {running ? 'Running...' : 'Run Now'}
+          </button>
+          <button
+            onClick={() => onToggle(!settings?.learningEnabled)}
+            style={{
+              padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+              background: settings?.learningEnabled ? '#22c55e' : '#ef4444', color: '#fff', fontSize: 13,
+            }}
+          >
+            {settings?.learningEnabled ? 'ON' : 'OFF'}
+          </button>
+        </div>
+      </div>
+
+      {/* Cost bar */}
+      <div style={{ background: '#1e293b', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+          <span style={{ color: '#94a3b8', fontSize: 13 }}>Today's Learning Cost</span>
+          <span style={{ color: '#f1f5f9', fontSize: 13 }}>Rs {costInr} / Rs {budgetInr}</span>
+        </div>
+        <div style={{ background: '#334155', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+          <div style={{
+            width: `${Math.min((stats.dailyCost.spent / stats.dailyCost.budget) * 100, 100)}%`,
+            height: '100%', background: stats.dailyCost.spent >= stats.dailyCost.budget ? '#ef4444' : '#3b82f6',
+            borderRadius: 4, transition: 'width 0.3s',
+          }} />
+        </div>
+        {stats.lastReviewAt && (
+          <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>
+            Last review: {new Date(stats.lastReviewAt).toLocaleString('en-IN')}
+          </div>
+        )}
+      </div>
+
+      {/* Stats grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 16 }}>
+        {[
+          { label: 'Total Corrections', value: stats.stats.totalCorrections, color: '#3b82f6' },
+          { label: 'From Interventions', value: stats.stats.interventionCorrections, color: '#f59e0b' },
+          { label: 'From Reviewer', value: stats.stats.reviewerCorrections, color: '#8b5cf6' },
+          { label: 'From Manual Pairs', value: stats.stats.manualPairCorrections, color: '#06b6d4' },
+          { label: 'AI Replies Reviewed', value: stats.stats.totalAiReviewed, color: '#22c55e' },
+          { label: 'Avg Rating', value: stats.stats.avgRating ? stats.stats.avgRating.toFixed(1) + '/5' : 'N/A', color: '#f1f5f9' },
+          { label: 'Pending Manual Pairs', value: stats.stats.pendingManualPairs, color: '#94a3b8' },
+          { label: 'Learned Today', value: stats.stats.todayCorrections, color: '#22c55e' },
+        ].map(s => (
+          <div key={s.label} style={{ background: '#1e293b', borderRadius: 8, padding: 12 }}>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 4 }}>{s.label}</div>
+            <div style={{ color: s.color, fontSize: 20, fontWeight: 600 }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* What I learned today */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <h3 style={{ color: '#f1f5f9', margin: 0, fontSize: 15 }}>What I Learned (Last 24h)</h3>
+          <button onClick={onRefresh} style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: 12 }}>Refresh</button>
+        </div>
+        {stats.recentLearnings.length === 0 ? (
+          <div style={{ color: '#64748b', fontSize: 13, padding: 16, textAlign: 'center', background: '#1e293b', borderRadius: 8 }}>
+            No new learnings in the last 24 hours
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {stats.recentLearnings.map(l => (
+              <div key={l.id} style={{ background: '#1e293b', borderRadius: 8, padding: 12, borderLeft: '3px solid #3b82f6' }}>
+                <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 4 }}>
+                  {new Date(l.createdAt).toLocaleString('en-IN')}
+                  {l.aiWrongReply === '[AI would not know]' ? ' — Learned from your manual reply' : ' — Fixed wrong AI reply'}
+                </div>
+                <div style={{ color: '#f1f5f9', fontSize: 13, marginBottom: 4 }}>
+                  <strong>Buyer:</strong> {l.buyerQuestion}
+                </div>
+                {l.aiWrongReply && l.aiWrongReply !== '[AI would not know]' && (
+                  <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 2 }}>
+                    AI said (wrong): {l.aiWrongReply}
+                  </div>
+                )}
+                <div style={{ color: '#22c55e', fontSize: 12 }}>
+                  Correct reply: {l.correctReply}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* How it works */}
+      <div style={{ background: '#1e293b', borderRadius: 8, padding: 12, color: '#64748b', fontSize: 12 }}>
+        <strong style={{ color: '#94a3b8' }}>How Self-Learning Works:</strong>
+        <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
+          <li>When AI is ON and you intervene — AI's wrong reply + your correct reply auto-saved (free, instant)</li>
+          <li>When AI is OFF — your manual replies are stored and reviewed every {settings?.learningIntervalHours || 4} hours by Sonnet 4.6</li>
+          <li>Sonnet decides if AI would have handled it. If not, adds your reply as a correction</li>
+          <li>Next time a similar question comes, the correction is used directly (0 tokens)</li>
+        </ul>
       </div>
     </div>
   )

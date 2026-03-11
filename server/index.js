@@ -6,6 +6,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage } from './process.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured } from './embeddings.js'
+import { runReviewJob } from './reviewer.js'
 
 const app = new Hono()
 const db = new PrismaClient()
@@ -130,9 +131,10 @@ app.post('/api/incoming', async (c) => {
 // wwbun calls this when Om sends a manual message in a conversation
 
 app.post('/api/intervention', async (c) => {
-  const { whatsappNumber } = await c.req.json()
+  const { whatsappNumber, ketuReply, buyerMessage, aiReply, aiRepliedAt } = await c.req.json()
   if (!whatsappNumber) return c.json({ error: 'Missing whatsappNumber' }, 400)
 
+  // 1. Set cooldown (existing behavior)
   const settings = await getSettings()
   const cooldownUntil = new Date(Date.now() + settings.cooldownMinutes * 60 * 1000)
 
@@ -143,7 +145,42 @@ app.post('/api/intervention', async (c) => {
   })
 
   console.log(`[Cooldown] ${whatsappNumber} — paused until ${cooldownUntil.toISOString()}`)
-  return c.json({ status: 'cooldown_set', cooldownUntil })
+
+  // 2. SELF-LEARNING: If AI was ON and replied recently (within 10 min), this is an intervention
+  //    AI got it wrong → auto-add correction to DeferToKetu
+  const isIntervention = aiReply && aiRepliedAt &&
+    (Date.now() - new Date(aiRepliedAt).getTime()) < 10 * 60 * 1000
+
+  let learned = null
+
+  if (isIntervention && buyerMessage && ketuReply) {
+    try {
+      const embedding = await getEmbedding(anthropic, buyerMessage)
+      await db.$executeRaw`
+        INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")
+        VALUES (${crypto.randomUUID()}, ${buyerMessage}, ${aiReply}, ${ketuReply}, ${embedding}::vector, 0, NOW(), NOW())
+      `
+      learned = 'intervention_correction'
+      console.log(`[AutoLearn] Intervention — added correction: "${buyerMessage.substring(0, 50)}..."`)
+    } catch (err) {
+      console.error('[AutoLearn] Failed to add intervention correction:', err.message)
+    }
+  }
+
+  // 3. SELF-LEARNING: If AI was OFF (no recent AI reply), store pair for batch review
+  if (!isIntervention && buyerMessage && ketuReply) {
+    try {
+      await db.manualReplyPair.create({
+        data: { whatsappNumber, buyerMessage, ketuReply },
+      })
+      learned = 'manual_pair_stored'
+      console.log(`[AutoLearn] Manual pair stored: "${buyerMessage.substring(0, 50)}..."`)
+    } catch (err) {
+      console.error('[AutoLearn] Failed to store manual pair:', err.message)
+    }
+  }
+
+  return c.json({ status: 'cooldown_set', cooldownUntil, learned })
 })
 
 // ===========================================
@@ -167,6 +204,125 @@ app.post('/api/correction', async (c) => {
 
   console.log(`[Defer to Ketu] Added: "${buyerQuestion.substring(0, 50)}..."`)
   return c.json({ status: 'saved' })
+})
+
+// ===========================================
+// Self-Learning APIs
+// ===========================================
+
+// Manually trigger a review job
+app.post('/api/learning/run', async (c) => {
+  const settings = await getSettings()
+  if (!settings.learningEnabled) {
+    return c.json({ error: 'Learning is disabled. Enable it from Settings.' }, 400)
+  }
+  try {
+    const result = await runReviewJob(db)
+    // Track learning cost
+    await db.settings.update({
+      where: { id: 'default' },
+      data: {
+        lastReviewAt: new Date(),
+        learningDailySpentUsd: { increment: result.totalCostUsd },
+      },
+    })
+    return c.json(result)
+  } catch (err) {
+    console.error('[Learning] Manual run failed:', err.message)
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// Learning stats for dashboard
+app.get('/api/learning/stats', async (c) => {
+  const settings = await getSettings()
+
+  const [
+    totalCorrections,
+    interventionCorrections,
+    reviewerCorrections,
+    manualPairCorrections,
+    pendingManualPairs,
+    totalAiReviewed,
+    totalManualReviewed,
+    avgRating,
+    todayCorrections,
+    recentLearnings,
+  ] = await Promise.all([
+    db.deferToKetu.count(),
+    db.deferToKetu.count({ where: { aiWrongReply: { not: '[AI would not know]' } } }),
+    db.messageLog.count({ where: { reviewedAt: { not: null }, reviewRating: { lte: 2 } } }),
+    db.deferToKetu.count({ where: { aiWrongReply: '[AI would not know]' } }),
+    db.manualReplyPair.count({ where: { reviewedAt: null } }),
+    db.messageLog.count({ where: { reviewedAt: { not: null } } }),
+    db.manualReplyPair.count({ where: { reviewedAt: { not: null } } }),
+    db.messageLog.aggregate({ where: { reviewedAt: { not: null } }, _avg: { reviewRating: true } }),
+    // Today's corrections (from all sources)
+    db.deferToKetu.count({ where: { createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } } }),
+    // Recent learnings for "What I learned today" view
+    db.deferToKetu.findMany({
+      where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: { id: true, buyerQuestion: true, aiWrongReply: true, correctReply: true, createdAt: true },
+    }),
+  ])
+
+  return c.json({
+    enabled: settings.learningEnabled,
+    intervalHours: settings.learningIntervalHours,
+    lastReviewAt: settings.lastReviewAt,
+    dailyCost: { spent: settings.learningDailySpentUsd, budget: settings.learningDailyBudgetUsd },
+    stats: {
+      totalCorrections,
+      interventionCorrections,  // from Ketu intervening while AI ON
+      reviewerCorrections,      // from Sonnet reviewing AI replies
+      manualPairCorrections,    // from Sonnet reviewing manual pairs (AI OFF)
+      pendingManualPairs,
+      totalAiReviewed,
+      totalManualReviewed,
+      avgRating: avgRating._avg.reviewRating,
+      todayCorrections,
+    },
+    recentLearnings,
+  })
+})
+
+// Toggle learning on/off
+app.put('/api/learning/toggle', async (c) => {
+  const { enabled } = await c.req.json()
+  await db.settings.update({
+    where: { id: 'default' },
+    data: { learningEnabled: !!enabled },
+  })
+  console.log(`[Learning] ${enabled ? 'Enabled' : 'Disabled'} by user`)
+  return c.json({ learningEnabled: !!enabled })
+})
+
+// Recent AI reply reviews (for "What went wrong" view)
+app.get('/api/learning/reviews', async (c) => {
+  const limit = parseInt(c.req.query('limit') || '30')
+  const reviews = await db.messageLog.findMany({
+    where: { reviewedAt: { not: null } },
+    orderBy: { reviewedAt: 'desc' },
+    take: limit,
+    select: {
+      id: true, buyerMessage: true, aiReply: true,
+      reviewedAt: true, reviewRating: true, reviewNote: true,
+      createdAt: true,
+    },
+  })
+  return c.json(reviews)
+})
+
+// Recent manual pair reviews (for "What I learned from your replies" view)
+app.get('/api/learning/manual-pairs', async (c) => {
+  const limit = parseInt(c.req.query('limit') || '30')
+  const pairs = await db.manualReplyPair.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+  })
+  return c.json(pairs)
 })
 
 // ===========================================
@@ -749,6 +905,58 @@ async function runScheduledSync() {
 
 // Check every hour if sync is due
 setInterval(runScheduledSync, 60 * 60 * 1000)
+
+// ===========================================
+// Self-Learning Scheduler
+// ===========================================
+
+async function runScheduledReview() {
+  try {
+    const settings = await getSettings()
+    if (!settings.learningEnabled) return
+
+    // Check if enough time has passed since last review
+    if (settings.lastReviewAt) {
+      const hoursSince = (Date.now() - new Date(settings.lastReviewAt).getTime()) / (1000 * 60 * 60)
+      if (hoursSince < settings.learningIntervalHours) return
+    }
+
+    // Reset daily spend counter at midnight
+    const today = new Date(new Date().setHours(0, 0, 0, 0))
+    if (!settings.learningSpentResetAt || new Date(settings.learningSpentResetAt) < today) {
+      await db.settings.update({
+        where: { id: 'default' },
+        data: { learningDailySpentUsd: 0, learningSpentResetAt: today },
+      })
+    }
+
+    // Check daily budget
+    if (settings.learningDailySpentUsd >= settings.learningDailyBudgetUsd) {
+      console.log('[Learning] Daily budget reached, skipping review')
+      return
+    }
+
+    console.log('[Learning] Running scheduled review...')
+    const result = await runReviewJob(db)
+
+    await db.settings.update({
+      where: { id: 'default' },
+      data: {
+        lastReviewAt: new Date(),
+        learningDailySpentUsd: { increment: result.totalCostUsd },
+      },
+    })
+
+    const totalCorrections = result.aiReplies.corrections + result.manualPairs.corrections
+    const totalReviewed = result.aiReplies.reviewed + result.manualPairs.reviewed
+    console.log(`[Learning] Review complete — ${totalReviewed} reviewed, ${totalCorrections} corrections, $${result.totalCostUsd.toFixed(4)} cost`)
+  } catch (err) {
+    console.error('[Learning] Scheduled review failed:', err.message)
+  }
+}
+
+// Check every hour if review is due
+setInterval(runScheduledReview, 60 * 60 * 1000)
 
 // ===========================================
 // Serve Dashboard (Static Frontend)

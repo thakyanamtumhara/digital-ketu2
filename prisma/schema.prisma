@@ -97,9 +97,15 @@ model MessageLog {
   processingMs      Int?              // total processing time
   createdAt         DateTime @default(now())
 
+  // Self-learning review (populated by reviewer job)
+  reviewedAt        DateTime?         // when reviewed by Sonnet
+  reviewRating      Int?              // 1-5 rating
+  reviewNote        String?           // reviewer's reasoning
+
   @@index([conversationId])
   @@index([status])
   @@index([createdAt])
+  @@index([reviewedAt])
 }
 
 enum MessageStatus {
@@ -133,8 +139,31 @@ model Settings {
   informingKeywords   String?                       // comma-separated keywords for informing/future-intent detection
   lastSyncAt          DateTime?
   nextSyncAt          DateTime?
+  // Self-learning settings
+  learningEnabled     Boolean  @default(true)        // toggle learning on/off
+  learningIntervalHours Int    @default(4)            // run review every N hours
+  lastReviewAt        DateTime?
+  learningDailyBudgetUsd Float @default(0.15)         // max daily spend on review calls (~Rs 12)
+  learningDailySpentUsd  Float @default(0)            // today's spend on review
+  learningSpentResetAt   DateTime @default(now())     // when learning counter was last reset
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+}
+
+// --- Self-Learning: Manual Reply Pairs (collected when AI is OFF) ---
+
+model ManualReplyPair {
+  id              String    @id @default(cuid())
+  whatsappNumber  String
+  buyerMessage    String
+  ketuReply       String
+  reviewedAt      DateTime?           // when Sonnet reviewed this
+  reviewResult    String?             // "correction_added" | "ai_would_handle" | "skipped"
+  reviewNote      String?             // reviewer's reasoning
+  createdAt       DateTime  @default(now())
+
+  @@index([reviewedAt])
+  @@index([createdAt])
 }
 
 // --- Sync Log ---
