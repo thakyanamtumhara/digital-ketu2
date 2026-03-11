@@ -337,6 +337,7 @@ app.get('/api/filters/stats', async (c) => {
     claudeDeferred,
     orderIdDetected,
     angryBuyer,
+    informing,
     totalReplied,
     totalMessages,
   ] = await Promise.all([
@@ -354,11 +355,12 @@ app.get('/api/filters/stats', async (c) => {
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'claude_deferred' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'order_id_detected' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'angry_buyer' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'informing' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, status: 'REPLIED', totalTokens: { gt: 0 } } }),
     db.messageLog.count({ where: { createdAt: { gte: since } } }),
   ])
 
-  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb + orderIdDetected + angryBuyer
+  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb + orderIdDetected + angryBuyer + informing
 
   // Acknowledgment keywords list (same as process.js)
   // Also strips trailing honorifics (sir, ji, bhai, boss, bro, sahab, saheb, g) before matching
@@ -372,6 +374,21 @@ app.get('/api/filters/stats', async (c) => {
     'done', 'bilkul', 'zaroor', 'thx', 'ty',
   ]
   const honorificSuffixes = ['sir', 'ji', 'bhai', 'boss', 'bro', 'sahab', 'saheb', 'g']
+
+  // Informing keywords (from settings or defaults in process.js)
+  const informingKws = settings.informingKeywords
+    ? settings.informingKeywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+    : [
+        'just to inform', 'inform', 'batana tha', 'bata raha', 'bata rahi',
+        'plan hai', 'plan kar', 'planning', 'soch raha', 'soch rahi', 'socha hai',
+        'future mein', 'future me', 'aage', 'baad mein', 'baad me',
+        'purchased', 'order kiya', 'order kar diya', 'order de diya',
+        'order placed', 'order done', 'order ho gaya',
+        'website se order', 'website se liya', 'online order',
+        'le liya', 'kharid liya', 'payment done', 'payment kar diya',
+        'video dekhi', 'video dekha', 'reel dekhi', 'reel dekha',
+        'interested', 'interest hai',
+      ]
 
   const greetingPatterns = [
     'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
@@ -480,6 +497,17 @@ app.get('/api/filters/stats', async (c) => {
         tokens: 0,
         triggered: acknowledgment,
         action: 'Skip silently (AI stays quiet)',
+      },
+      {
+        id: 'informing',
+        name: 'Informing / Purchase Confirmation',
+        description: 'Buyer sharing info or confirming a purchase — auto-reply "Ok noted sir", 0 tokens',
+        type: 'keyword',
+        currentState: `${informingKws.length} keywords active`,
+        keywords: informingKws,
+        tokens: 0,
+        triggered: informing,
+        action: 'Auto-reply: "Ok noted sir 👍"',
       },
       {
         id: 'greeting_detection',

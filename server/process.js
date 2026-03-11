@@ -255,13 +255,31 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
-  // --- Check: Early informing detection (skip defer for purchase confirmations) ---
+  // --- Check: Informing detection — buyer sharing info, not asking questions ---
+  // Auto-reply directly, 0 tokens. No need for Claude.
   const informingKwsEarly = parseKeywords(settings.informingKeywords, DEFAULT_INFORMING_KEYWORDS)
   const isInforming = informingKwsEarly.some(kw => lowerMsg.includes(kw))
+  if (isInforming) {
+    const informingReply = 'Ok noted sir 👍'
+    await sendReplyViaWwbun(whatsappNumber, informingReply)
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'REPLIED',
+      deferReason: 'informing',
+      aiReply: informingReply,
+      processingMs: Date.now() - startTime,
+      sentViaWwbun: true,
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      costUsd: 0,
+    })
+    console.log(`[Informing] ${whatsappNumber} — buyer informing, auto-replied, 0 tokens`)
+    return
+  }
 
-  // --- Check: Defer to Ketu list (skip for greetings AND informing messages) ---
+  // --- Check: Defer to Ketu list (skip for greetings) ---
   // If a correction exists (correctReply), use it directly instead of deferring
-  if (!isGreeting && !isInforming) {
+  if (!isGreeting) {
     const deferMatch = await vectorSearchDeferList(db, anthropic, mergedText, {
       threshold: settings.deferThreshold,
     })
