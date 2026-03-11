@@ -177,7 +177,7 @@ export async function reviewAiReplies(db) {
 
 const MANUAL_REVIEW_SYSTEM_PROMPT = `You are reviewing manual reply pairs from a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
-The AI assistant (Haiku) was OFF during these conversations. Ketu (the owner) replied manually.
+The AI assistant was OFF during these conversations. Ketu (the owner) replied manually.
 
 For each buyer→Ketu pair, decide: Would the AI have handled this correctly?
 
@@ -198,6 +198,16 @@ THE AI CANNOT HANDLE:
 - Anything requiring personal judgment or business decisions
 - Adding/removing items from existing orders
 
+IMPORTANT — CONTEXT-DEPENDENT vs CONTEXT-INDEPENDENT:
+For pairs where aiWouldFail=true, you MUST also determine if Ketu's reply is context-dependent.
+- contextDependent=true: Ketu's reply only makes sense because he knew the prior conversation context.
+  Example: Buyer "I've been waiting for weeks" → Ketu "Beige medium available today 2pm"
+  (Ketu knew they were waiting for beige medium specifically — but a different buyer saying the same
+  thing could be waiting for something completely different. This reply should NOT be reused.)
+- contextDependent=false: Ketu's reply is a universal answer that works for anyone asking this question.
+  Example: Buyer "Rate batao 240 GSM round neck" → Ketu "205 per piece sir"
+  (This answer is always correct regardless of context.)
+
 CATEGORIZE each pair into one of these categories:
 - order_issue (missing items, wrong items, damage, replacement, order modification)
 - payment (payment confirmation, refund, dispute, advance payment)
@@ -212,8 +222,9 @@ CATEGORIZE each pair into one of these categories:
 
 RESPOND WITH ONLY VALID JSON — no markdown, no explanation:
 [
-  { "id": "PAIR_ID", "aiWouldFail": true, "category": "order_issue", "reason": "Order damage complaint — AI cannot handle replacements" },
-  { "id": "PAIR_ID", "aiWouldFail": false, "category": "product_inquiry", "reason": "Simple product inquiry — AI has this in knowledge base" }
+  { "id": "PAIR_ID", "aiWouldFail": true, "contextDependent": true, "category": "delivery", "reason": "Buyer waiting — but reply is specific to their order context" },
+  { "id": "PAIR_ID", "aiWouldFail": true, "contextDependent": false, "category": "product_inquiry", "reason": "Women's t-shirt inquiry — AI doesn't know this product is coming soon" },
+  { "id": "PAIR_ID", "aiWouldFail": false, "contextDependent": false, "category": "product_inquiry", "reason": "Simple rate inquiry — AI has this in knowledge base" }
 ]`
 
 export async function reviewManualPairs(db, { model, batchSize } = {}) {
@@ -275,9 +286,12 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
     if (result.aiWouldFail && isQualityPair(pair.buyerMessage, pair.ketuReply)) {
       try {
         const embedding = await getEmbedding(null, pair.buyerMessage)
+        // Context-dependent replies → store with empty correctReply (triggers defer to Ketu)
+        // Context-independent replies → store with actual reply (reusable answer)
+        const correctReply = result.contextDependent ? '' : pair.ketuReply
         await db.$executeRaw`
           INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")
-          VALUES (${crypto.randomUUID()}, ${pair.buyerMessage}, ${'[AI would not know]'}, ${pair.ketuReply}, ${embedding}::vector, 0, NOW(), NOW())
+          VALUES (${crypto.randomUUID()}, ${pair.buyerMessage}, ${'[AI would not know]'}, ${correctReply}, ${embedding}::vector, 0, NOW(), NOW())
         `
         corrections++
       } catch (err) {
@@ -285,16 +299,23 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
       }
     }
 
-    // Still record the review result and category even for low-quality pairs (for analytics)
-    const wouldBeCorrection = result.aiWouldFail && isQualityPair(pair.buyerMessage, pair.ketuReply)
+    // Record the review result and category (for analytics)
+    const quality = isQualityPair(pair.buyerMessage, pair.ketuReply)
+    let reviewResult = 'ai_would_handle'
+    let reviewNote = result.reason || null
+    if (result.aiWouldFail && quality) {
+      reviewResult = result.contextDependent ? 'defer_only' : 'correction_added'
+    } else if (result.aiWouldFail && !quality) {
+      reviewResult = 'skipped'
+      reviewNote = 'Skipped — low quality pair (under 4 words or media placeholder)'
+    }
+
     await db.manualReplyPair.update({
       where: { id: pair.id },
       data: {
         reviewedAt: new Date(),
-        reviewResult: wouldBeCorrection ? 'correction_added' : result.aiWouldFail ? 'skipped' : 'ai_would_handle',
-        reviewNote: result.aiWouldFail && !isQualityPair(pair.buyerMessage, pair.ketuReply)
-          ? 'Skipped — low quality pair (under 4 words or media placeholder)'
-          : (result.reason || null),
+        reviewResult,
+        reviewNote,
         category: result.category || null,
       },
     })
