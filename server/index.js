@@ -626,6 +626,16 @@ app.delete('/api/defer-list/:id', async (c) => {
   return c.json({ status: 'deleted' })
 })
 
+// Delete a reply template from the knowledge base (by shortcut name)
+app.delete('/api/knowledge/reply-template/:shortcut', async (c) => {
+  const { shortcut } = c.req.param()
+  const deleted = await db.knowledgeChunk.deleteMany({
+    where: { source: 'SAVED_REPLY', sourceId: shortcut },
+  })
+  console.log(`[Knowledge] Deleted reply template "/${shortcut}" — ${deleted.count} chunks removed`)
+  return c.json({ status: 'deleted', count: deleted.count })
+})
+
 // ===========================================
 // Embedding Management
 // ===========================================

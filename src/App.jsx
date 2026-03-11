@@ -1708,6 +1708,15 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
 function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
   const [showSection, setShowSection] = useState({ rules: false, catalog: false, replies: false, stylePairs: false })
   const toggle = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
+  const [replyTemplates, setReplyTemplates] = useState(REPLY_TEMPLATES)
+  const deleteReplyTemplate = async (index) => {
+    const t = replyTemplates[index]
+    if (!confirm(`Delete "/${t.shortcut}" template?`)) return
+    try {
+      await fetch(`/api/knowledge/reply-template/${encodeURIComponent(t.shortcut)}`, { method: 'DELETE' })
+    } catch (err) { /* silent — still remove from UI */ }
+    setReplyTemplates(prev => prev.filter((_, i) => i !== index))
+  }
 
   // Export premium pairs state
   const [exportFromDate, setExportFromDate] = useState('')
@@ -1909,17 +1918,18 @@ RULES:
       {/* Saved Reply Templates (static data) */}
       <div style={styles.kbSection}>
         <div style={styles.kbHeader} onClick={() => toggle('replies')}>
-          <span style={styles.kbHeaderTitle}>Saved Reply Templates ({REPLY_TEMPLATES.length})</span>
+          <span style={styles.kbHeaderTitle}>Saved Reply Templates ({replyTemplates.length})</span>
           <span style={{ color: '#64748b' }}>{showSection.replies ? '\u25BC' : '\u25B6'}</span>
         </div>
         {showSection.replies && (
           <div style={styles.kbContent}>
-            {REPLY_TEMPLATES.map((t, i) => (
+            {replyTemplates.map((t, i) => (
               <div key={i} style={styles.kbCard}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
                   <span style={{ padding: '2px 10px', borderRadius: '4px', background: '#3b82f6', color: '#fff', fontSize: '12px', fontWeight: '600' }}>/{t.shortcut}</span>
                   {t.mediaType && <span style={styles.mediaBadge}>{t.mediaType}</span>}
                   <span style={{ marginLeft: 'auto', fontSize: '11px', color: '#475569', background: '#0f172a', padding: '2px 8px', borderRadius: '3px' }}>{t.category.replace(/_/g, ' ')}</span>
+                  <button style={{ ...styles.btnDanger, padding: '2px 8px', fontSize: '11px' }} onClick={() => deleteReplyTemplate(i)}>Delete</button>
                 </div>
                 <div style={{ fontSize: '13px', color: '#cbd5e1', whiteSpace: 'pre-wrap', lineHeight: '1.5' }}>{t.content}</div>
               </div>
