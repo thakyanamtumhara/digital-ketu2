@@ -387,11 +387,42 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   ]
   const hasPriceNegotiation = priceNegotiationKeywords.some(kw => lowerMsg.includes(kw))
 
+  // Detect competitor comparison intent: buyer comparing with other sellers/platforms
+  const competitorKeywords = [
+    'dusri jagah', 'doosri jagah', 'aur jagah', 'kahi aur', 'kahin aur',
+    'amazon', 'flipkart', 'meesho', 'indiamart', 'alibaba',
+    'competitor', 'compare', 'other seller', 'other supplier',
+  ]
+  const hasCompetitorIntent = competitorKeywords.some(kw => lowerMsg.includes(kw))
+
+  // Detect angry/frustrated buyer — defer immediately, don't let AI handle
+  const angryKeywords = [
+    'bakwas', 'bekar', 'ghatiya', 'worst', 'scam', 'fraud', 'cheat',
+    'dhoka', 'dhokha', 'complaint', 'consumer forum', 'legal',
+    'reply nahi karte', 'response nahi', 'koi jawab nahi',
+    'bahut bura', 'very bad', 'terrible', 'horrible', 'pathetic',
+    'pagal', 'bewakoof', 'stupid',
+  ]
+  const isAngryBuyer = angryKeywords.some(kw => lowerMsg.includes(kw))
+
+  if (isAngryBuyer) {
+    await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'DEFERRED',
+      deferReason: 'angry_buyer',
+      aiReply: settings.deferMessage,
+      processingMs: Date.now() - startTime,
+      sentViaWwbun: true,
+    })
+    console.log(`[AngryBuyer] ${whatsappNumber} — angry/frustrated buyer detected, deferred to Ketu`)
+    return
+  }
+
   // Detect informing intent: buyer is sharing future plans, not inquiring
   const informingKws = parseKeywords(settings.informingKeywords, DEFAULT_INFORMING_KEYWORDS)
   const hasInformingIntent = informingKws.some(kw => lowerMsg.includes(kw))
 
-  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent, hasPriceNegotiation, hasInformingIntent })
+  const systemPrompt = buildSystemPrompt({ isFirstTime: false, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent, hasPriceNegotiation, hasCompetitorIntent, hasInformingIntent })
   const userPrompt = buildUserPrompt({
     mergedText,
     chunks: otherChunks,
@@ -678,7 +709,7 @@ function filterChunksForMessage(allChunks, message, isGreeting, settings = {}, e
 // Prompt Building
 // ===========================================
 
-function buildSystemPrompt({ isFirstTime, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent, hasPriceNegotiation, hasInformingIntent }) {
+function buildSystemPrompt({ isFirstTime, settings, deferExamples, styleGuide, hasDispatchIntent, hasBuyingIntent, hasPriceNegotiation, hasCompetitorIntent, hasInformingIntent }) {
   let prompt = `You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
 RULES:
@@ -723,6 +754,16 @@ RULES:
 - Do NOT offer any discount or negotiate. Politely tell them price is fixed.
 - Example tone: "Sir, price hamara fix hota hai. Hum log kafi kam margin pe kaam karte hai."
 - Don't copy-paste this exact line every time — understand what the buyer is saying and reply naturally with this core message.`
+  }
+
+  // Competitor comparison: buyer comparing with other sellers/platforms
+  if (hasCompetitorIntent) {
+    prompt += `\n\nCOMPETITOR COMPARISON RULE:
+- Buyer is comparing your prices with another seller or platform.
+- Do NOT panic, do NOT offer discounts, do NOT badmouth competitors.
+- Confidently say our quality speaks for itself. We deal in premium blank t-shirts with consistent quality and reliable service.
+- Tone: "Sir, aap quality compare karenge toh humara rate best hai. Hum fabric aur stitching mein koi compromise nahi karte."
+- Keep it short, confident, and respectful. Don't get defensive.`
   }
 
   // Informing intent: buyer sharing future plans, not asking questions

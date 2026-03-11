@@ -335,6 +335,8 @@ app.get('/api/filters/stats', async (c) => {
     deferToKetu,
     emptyKb,
     claudeDeferred,
+    orderIdDetected,
+    angryBuyer,
     totalReplied,
     totalMessages,
   ] = await Promise.all([
@@ -350,11 +352,13 @@ app.get('/api/filters/stats', async (c) => {
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'defer_to_ketu' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'empty_knowledge_base' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'claude_deferred' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'order_id_detected' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'angry_buyer' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, status: 'REPLIED', totalTokens: { gt: 0 } } }),
     db.messageLog.count({ where: { createdAt: { gte: since } } }),
   ])
 
-  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb
+  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb + orderIdDetected + angryBuyer
 
   // Acknowledgment keywords list (same as process.js)
   // Also strips trailing honorifics (sir, ji, bhai, boss, bro, sahab, saheb, g) before matching
@@ -497,6 +501,33 @@ app.get('/api/filters/stats', async (c) => {
         tokens: 0,
         triggered: welcomeBypass,
         action: 'Auto-reply with welcome message',
+      },
+      {
+        id: 'order_id_detected',
+        name: 'Order ID / Tracking Number',
+        description: 'Detect long numeric strings (10+ digits) as order/tracking IDs and defer immediately',
+        type: 'keyword',
+        currentState: 'Regex: ^\\d{10,}$',
+        tokens: 0,
+        triggered: orderIdDetected,
+        action: 'Defer message (0 tokens)',
+      },
+      {
+        id: 'angry_buyer',
+        name: 'Angry / Frustrated Buyer',
+        description: 'Detect angry or abusive messages and defer to Ketu immediately',
+        type: 'keyword',
+        currentState: `${['bakwas', 'bekar', 'ghatiya', 'worst', 'scam', 'fraud', 'cheat', 'dhoka', 'complaint', 'consumer forum', 'legal', 'terrible', 'horrible', 'pathetic'].length}+ keywords active`,
+        keywords: [
+          'bakwas', 'bekar', 'ghatiya', 'worst', 'scam', 'fraud', 'cheat',
+          'dhoka', 'dhokha', 'complaint', 'consumer forum', 'legal',
+          'reply nahi karte', 'response nahi', 'koi jawab nahi',
+          'bahut bura', 'very bad', 'terrible', 'horrible', 'pathetic',
+          'pagal', 'bewakoof', 'stupid',
+        ],
+        tokens: 0,
+        triggered: angryBuyer,
+        action: 'Defer message (0 tokens)',
       },
       {
         id: 'defer_to_ketu',
