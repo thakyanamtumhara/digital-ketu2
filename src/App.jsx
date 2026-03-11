@@ -229,7 +229,7 @@ function App() {
 
       {/* Tabs */}
       <nav style={styles.tabs}>
-        {['live', 'knowledge', 'analytics', 'defer', 'filters', 'learning', 'settings', 'sync'].map(t => (
+        {['live', 'analytics', 'defer', 'filters', 'learning', 'settings', 'sync'].map(t => (
           <button
             key={t}
             data-tab={t}
@@ -241,10 +241,9 @@ function App() {
               if (t === 'analytics') fetchAnalytics()
               if (t === 'filters') { fetchFilterStats(); fetchDbFilters() }
               if (t === 'learning') fetchLearningStats()
-              if (t === 'knowledge') { fetchKbStats(); fetchKbChunks('', 1, '') }
             }}
           >
-            {{live:'Live Monitor', knowledge:'Knowledge Base', analytics:'Analytics', defer:'Defer to Ketu', filters:'Pre-AI Filters', learning:'Learning', settings:'Settings', sync:'Sync'}[t]}
+            {{live:'Live Monitor', analytics:'Analytics', defer:'Defer to Ketu', filters:'Pre-AI Filters', learning:'Learning', settings:'Settings', sync:'Sync'}[t]}
           </button>
         ))}
       </nav>
@@ -255,7 +254,6 @@ function App() {
       {/* Tab Content */}
       <main style={styles.main}>
         {tab === 'live' && <LiveMonitor logs={logs} expandedLog={expandedLog} setExpandedLog={setExpandedLog} />}
-        {tab === 'knowledge' && <KnowledgeBasePanel stats={kbStats} chunks={kbChunks} source={kbSource} page={kbPage} search={kbSearch} onSourceChange={(s) => { setKbSource(s); setKbPage(1); fetchKbChunks(s, 1, kbSearch) }} onPageChange={(p) => { setKbPage(p); fetchKbChunks(kbSource, p, kbSearch) }} onSearch={(s) => { setKbSearch(s); setKbPage(1); fetchKbChunks(kbSource, 1, s) }} onRefresh={() => { fetchKbStats(); fetchKbChunks(kbSource, kbPage, kbSearch) }} />}
         {tab === 'analytics' && <Analytics analytics={analytics} period={period} setPeriod={setPeriod} />}
         {tab === 'defer' && <DeferManager list={deferList} onDelete={deleteDefer} settings={settings} updateSetting={updateSetting} />}
         {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={() => { fetchFilterStats(); fetchDbFilters() }} dbFilters={dbFilters} />}
