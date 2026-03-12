@@ -501,6 +501,37 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       where: { id: 'default' },
       data: { dailySpentUsd: { increment: costUsd } },
     })
+    // Auto-learn: add this phrase to the acknowledgment pre-AI filter so next time
+    // it gets caught at layer 1 (zero cost) instead of going to Claude
+    const learnedPhrase = normalizedText
+    if (learnedPhrase) {
+      try {
+        const ackFilter = await db.preAIFilter.findUnique({ where: { name: 'acknowledgment' } })
+        if (ackFilter) {
+          const existing = ackFilter.keywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+          if (!existing.includes(learnedPhrase)) {
+            await db.preAIFilter.update({
+              where: { id: ackFilter.id },
+              data: { keywords: ackFilter.keywords + ',' + learnedPhrase },
+            })
+            await db.discoveredKeyword.create({
+              data: {
+                keyword: learnedPhrase,
+                category: 'acknowledgment',
+                confidence: 1.0,
+                source: 'auto_skip',
+                status: 'auto_added',
+                filterId: ackFilter.id,
+              },
+            })
+            clearFilterCache()
+            console.log(`[Auto-Learn] Added "${learnedPhrase}" to acknowledgment filter`)
+          }
+        }
+      } catch (err) {
+        console.error('[Auto-Learn] Error:', err.message)
+      }
+    }
     console.log(`[Skip] ${whatsappNumber} — conversation ender detected by Claude`)
     return
   }
