@@ -1992,8 +1992,6 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
 
 function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }) {
   const [showSection, setShowSection] = useState({ rules: false, catalog: false, replies: false, stylePairs: false, syncHistory: false })
-  const [promptEditing, setPromptEditing] = useState(false)
-  const [promptDraft, setPromptDraft] = useState('')
   const toggle = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
   const [replyTemplates, setReplyTemplates] = useState(REPLY_TEMPLATES)
   const deleteReplyTemplate = async (index) => {
@@ -2235,53 +2233,12 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
         </div>
         {showSection.rules && (
           <div style={styles.kbContent}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-              <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-                This prompt is sent to Claude with every message. Edit to change AI behavior.
-              </div>
-              {!promptEditing ? (
-                <button
-                  style={{ padding: '4px 14px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#fff', background: '#3b82f6', whiteSpace: 'nowrap' }}
-                  onClick={() => { setPromptDraft(settings.systemPrompt || ''); setPromptEditing(true) }}
-                >
-                  Edit
-                </button>
-              ) : (
-                <button
-                  style={{ padding: '4px 14px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#fff', background: '#ef4444', whiteSpace: 'nowrap' }}
-                  onClick={() => setPromptEditing(false)}
-                >
-                  Cancel
-                </button>
-              )}
+            <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>
+              This prompt is sent to Claude with every message. Managed via code — auto-syncs on every deploy.
             </div>
-
-            {promptEditing ? (
-              <div>
-                <textarea
-                  style={{ ...styles.textarea, minHeight: '400px', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.6' }}
-                  value={promptDraft}
-                  onChange={e => setPromptDraft(e.target.value)}
-                />
-                <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                  <button
-                    style={{ ...styles.btnPrimary, fontSize: '12px', padding: '6px 20px' }}
-                    onClick={() => { updateSetting('systemPrompt', promptDraft); setPromptEditing(false) }}
-                  >
-                    Save
-                  </button>
-                  <button
-                    style={{ ...styles.btnPrimary, fontSize: '12px', padding: '6px 20px', background: '#6b7280' }}
-                    onClick={() => setPromptEditing(false)}
-                  >
-                    Discard
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div style={styles.kbCard}>
-                <div style={styles.promptBlock}>{settings.systemPrompt || '(Loading...)'}</div>
-              </div>
+            <div style={styles.kbCard}>
+              <div style={styles.promptBlock}>{settings.systemPrompt || '(Loading...)'}</div>
+            </div>
             )}
 
           </div>
