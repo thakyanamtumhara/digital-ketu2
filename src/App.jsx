@@ -895,6 +895,78 @@ function DeferManager({ list, onDelete, settings, updateSetting }) {
 
 // (Old keyword constants removed — now using vector search)
 
+function SystemPromptEditor({ settings, updateSetting }) {
+  const [unlocked, setUnlocked] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  // When unlocked, initialize draft from current value
+  useEffect(() => {
+    if (unlocked) {
+      setDraft(settings.systemPrompt || '')
+    }
+  }, [unlocked])
+
+  const handleSave = () => {
+    updateSetting('systemPrompt', draft || null) // null = use server default
+    setUnlocked(false)
+  }
+
+  const handleDiscard = () => {
+    setDraft('')
+    setUnlocked(false)
+  }
+
+  return (
+    <div style={{ marginTop: '24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+        <h3 style={{ ...styles.sectionTitle, fontSize: '16px', margin: 0 }}>AI System Prompt</h3>
+        <button
+          style={{
+            padding: '4px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer',
+            fontWeight: '600', fontSize: '12px', color: '#fff',
+            background: unlocked ? '#ef4444' : '#3b82f6',
+          }}
+          onClick={() => unlocked ? handleDiscard() : setUnlocked(true)}
+        >
+          {unlocked ? '🔓 Cancel' : '🔒 Edit'}
+        </button>
+      </div>
+      <p style={{ color: '#94a3b8', fontSize: 12, margin: '0 0 8px' }}>
+        {settings.systemPrompt ? 'Custom prompt active' : 'Using default prompt (edit to customize)'}
+      </p>
+      {unlocked ? (
+        <>
+          <textarea
+            style={{ ...styles.textarea, minHeight: '300px', fontFamily: 'monospace', fontSize: '12px' }}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            placeholder="Leave empty to use server default..."
+          />
+          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+            <button style={{ ...styles.btnPrimary, fontSize: '12px', padding: '6px 16px' }} onClick={handleSave}>
+              Save
+            </button>
+            <button
+              style={{ ...styles.btnPrimary, fontSize: '12px', padding: '6px 16px', background: '#6b7280' }}
+              onClick={handleDiscard}
+            >
+              Discard
+            </button>
+          </div>
+        </>
+      ) : (
+        <div style={{
+          background: '#0f172a', border: '1px solid #334155', borderRadius: '6px',
+          padding: '12px', maxHeight: '200px', overflow: 'auto',
+          fontSize: '12px', fontFamily: 'monospace', color: '#94a3b8', whiteSpace: 'pre-wrap',
+        }}>
+          {settings.systemPrompt || '(Using server default prompt)'}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SettingsPanel({ settings, updateSetting, onDownload }) {
   return (
     <div>
@@ -903,7 +975,6 @@ function SettingsPanel({ settings, updateSetting, onDownload }) {
       <div style={styles.settingsGrid}>
         <SettingRow label="AI Active" type="toggle" value={settings.isActive} onChange={v => updateSetting('isActive', v)} />
         <SettingRow label="Daily Budget (INR)" type="number" value={settings.dailyBudgetInr} onChange={v => updateSetting('dailyBudgetInr', Number(v))} />
-        <SettingRow label="Match Threshold (≥ this → AI answers, below → defer)" type="number" value={settings.confidenceThreshold} onChange={v => updateSetting('confidenceThreshold', Number(v))} step="0.05" />
         <SettingRow label="Message Merge Window (ms)" type="number" value={settings.mergeWindowMs} onChange={v => updateSetting('mergeWindowMs', Number(v))} />
         <SettingRow label="Cooldown Minutes" type="number" value={settings.cooldownMinutes} onChange={v => updateSetting('cooldownMinutes', Number(v))} />
         <SettingRow label="Learning Budget (INR)" type="number" value={Math.round((settings.learningDailyBudgetUsd || 0) * 85)} onChange={v => updateSetting('learningDailyBudgetUsd', Number(v) / 85)} />
@@ -922,22 +993,7 @@ function SettingsPanel({ settings, updateSetting, onDownload }) {
         <SettingTextarea label="Defer Reply Message" value={settings.deferMessage} onChange={v => updateSetting('deferMessage', v)} />
       </div>
 
-      <h3 style={{ ...styles.sectionTitle, fontSize: '16px', marginTop: '24px' }}>Vector Search</h3>
-      <p style={{ color: '#94a3b8', fontSize: 13, margin: '0 0 12px' }}>
-        One simple rule: if the best vector match is ≥ {Math.round((settings.confidenceThreshold || 0.80) * 100)}%, AI answers. Below that, defer to Ketu.
-      </p>
-      <div style={{ background: '#1e293b', borderRadius: 10, padding: 16, marginBottom: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, fontSize: 13, textAlign: 'center' }}>
-          <div style={{ background: '#14532d', borderRadius: 8, padding: 12 }}>
-            <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 18 }}>≥ {Math.round((settings.confidenceThreshold || 0.80) * 100)}%</div>
-            <div style={{ color: '#86efac', marginTop: 4 }}>AI answers → sends to Claude</div>
-          </div>
-          <div style={{ background: '#450a0a', borderRadius: 8, padding: 12 }}>
-            <div style={{ color: '#ef4444', fontWeight: 700, fontSize: 18 }}>{'<'} {Math.round((settings.confidenceThreshold || 0.80) * 100)}%</div>
-            <div style={{ color: '#fca5a5', marginTop: 4 }}>Defer to Ketu (0 tokens)</div>
-          </div>
-        </div>
-      </div>
+      <SystemPromptEditor settings={settings} updateSetting={updateSetting} />
 
       <div style={{ marginTop: '24px' }}>
         <button style={styles.btnPrimary} onClick={onDownload}>Download Knowledge Base</button>
