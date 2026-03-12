@@ -62,19 +62,6 @@ function checkKeywordMatch(text, lowerMsg, filter) {
   return false
 }
 
-// --- Conversation ender detection (partial match, catches variations) ---
-const ENDER_THANK_WORDS = ['thank', 'thanks', 'thnx', 'thx', 'thnks', 'thanku', 'thankyou', 'shukriya', 'dhanyavaad', 'dhanyawad', 'meherbani']
-const ENDER_BYE_WORDS = ['bye', 'goodbye', 'alvida', 'good night', 'gn']
-const ENDER_OK_DONE_WORDS = ['ok done', 'okay done', 'ho gaya', 'hogaya', 'mil gaya', 'milgaya', 'aa gaya', 'aagaya', 'received', 'got it']
-
-function isConversationEnder(text) {
-  const lower = text.toLowerCase().trim()
-  if (ENDER_THANK_WORDS.some(w => lower.includes(w))) return true
-  if (ENDER_BYE_WORDS.some(w => lower.includes(w))) return true
-  if (ENDER_OK_DONE_WORDS.some(w => lower.includes(w))) return true
-  return false
-}
-
 async function autoLearnAcknowledgment(db, phrase) {
   if (!phrase) return
   try {
@@ -455,40 +442,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   console.log(`[Vector] ${whatsappNumber} — ${allVectorResults.length} results (top 5 from all 3 sources), best: ${(bestSimilarity * 100).toFixed(1)}%`)
 
-  // --- CONFIDENCE CHECK: ≥80% → answer with Claude, <80% → defer to Ketu ---
-  const confidenceThreshold = settings.confidenceThreshold || 0.80
-
-  if (bestSimilarity < confidenceThreshold) {
-    // Before deferring, check if this is a conversation ender that slipped past layer 1.
-    // These have low vector similarity (no KB match for "thanks") but should be silently
-    // skipped, not deferred with "Ketu will reply shortly".
-    if (isConversationEnder(normalizedText)) {
-      await createLog(db, conversation.id, mergedText, messageIds, {
-        status: 'SKIPPED',
-        deferReason: 'conversation_ended',
-        similarityScore: bestSimilarity,
-        processingMs: Date.now() - startTime,
-      })
-      // Auto-learn: add to acknowledgment filter so layer 1 catches it next time
-      await autoLearnAcknowledgment(db, normalizedText)
-      console.log(`[Conv Ended] ${whatsappNumber} — "${normalizedText}" detected as conversation ender, skipped`)
-      return
-    }
-
-    // Below threshold — not enough knowledge to answer accurately
-    await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
-    await createLog(db, conversation.id, mergedText, messageIds, {
-      status: 'DEFERRED',
-      deferReason: 'low_confidence',
-      similarityScore: bestSimilarity,
-      aiReply: settings.deferMessage,
-      knowledgeChunks: allVectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
-      processingMs: Date.now() - startTime,
-      sentViaWwbun: true,
-    })
-    console.log(`[Defer] ${whatsappNumber} — best match ${(bestSimilarity * 100).toFixed(1)}% < ${(confidenceThreshold * 100).toFixed(0)}% threshold`)
-    return
-  }
+  // All messages go to Claude — Claude decides: reply, [DEFER], or [SKIP]
 
   // --- Build prompt for Claude ---
   // Get recent conversation history (last 5 messages)
