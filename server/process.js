@@ -62,6 +62,47 @@ function checkKeywordMatch(text, lowerMsg, filter) {
   return false
 }
 
+// --- Conversation ender detection (partial match, catches variations) ---
+const ENDER_THANK_WORDS = ['thank', 'thanks', 'thnx', 'thx', 'thnks', 'thanku', 'thankyou', 'shukriya', 'dhanyavaad', 'dhanyawad', 'meherbani']
+const ENDER_BYE_WORDS = ['bye', 'goodbye', 'alvida', 'good night', 'gn']
+const ENDER_OK_DONE_WORDS = ['ok done', 'okay done', 'ho gaya', 'hogaya', 'mil gaya', 'milgaya', 'aa gaya', 'aagaya', 'received', 'got it']
+
+function isConversationEnder(text) {
+  const lower = text.toLowerCase().trim()
+  if (ENDER_THANK_WORDS.some(w => lower.includes(w))) return true
+  if (ENDER_BYE_WORDS.some(w => lower.includes(w))) return true
+  if (ENDER_OK_DONE_WORDS.some(w => lower.includes(w))) return true
+  return false
+}
+
+async function autoLearnAcknowledgment(db, phrase) {
+  if (!phrase) return
+  try {
+    const ackFilter = await db.preAIFilter.findUnique({ where: { name: 'acknowledgment' } })
+    if (!ackFilter) return
+    const existing = ackFilter.keywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+    if (existing.includes(phrase)) return
+    await db.preAIFilter.update({
+      where: { id: ackFilter.id },
+      data: { keywords: ackFilter.keywords + ',' + phrase },
+    })
+    await db.discoveredKeyword.create({
+      data: {
+        keyword: phrase,
+        category: 'acknowledgment',
+        confidence: 1.0,
+        source: 'auto_skip',
+        status: 'auto_added',
+        filterId: ackFilter.id,
+      },
+    })
+    clearFilterCache()
+    console.log(`[Auto-Learn] Added "${phrase}" to acknowledgment filter`)
+  } catch (err) {
+    console.error('[Auto-Learn] Error:', err.message)
+  }
+}
+
 const WWBUN_API_URL = process.env.WWBUN_API_URL
 const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 
@@ -418,6 +459,22 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const confidenceThreshold = settings.confidenceThreshold || 0.80
 
   if (bestSimilarity < confidenceThreshold) {
+    // Before deferring, check if this is a conversation ender that slipped past layer 1.
+    // These have low vector similarity (no KB match for "thanks") but should be silently
+    // skipped, not deferred with "Ketu will reply shortly".
+    if (isConversationEnder(normalizedText)) {
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'SKIPPED',
+        deferReason: 'conversation_ended',
+        similarityScore: bestSimilarity,
+        processingMs: Date.now() - startTime,
+      })
+      // Auto-learn: add to acknowledgment filter so layer 1 catches it next time
+      await autoLearnAcknowledgment(db, normalizedText)
+      console.log(`[Conv Ended] ${whatsappNumber} — "${normalizedText}" detected as conversation ender, skipped`)
+      return
+    }
+
     // Below threshold — not enough knowledge to answer accurately
     await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
     await createLog(db, conversation.id, mergedText, messageIds, {
@@ -501,37 +558,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       where: { id: 'default' },
       data: { dailySpentUsd: { increment: costUsd } },
     })
-    // Auto-learn: add this phrase to the acknowledgment pre-AI filter so next time
-    // it gets caught at layer 1 (zero cost) instead of going to Claude
-    const learnedPhrase = normalizedText
-    if (learnedPhrase) {
-      try {
-        const ackFilter = await db.preAIFilter.findUnique({ where: { name: 'acknowledgment' } })
-        if (ackFilter) {
-          const existing = ackFilter.keywords.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
-          if (!existing.includes(learnedPhrase)) {
-            await db.preAIFilter.update({
-              where: { id: ackFilter.id },
-              data: { keywords: ackFilter.keywords + ',' + learnedPhrase },
-            })
-            await db.discoveredKeyword.create({
-              data: {
-                keyword: learnedPhrase,
-                category: 'acknowledgment',
-                confidence: 1.0,
-                source: 'auto_skip',
-                status: 'auto_added',
-                filterId: ackFilter.id,
-              },
-            })
-            clearFilterCache()
-            console.log(`[Auto-Learn] Added "${learnedPhrase}" to acknowledgment filter`)
-          }
-        }
-      } catch (err) {
-        console.error('[Auto-Learn] Error:', err.message)
-      }
-    }
+    await autoLearnAcknowledgment(db, normalizedText)
     console.log(`[Skip] ${whatsappNumber} — conversation ender detected by Claude`)
     return
   }
