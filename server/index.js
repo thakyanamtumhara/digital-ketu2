@@ -1969,11 +1969,11 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
   try {
     // Add systemPrompt column to Settings if missing
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "systemPrompt" TEXT`)
-    // Pre-fill with default prompt if empty (so dashboard shows the actual prompt)
+    // One-time: sync system prompt with latest default if it doesn't have the order confirmation rule
     const settings = await db.settings.findUnique({ where: { id: 'default' } })
-    if (settings && !settings.systemPrompt) {
+    if (settings && (!settings.systemPrompt || !settings.systemPrompt.includes('ORDER CONFIRMATIONS'))) {
       await db.settings.update({ where: { id: 'default' }, data: { systemPrompt: DEFAULT_SYSTEM_PROMPT } })
-      console.log('[Migration] Pre-filled systemPrompt with default')
+      console.log('[Migration] System prompt updated with latest rules')
     }
     console.log('[Migration] Schema up to date')
   } catch (err) {
