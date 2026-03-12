@@ -334,12 +334,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
       if (filter.action === 'defer') {
         await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
-        // Set cooldown so follow-up messages are silently skipped until Ketu responds
-        const cooldownUntil = new Date(Date.now() + (settings.cooldownMinutes || 10) * 60 * 1000)
-        await db.buyerConversation.update({
-          where: { whatsappNumber },
-          data: { cooldownUntil },
-        })
         await createLog(db, conversation.id, mergedText, messageIds, {
           status: 'DEFERRED',
           deferReason: filter.name,
@@ -347,7 +341,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
           processingMs: Date.now() - startTime,
           sentViaWwbun: true,
         })
-        console.log(`[${filter.displayName}] ${whatsappNumber} — deferred to Ketu, cooldown until ${cooldownUntil.toISOString()}`)
+        console.log(`[${filter.displayName}] ${whatsappNumber} — deferred to Ketu`)
         return
       }
 
@@ -455,12 +449,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const isOrderId = /^\d{10,}$/.test(trimmedText)
   if (isOrderId) {
     await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
-    // Set cooldown so follow-up messages are silently skipped until Ketu responds
-    const cooldownUntil = new Date(Date.now() + (settings.cooldownMinutes || 10) * 60 * 1000)
-    await db.buyerConversation.update({
-      where: { whatsappNumber },
-      data: { cooldownUntil },
-    })
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'DEFERRED',
       deferReason: 'order_id_detected',
@@ -468,7 +456,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       processingMs: Date.now() - startTime,
       sentViaWwbun: true,
     })
-    console.log(`[OrderID] ${whatsappNumber} — detected order/tracking ID, deferred to Ketu, cooldown until ${cooldownUntil.toISOString()}`)
+    console.log(`[OrderID] ${whatsappNumber} — detected order/tracking ID, deferred to Ketu`)
     return
   }
 
@@ -574,12 +562,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const DEFER_MARKER = '[DEFER]'
   if (aiReply.includes(DEFER_MARKER)) {
     await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
-    // Set cooldown so follow-up messages are silently skipped until Ketu responds
-    const cooldownUntil = new Date(Date.now() + (settings.cooldownMinutes || 10) * 60 * 1000)
-    await db.buyerConversation.update({
-      where: { whatsappNumber },
-      data: { cooldownUntil },
-    })
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'DEFERRED',
       deferReason: 'claude_deferred',
@@ -596,7 +578,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       where: { id: 'default' },
       data: { dailySpentUsd: { increment: costUsd } },
     })
-    console.log(`[Defer] ${whatsappNumber} — Claude deferred, cooldown until ${cooldownUntil.toISOString()}`)
     return
   }
 
