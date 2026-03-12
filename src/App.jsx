@@ -259,7 +259,7 @@ function App() {
         {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={() => { fetchFilterStats(); fetchDbFilters() }} dbFilters={dbFilters} />}
         {tab === 'learning' && <LearningPanel stats={learningStats} settings={settings} onRun={triggerLearningRun} running={learningRunning} onToggle={toggleLearning} onRefresh={fetchLearningStats} onBacklog={triggerBacklog} backlogProgress={backlogProgress} onHistoryPull={triggerHistoryPull} historyPullProgress={historyPullProgress} />}
 {tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
-        {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} onSync={triggerSync} syncing={syncing} knowledge={knowledge} />}
+        {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} updateSetting={updateSetting} onSync={triggerSync} syncing={syncing} knowledge={knowledge} />}
       </main>
     </div>
   )
@@ -895,78 +895,6 @@ function DeferManager({ list, onDelete, settings, updateSetting }) {
 
 // (Old keyword constants removed — now using vector search)
 
-function SystemPromptEditor({ settings, updateSetting }) {
-  const [unlocked, setUnlocked] = useState(false)
-  const [draft, setDraft] = useState('')
-
-  // When unlocked, initialize draft from current value
-  useEffect(() => {
-    if (unlocked) {
-      setDraft(settings.systemPrompt || '')
-    }
-  }, [unlocked])
-
-  const handleSave = () => {
-    updateSetting('systemPrompt', draft || null) // null = use server default
-    setUnlocked(false)
-  }
-
-  const handleDiscard = () => {
-    setDraft('')
-    setUnlocked(false)
-  }
-
-  return (
-    <div style={{ marginTop: '24px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-        <h3 style={{ ...styles.sectionTitle, fontSize: '16px', margin: 0 }}>AI System Prompt</h3>
-        <button
-          style={{
-            padding: '4px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer',
-            fontWeight: '600', fontSize: '12px', color: '#fff',
-            background: unlocked ? '#ef4444' : '#3b82f6',
-          }}
-          onClick={() => unlocked ? handleDiscard() : setUnlocked(true)}
-        >
-          {unlocked ? '🔓 Cancel' : '🔒 Edit'}
-        </button>
-      </div>
-      <p style={{ color: '#94a3b8', fontSize: 12, margin: '0 0 8px' }}>
-        {settings.systemPrompt ? 'Custom prompt active' : 'Using default prompt (edit to customize)'}
-      </p>
-      {unlocked ? (
-        <>
-          <textarea
-            style={{ ...styles.textarea, minHeight: '300px', fontFamily: 'monospace', fontSize: '12px' }}
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
-            placeholder="Leave empty to use server default..."
-          />
-          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-            <button style={{ ...styles.btnPrimary, fontSize: '12px', padding: '6px 16px' }} onClick={handleSave}>
-              Save
-            </button>
-            <button
-              style={{ ...styles.btnPrimary, fontSize: '12px', padding: '6px 16px', background: '#6b7280' }}
-              onClick={handleDiscard}
-            >
-              Discard
-            </button>
-          </div>
-        </>
-      ) : (
-        <div style={{
-          background: '#0f172a', border: '1px solid #334155', borderRadius: '6px',
-          padding: '12px', maxHeight: '200px', overflow: 'auto',
-          fontSize: '12px', fontFamily: 'monospace', color: '#94a3b8', whiteSpace: 'pre-wrap',
-        }}>
-          {settings.systemPrompt || '(Using server default prompt)'}
-        </div>
-      )}
-    </div>
-  )
-}
-
 function SettingsPanel({ settings, updateSetting, onDownload }) {
   return (
     <div>
@@ -992,8 +920,6 @@ function SettingsPanel({ settings, updateSetting, onDownload }) {
         <SettingTextarea label="Media Reply Message" value={settings.mediaMessage} onChange={v => updateSetting('mediaMessage', v)} />
         <SettingTextarea label="Defer Reply Message" value={settings.deferMessage} onChange={v => updateSetting('deferMessage', v)} />
       </div>
-
-      <SystemPromptEditor settings={settings} updateSetting={updateSetting} />
 
       <div style={{ marginTop: '24px' }}>
         <button style={styles.btnPrimary} onClick={onDownload}>Download Knowledge Base</button>
@@ -1812,8 +1738,10 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
   )
 }
 
-function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
+function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }) {
   const [showSection, setShowSection] = useState({ rules: false, catalog: false, replies: false, stylePairs: false, syncHistory: false })
+  const [promptEditing, setPromptEditing] = useState(false)
+  const [promptDraft, setPromptDraft] = useState('')
   const toggle = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
   const [replyTemplates, setReplyTemplates] = useState(REPLY_TEMPLATES)
   const deleteReplyTemplate = async (index) => {
@@ -2047,7 +1975,7 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
         )}
       </div>
 
-      {/* AI System Prompt (exact copy from server/process.js) */}
+      {/* AI System Prompt (editable, saved to DB, sent to Claude) */}
       <div style={styles.kbSection}>
         <div style={styles.kbHeader} onClick={() => toggle('rules')}>
           <span style={styles.kbHeaderTitle}>AI System Prompt (sent to Claude)</span>
@@ -2055,52 +1983,64 @@ function SyncPanel({ logs, settings, onSync, syncing, knowledge }) {
         </div>
         {showSection.rules && (
           <div style={styles.kbContent}>
-            <div style={{ padding: '8px 12px', background: '#0f172a', borderRadius: '6px', fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>
-              This is the exact system prompt from <strong style={{ color: '#60a5fa' }}>server/process.js</strong>. Sent with every message to Claude Haiku 4.5.
-            </div>
-            <div style={styles.kbCard}>
-              <div style={styles.promptBlock}>{`You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
-
-RULES:
-- Reply in the buyer's language. If they write Hindi, reply in Hindi. If English, reply in English. If Hinglish, reply in Hinglish.
-- Be friendly, professional, and helpful. Sound like a real person, not a robot.
-- Keep replies SHORT and natural for WhatsApp. Match the length and style of Om's real replies shown in the knowledge base.
-- HINDI POLITENESS (CRITICAL): Always use polite "aap" verb forms with customers. NEVER use informal "tu/tum" forms.
-  WRONG: "bata", "kar", "de", "bhej", "dekh", "bol", "sun", "le", "ja", "aa", "ruk", "baith"
-  RIGHT: "bataaiye", "kariye", "dijiye", "bhejiye", "dekhiye", "boliye", "suniye", "lijiye", "jaaiye", "aaiye", "rukiye", "baithiye"
-- Never make up information. Only use the knowledge provided below.
-- If you don't have enough info in the knowledge base to answer accurately, respond with EXACTLY: [DEFER]
-- ORDER-RELATED REQUESTS — respond with EXACTLY: [DEFER] for ANY of these. You CANNOT check orders, look up order details, add/remove items, or do anything with orders. Only Ketu can handle these:
-  • Add/remove/change items in an existing order
-  • Check order status, order details, order number lookup
-  • Replace damaged/defective items
-  • Change delivery address, cancel order, modify order in any way
-  • Buyer shares an order number, bill number, or invoice — you cannot look these up
-  NEVER say "main check kar lunga", "5 min wait karo", "ruko check karta hu" — you cannot check anything. Just [DEFER].
-- Our prices are FIXED. Never offer discounts.
-- Mention sale91.com only if relevant and only ONCE per conversation (check history).
-- Do NOT make up prices, product details, or policies. Only use info from the knowledge base provided.
-- Never reveal you are an AI. You are Ketu's assistant.
-
-+ OM'S COMMUNICATION STYLE (compact style guide extracted from 337 real reply pairs)`}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                This prompt is sent to Claude with every message. Edit to change AI behavior.
+              </div>
+              {!promptEditing ? (
+                <button
+                  style={{ padding: '4px 14px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#fff', background: '#3b82f6', whiteSpace: 'nowrap' }}
+                  onClick={() => { setPromptDraft(settings.systemPrompt || ''); setPromptEditing(true) }}
+                >
+                  Edit
+                </button>
+              ) : (
+                <button
+                  style={{ padding: '4px 14px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '12px', color: '#fff', background: '#ef4444', whiteSpace: 'nowrap' }}
+                  onClick={() => setPromptEditing(false)}
+                >
+                  Cancel
+                </button>
+              )}
             </div>
 
-            <div style={styles.kbCard}>
+            {promptEditing ? (
+              <div>
+                <textarea
+                  style={{ ...styles.textarea, minHeight: '400px', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.6' }}
+                  value={promptDraft}
+                  onChange={e => setPromptDraft(e.target.value)}
+                />
+                <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                  <button
+                    style={{ ...styles.btnPrimary, fontSize: '12px', padding: '6px 20px' }}
+                    onClick={() => { updateSetting('systemPrompt', promptDraft); setPromptEditing(false) }}
+                  >
+                    Save
+                  </button>
+                  <button
+                    style={{ ...styles.btnPrimary, fontSize: '12px', padding: '6px 20px', background: '#6b7280' }}
+                    onClick={() => setPromptEditing(false)}
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={styles.kbCard}>
+                <div style={styles.promptBlock}>{settings.systemPrompt || '(Loading...)'}</div>
+              </div>
+            )}
+
+            <div style={{ ...styles.kbCard, marginTop: '12px' }}>
               <div style={{ fontWeight: '600', color: '#a78bfa', fontSize: '13px', marginBottom: '8px' }}>HOW IT WORKS (Pipeline)</div>
               <div style={{ fontSize: '12px', color: '#94a3b8', lineHeight: '1.8' }}>
                 <div>1. Buyer message received from WhatsApp</div>
-                <div>2. Message converted to vector (Voyage AI embedding)</div>
-                <div>3. Single vector search across ALL 4 knowledge sources:</div>
-                <div style={{ paddingLeft: '16px', color: '#93c5fd' }}>- Catalog ({catalogItems.length} products)</div>
-                <div style={{ paddingLeft: '16px', color: '#93c5fd' }}>- Reply Templates ({REPLY_TEMPLATES.length} saved replies)</div>
-                <div style={{ paddingLeft: '16px', color: '#93c5fd' }}>- Style Pairs ({STYLE_PAIRS.length} buyer→Om Q&A pairs)</div>
-                <div style={{ paddingLeft: '16px', color: '#93c5fd' }}>- Corrections (Om's edits — grows over time)</div>
-                <div>4. Top 5 matches (regardless of source) selected</div>
-                <div>5. If best match &gt;= {Math.round((settings.confidenceThreshold || 0.80) * 100)}% → send to Claude with:</div>
-                <div style={{ paddingLeft: '16px' }}>- System prompt (above) + Om's style guide</div>
-                <div style={{ paddingLeft: '16px' }}>- Top 5 knowledge matches (all 4 sources) + conversation history (last 5)</div>
-                <div>6. If best match &lt; {Math.round((settings.confidenceThreshold || 0.80) * 100)}% → defer to Ketu</div>
-                <div>7. If Claude says [DEFER] → defer to Ketu</div>
+                <div>2. Pre-AI filter checks (exact keyword matches — zero cost)</div>
+                <div>3. Message converted to vector (Voyage AI embedding)</div>
+                <div>4. Vector search across ALL knowledge sources — top 5 matches selected</div>
+                <div>5. ALL messages sent to Claude with system prompt + knowledge + conversation history</div>
+                <div>6. Claude decides: reply, [DEFER] to Ketu, or [SKIP] conversation ender</div>
                 <div style={{ color: '#22c55e', marginTop: '4px' }}>Result: AI reply sent via WhatsApp</div>
               </div>
             </div>

@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage } from './process.js'
+import { processIncomingMessage, DEFAULT_SYSTEM_PROMPT } from './process.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, getVoyageBatch, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
 import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
@@ -1977,9 +1977,14 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
   try {
     // Add systemPrompt column to Settings if missing
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "systemPrompt" TEXT`)
+    // Pre-fill with default prompt if empty (so dashboard shows the actual prompt)
+    const settings = await db.settings.findUnique({ where: { id: 'default' } })
+    if (settings && !settings.systemPrompt) {
+      await db.settings.update({ where: { id: 'default' }, data: { systemPrompt: DEFAULT_SYSTEM_PROMPT } })
+      console.log('[Migration] Pre-filled systemPrompt with default')
+    }
     console.log('[Migration] Schema up to date')
   } catch (err) {
-    // Column might already exist — that's fine
     if (!err.message.includes('already exists')) {
       console.error('[Migration] Error:', err.message)
     }

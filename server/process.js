@@ -94,7 +94,7 @@ const WWBUN_API_URL = process.env.WWBUN_API_URL
 const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 
 // Default system prompt (used when dashboard systemPrompt field is empty)
-const DEFAULT_SYSTEM_PROMPT = `You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
+export const DEFAULT_SYSTEM_PROMPT = `You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
 RULES:
 - Reply in the buyer's language. If they write Hindi, reply in Hindi. If English, reply in English. If Hinglish, reply in Hinglish.
