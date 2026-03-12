@@ -739,7 +739,7 @@ app.get('/api/filters/stats', async (c) => {
     db.messageLog.count({ where: { createdAt: { gte: since } } }),
   ])
 
-  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb + orderIdDetected + angryBuyer + informing + websiteIssue + repeatMessage + conversationEnded
+  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + emptyKb + orderIdDetected + angryBuyer + informing + websiteIssue + repeatMessage + conversationEnded
 
   const honorificSuffixes = ['sir', 'ji', 'bhai', 'boss', 'bro', 'sahab', 'saheb', 'g']
 
@@ -889,16 +889,6 @@ app.get('/api/filters/stats', async (c) => {
       tokens: 0,
       triggered: orderIdDetected,
       action: 'Defer message (0 tokens)',
-    },
-    {
-      id: 'defer_to_ketu',
-      name: 'Defer to Ketu (Vector Match)',
-      description: 'Questions matching defer list → use correction or defer',
-      type: 'ai-match',
-      currentState: 'Active',
-      tokens: 0,
-      triggered: deferToKetu,
-      action: 'Auto-reply with correction OR defer message',
     },
     {
       id: 'empty_kb',
