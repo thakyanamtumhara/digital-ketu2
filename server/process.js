@@ -177,6 +177,29 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  // --- Check: Bot loop detection (other side also has auto-reply) ---
+  // If we sent an AI reply to this conversation very recently (<15s), the incoming
+  // message is almost certainly from another bot — no human types that fast.
+  const fifteenSecAgo = new Date(Date.now() - 15 * 1000)
+  const veryRecentAiReply = await db.messageLog.findFirst({
+    where: {
+      conversationId: conversation.id,
+      status: 'REPLIED',
+      sentViaWwbun: true,
+      createdAt: { gte: fifteenSecAgo },
+    },
+    select: { id: true },
+  })
+  if (veryRecentAiReply) {
+    await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
+      status: 'SKIPPED',
+      deferReason: 'bot_loop',
+      processingMs: Date.now() - startTime,
+    })
+    console.log(`[Bot Loop] ${whatsappNumber} — reply received <15s after our AI reply, likely bot-to-bot`)
+    return
+  }
+
   // --- Check: Media-only message (actual image/audio/video/document) ---
   if (hasMediaOnly) {
     // Bill/invoice PDFs from website orders → acknowledge dispatch
