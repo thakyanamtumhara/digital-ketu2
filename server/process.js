@@ -486,6 +486,25 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  // --- Check if Claude detected a conversation ender (thanks, bye, etc.) ---
+  if (aiReply.includes('[SKIP]')) {
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'SKIPPED',
+      deferReason: 'conversation_ended',
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      costUsd,
+      processingMs: Date.now() - startTime,
+    })
+    await db.settings.update({
+      where: { id: 'default' },
+      data: { dailySpentUsd: { increment: costUsd } },
+    })
+    console.log(`[Skip] ${whatsappNumber} — conversation ender detected by Claude`)
+    return
+  }
+
   // --- Check if Claude deferred (couldn't answer from knowledge base) ---
   const DEFER_MARKER = '[DEFER]'
   if (aiReply.includes(DEFER_MARKER)) {
@@ -564,6 +583,7 @@ RULES:
   • Change delivery address, cancel order, modify order in any way
   • Buyer shares an order number, bill number, or invoice — you cannot look these up
   NEVER say "main check kar lunga", "5 min wait karo", "ruko check karta hu" — you cannot check anything. Just [DEFER].
+- CONVERSATION ENDERS — respond with EXACTLY: [SKIP] for thank-you, acknowledgment, or goodbye messages (e.g. "thanks", "ok done", "bye", "theek hai"). The conversation is over, do NOT continue it.
 - Our prices are FIXED. Never offer discounts.
 - Mention sale91.com only if relevant and only ONCE per conversation (check history).
 - Do NOT make up prices, product details, or policies. Only use info from the knowledge base provided.
