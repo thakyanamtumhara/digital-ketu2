@@ -177,29 +177,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
-  // --- Check: Bot loop detection (other side also has auto-reply) ---
-  // If we've sent 3+ AI replies to this conversation within 2 minutes, it's likely
-  // a bot-to-bot loop. Real conversations never have 3+ AI replies in 2 min.
-  // This allows fast typers to get 1-2 quick replies before we stop.
-  const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000)
-  const recentAiReplyCount = await db.messageLog.count({
-    where: {
-      conversationId: conversation.id,
-      status: 'REPLIED',
-      sentViaWwbun: true,
-      createdAt: { gte: twoMinAgo },
-    },
-  })
-  if (recentAiReplyCount >= 3) {
-    await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
-      status: 'SKIPPED',
-      deferReason: 'bot_loop',
-      processingMs: Date.now() - startTime,
-    })
-    console.log(`[Bot Loop] ${whatsappNumber} — ${recentAiReplyCount} AI replies in 2 min, likely bot-to-bot`)
-    return
-  }
-
   // --- Check: Media-only message (actual image/audio/video/document) ---
   if (hasMediaOnly) {
     // Bill/invoice PDFs from website orders → acknowledge dispatch
