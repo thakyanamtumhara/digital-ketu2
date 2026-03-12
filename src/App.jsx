@@ -1024,7 +1024,7 @@ function PipelineGraph({ knowledgeStats, filterStats, settings }) {
               <span style={{ background: '#22c55e22', color: '#22c55e', padding: '1px 8px', borderRadius: 10, fontSize: 11 }}>{sources.CATALOG || 0} items</span>
             </div>
             <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 6 }}>Product information — name, GSM, price, colors, sizes</div>
-            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Example: "Black 240 GSM Oversize T-Shirt — Rs 180/pc bulk, Rs 222 sample. Colors: Black, White, Navy. Sizes: S-5XL"</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Example: "Black 240 GSM Oversize T-Shirt — Rs 180/pc bulk, Rs 222 sample. Colors: Black, White, Navy. Sizes: XS-XXL"</div>
             <div style={{ color: '#64748b', fontSize: 10, marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 6 }}>Source: products.json from catalog repo (auto-syncs every 2 days)</div>
           </div>
 
