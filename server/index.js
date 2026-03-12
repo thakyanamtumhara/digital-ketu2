@@ -712,6 +712,7 @@ app.get('/api/filters/stats', async (c) => {
     websiteIssue,
     repeatMessage,
     lowConfidence,
+    conversationEnded,
     totalReplied,
     totalMessages,
   ] = await Promise.all([
@@ -732,12 +733,13 @@ app.get('/api/filters/stats', async (c) => {
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'informing' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'website_issue' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'repeat_message' } }),
-    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'low_confidence' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'low_confidence' } }), // legacy — no longer generated
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'conversation_ended' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, status: 'REPLIED', totalTokens: { gt: 0 } } }),
     db.messageLog.count({ where: { createdAt: { gte: since } } }),
   ])
 
-  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb + orderIdDetected + angryBuyer + informing + websiteIssue + repeatMessage + lowConfidence
+  const totalFiltered = offHours + dailyLimit + emojiReaction + mediaOnly + billDocument + spam + cooldown + acknowledgment + welcomeBypass + deferToKetu + emptyKb + orderIdDetected + angryBuyer + informing + websiteIssue + repeatMessage + conversationEnded
 
   const honorificSuffixes = ['sir', 'ji', 'bhai', 'boss', 'bro', 'sahab', 'saheb', 'g']
 
@@ -893,20 +895,10 @@ app.get('/api/filters/stats', async (c) => {
       name: 'Defer to Ketu (Vector Match)',
       description: 'Questions matching defer list → use correction or defer',
       type: 'ai-match',
-      currentState: `Threshold: ${Math.round((settings.confidenceThreshold || 0.80) * 100)}%`,
+      currentState: 'Active',
       tokens: 0,
       triggered: deferToKetu,
       action: 'Auto-reply with correction OR defer message',
-    },
-    {
-      id: 'low_confidence',
-      name: 'Low Confidence (Vector Search)',
-      description: `Best vector match below ${Math.round((settings.confidenceThreshold || 0.85) * 100)}% — not enough knowledge to answer`,
-      type: 'ai-match',
-      currentState: `Threshold: ${Math.round((settings.confidenceThreshold || 0.85) * 100)}%`,
-      tokens: 0,
-      triggered: lowConfidence,
-      action: 'Defer to Ketu (0 tokens — only Voyage AI embedding used)',
     },
     {
       id: 'empty_kb',
@@ -920,13 +912,23 @@ app.get('/api/filters/stats', async (c) => {
     },
     {
       id: 'claude_deferred',
-      name: 'Claude [DEFER] Marker',
-      description: 'Claude itself says it cannot answer — defers to you',
+      name: 'Claude [DEFER]',
+      description: 'Claude decides it cannot answer — defers to Ketu',
       type: 'post-ai',
       currentState: 'Active',
       tokens: 'Yes (Claude called first)',
       triggered: claudeDeferred,
-      action: 'Defer message (tokens consumed)',
+      action: 'Send defer message to buyer',
+    },
+    {
+      id: 'conversation_ended',
+      name: 'Claude [SKIP]',
+      description: 'Claude detects conversation ender (thanks, bye, ok done) — silently skips',
+      type: 'post-ai',
+      currentState: 'Active',
+      tokens: 'Yes (Claude called first)',
+      triggered: conversationEnded,
+      action: 'Silent skip + auto-learn to pre-AI filter',
     },
   ]
 

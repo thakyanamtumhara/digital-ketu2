@@ -1,11 +1,11 @@
 // Core message processing pipeline
-// Handles: merge → dedup → media check → cooldown → vector search → Claude → reply
+// Handles: merge → dedup → pre-AI filters → vector search → Claude → reply
 //
-// Vector-based system (v2):
-// 1. Buyer message → Voyage AI embedding
-// 2. Single vector search across ALL 4 sources (catalog, reply templates, 337 style pairs, corrections) → top 5
-// 3. Best match ≥ 80% (confidenceThreshold) → send top 5 to Claude → reply
-// 4. Best match < 80% → defer to Ketu (not enough knowledge)
+// Pipeline:
+// 1. Pre-AI filters (exact matches, system checks) → zero cost
+// 2. Buyer message → Voyage AI embedding → vector search (top 5 from all sources)
+// 3. ALL messages sent to Claude with knowledge context
+// 4. Claude decides: reply, [DEFER] to Ketu, or [SKIP] conversation ender
 
 import { vectorSearch } from './embeddings.js'
 
