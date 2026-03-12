@@ -233,7 +233,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const normalizedText = mergedText.trim().toLowerCase()
     .replace(/[.!?,।]+$/g, '')
     .trim()
-    .replace(/\s+(sir|ji|bhai|boss|bro|sahab|saheb|g)$/i, '')
+    .replace(/\s+(sir|ji|bhai|bhaiya|boss|bro|sahab|saheb|g)$/i, '')
     .trim()
 
   // Normalized for greeting detection (also strip emojis)
