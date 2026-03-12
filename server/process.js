@@ -101,7 +101,8 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   const messageIds = messages.map(m => m.messageId)
   const hasTextMessages = messages.some(m => m.messageType === 'text' && m.messageText?.trim())
-  const hasMediaOnly = !hasTextMessages && messages.some(m => m.hasMedia || m.messageType !== 'text')
+  const hasAnyText = messages.some(m => m.messageText?.trim())
+  const hasMediaOnly = !hasAnyText && messages.some(m => m.hasMedia || m.messageType !== 'text')
   const mergedText = messages
     .filter(m => m.messageText?.trim())
     .map(m => m.messageText.trim())
