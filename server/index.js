@@ -71,6 +71,7 @@ app.post('/api/incoming', async (c) => {
     hasMedia,
     timestamp,
     senderName,
+    quotedText,   // text of the message buyer is replying to (if any)
   } = body
 
   if (!whatsappNumber || !messageId) {
@@ -98,6 +99,7 @@ app.post('/api/incoming', async (c) => {
     hasMedia: hasMedia || false,
     timestamp: timestamp || new Date().toISOString(),
     senderName,
+    quotedText: quotedText || null,
   })
 
   // Clear existing timer and set new one (merge window)

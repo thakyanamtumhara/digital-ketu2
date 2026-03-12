@@ -120,7 +120,10 @@ RULES:
 - Our prices are FIXED. Never offer discounts.
 - Mention sale91.com ONCE per conversation to inform the buyer they can order directly. Check conversation history — if already mentioned, do NOT repeat it. Just inform, never push.
 - Do NOT make up prices, product details, or policies. Only use info from the knowledge base provided.
-- Never reveal you are an AI. You are Ketu's assistant.`
+- Never reveal you are an AI. You are Ketu's assistant.
+- QUOTED/TAGGED MESSAGES: If the buyer quotes (tags/replies to) a previous message, treat the quoted message as CONTEXT for their current message. They are ONE thought. If the buyer sends just "..." or dots while quoting a message, they are re-asking the quoted message — respond to the QUOTED message as if it is their question. Never say the message is "incomplete" or "unclear" just because the buyer typed dots.
+- NEVER say a buyer's message is "incomplete", "unclear", or ask them to "share the actual message". Always try to understand and respond. If you truly cannot answer, use [DEFER].
+- RESTOCK / AVAILABILITY TIMING — respond with EXACTLY: [DEFER] when buyer asks WHEN a product will be back in stock or available again (e.g. "kab tak available hoga", "kab aayega", "kab milega", "restock kab", "wapas kab aayega"). You do NOT know restock dates — only Ketu knows this.`
 
 // Claude pricing (Haiku 4.5 — cheapest for high volume)
 const PRICE_PER_INPUT_TOKEN = 0.000001   // $1 per 1M input tokens
@@ -164,6 +167,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     .filter(m => m.messageText?.trim())
     .map(m => m.messageText.trim())
     .join(' ')
+
+  // Extract quoted message text (buyer replying to a previous message)
+  const quotedText = messages.find(m => m.quotedText)?.quotedText || null
 
   // --- Check: Is system active? ---
   if (!settings.isActive) {
@@ -496,6 +502,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     knowledgeResults,
     stylePairResults,
     conversationHistory,
+    quotedText,
   })
 
   // --- Call Claude API ---
@@ -617,7 +624,7 @@ function buildSystemPrompt({ settings, styleGuide, stylePairs }) {
   return prompt
 }
 
-function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conversationHistory }) {
+function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conversationHistory, quotedText }) {
   let prompt = ''
 
   // Knowledge results from vector search (top 5 matches from catalog + templates + policies)
@@ -643,6 +650,11 @@ function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conve
     for (const msg of conversationHistory) {
       prompt += `Buyer: ${msg.buyerMessage}\nAssistant: ${msg.aiReply}\n\n`
     }
+  }
+
+  // Quoted context (buyer replied to a previous message)
+  if (quotedText) {
+    prompt += `BUYER IS REPLYING TO THIS PREVIOUS MESSAGE:\n"${quotedText}"\n\n`
   }
 
   // Current message
