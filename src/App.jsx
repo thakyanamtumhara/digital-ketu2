@@ -1825,8 +1825,113 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
 
   const catalogItems = knowledge?.chunks?.CATALOG || []
 
+  const pipelineBox = { padding: '10px 14px', borderRadius: 8, textAlign: 'center', fontSize: 12, fontWeight: 600 }
+  const pipelineArrow = { color: '#475569', fontSize: 18, textAlign: 'center' }
+  const pipelineLabel = { fontSize: 10, color: '#94a3b8', marginTop: 4 }
+
   return (
     <div>
+      {/* Complete AI Pipeline Graph */}
+      <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+        <h3 style={{ margin: '0 0 16px', color: '#f1f5f9', fontSize: 15 }}>Complete AI Pipeline</h3>
+
+        {/* Row 1: Incoming → Pre-AI Filters */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div style={{ ...pipelineBox, background: '#334155', color: '#f1f5f9', minWidth: 120 }}>
+            Buyer Message
+            <div style={pipelineLabel}>from WhatsApp</div>
+          </div>
+          <div style={pipelineArrow}>→</div>
+          <div style={{ ...pipelineBox, background: '#7c3aed22', border: '1px solid #7c3aed', color: '#a78bfa', minWidth: 140 }}>
+            Pre-AI Filters
+            <div style={pipelineLabel}>acknowledgment, greeting, angry, spam (0 tokens)</div>
+          </div>
+          <div style={pipelineArrow}>→</div>
+          <div style={{ ...pipelineBox, background: '#0369a122', border: '1px solid #0ea5e9', color: '#38bdf8', minWidth: 140 }}>
+            Vector Search
+            <div style={pipelineLabel}>Voyage AI embedding → top 5 matches</div>
+          </div>
+        </div>
+
+        {/* Row 2: What goes to Claude */}
+        <div style={{ background: '#0f172a', borderRadius: 10, padding: 14, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#f59e0b', marginBottom: 10, textAlign: 'center' }}>What goes to Claude (Haiku)</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+            <div style={{ ...pipelineBox, background: '#14532d22', border: '1px solid #22c55e', color: '#86efac' }}>
+              System Prompt
+              <div style={pipelineLabel}>AI behavior rules (editable from dashboard)</div>
+            </div>
+            <div style={{ ...pipelineBox, background: '#0369a122', border: '1px solid #0ea5e9', color: '#7dd3fc' }}>
+              Top 5 Knowledge
+              <div style={pipelineLabel}>catalog, replies, style pairs, corrections, policies</div>
+            </div>
+            <div style={{ ...pipelineBox, background: '#4a044e22', border: '1px solid #c026d3', color: '#e879f9' }}>
+              Conversation History
+              <div style={pipelineLabel}>last 5 buyer-AI messages</div>
+            </div>
+            <div style={{ ...pipelineBox, background: '#78350f22', border: '1px solid #f59e0b', color: '#fcd34d' }}>
+              Om's Style Guide
+              <div style={pipelineLabel}>tone, language, emoji (extracted from 337 pairs)</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Row 3: Claude Decisions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center', marginBottom: 12 }}>
+          <div style={{ ...pipelineBox, background: '#f59e0b22', border: '2px solid #f59e0b', color: '#fbbf24', minWidth: 100, fontSize: 14 }}>
+            Claude AI
+            <div style={pipelineLabel}>decides what to do</div>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          <div style={{ ...pipelineBox, background: '#14532d', color: '#22c55e' }}>
+            Reply
+            <div style={{ ...pipelineLabel, color: '#86efac' }}>answers the buyer via WhatsApp</div>
+          </div>
+          <div style={{ ...pipelineBox, background: '#450a0a', color: '#ef4444' }}>
+            [DEFER]
+            <div style={{ ...pipelineLabel, color: '#fca5a5' }}>can't answer → "Ketu will reply shortly"</div>
+          </div>
+          <div style={{ ...pipelineBox, background: '#1e293b', border: '1px solid #64748b', color: '#94a3b8' }}>
+            [SKIP]
+            <div style={{ ...pipelineLabel, color: '#cbd5e1' }}>conversation ender → silent, no reply</div>
+          </div>
+        </div>
+
+        {/* Knowledge Sources Detail */}
+        <div style={{ marginTop: 16, borderTop: '1px solid #334155', paddingTop: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', marginBottom: 10 }}>Vector Search — 5 Knowledge Sources:</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+            <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', fontSize: 11 }}>
+              <div style={{ color: '#22c55e', fontWeight: 600 }}>CATALOG</div>
+              <div style={{ color: '#94a3b8' }}>Products — price, GSM, colors, sizes</div>
+              <div style={{ color: '#64748b', fontSize: 10 }}>Source: products.json (auto-sync)</div>
+            </div>
+            <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', fontSize: 11 }}>
+              <div style={{ color: '#3b82f6', fontWeight: 600 }}>SAVED REPLIES</div>
+              <div style={{ color: '#94a3b8' }}>Pre-made reply templates & FAQs</div>
+              <div style={{ color: '#64748b', fontSize: 10 }}>Source: wwbun saved replies</div>
+            </div>
+            <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', fontSize: 11 }}>
+              <div style={{ color: '#a78bfa', fontWeight: 600 }}>STYLE PAIRS</div>
+              <div style={{ color: '#94a3b8' }}>337 real Om-buyer conversations</div>
+              <div style={{ color: '#64748b', fontSize: 10 }}>Source: wwbun chat history</div>
+            </div>
+            <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', fontSize: 11 }}>
+              <div style={{ color: '#f59e0b', fontWeight: 600 }}>CORRECTIONS</div>
+              <div style={{ color: '#94a3b8' }}>Om's edits when AI was wrong</div>
+              <div style={{ color: '#64748b', fontSize: 10 }}>Source: Edit button (grows daily)</div>
+            </div>
+            <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', fontSize: 11 }}>
+              <div style={{ color: '#06b6d4', fontWeight: 600 }}>POLICIES</div>
+              <div style={{ color: '#94a3b8' }}>MOQ, GST, payment, delivery rules</div>
+              <div style={{ color: '#64748b', fontSize: 10 }}>Source: catalog metadata</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <h2 style={styles.sectionTitle}>Knowledge Base</h2>
 
       {/* Catalog Sync Info */}
@@ -2032,18 +2137,6 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
               </div>
             )}
 
-            <div style={{ ...styles.kbCard, marginTop: '12px' }}>
-              <div style={{ fontWeight: '600', color: '#a78bfa', fontSize: '13px', marginBottom: '8px' }}>HOW IT WORKS (Pipeline)</div>
-              <div style={{ fontSize: '12px', color: '#94a3b8', lineHeight: '1.8' }}>
-                <div>1. Buyer message received from WhatsApp</div>
-                <div>2. Pre-AI filter checks (exact keyword matches — zero cost)</div>
-                <div>3. Message converted to vector (Voyage AI embedding)</div>
-                <div>4. Vector search across ALL knowledge sources — top 5 matches selected</div>
-                <div>5. ALL messages sent to Claude with system prompt + knowledge + conversation history</div>
-                <div>6. Claude decides: reply, [DEFER] to Ketu, or [SKIP] conversation ender</div>
-                <div style={{ color: '#22c55e', marginTop: '4px' }}>Result: AI reply sent via WhatsApp</div>
-              </div>
-            </div>
           </div>
         )}
       </div>
