@@ -1972,6 +1972,20 @@ export default {
 
 console.log(`[digital-ketu2] Server running on port ${port}`)
 
+// Auto-migrate: add new columns if they don't exist yet
+;(async () => {
+  try {
+    // Add systemPrompt column to Settings if missing
+    await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "systemPrompt" TEXT`)
+    console.log('[Migration] Schema up to date')
+  } catch (err) {
+    // Column might already exist — that's fine
+    if (!err.message.includes('already exists')) {
+      console.error('[Migration] Error:', err.message)
+    }
+  }
+})()
+
 // Run initial sync check on startup
 runScheduledSync().catch(err => console.error('[Sync] Startup sync check failed:', err.message))
 
