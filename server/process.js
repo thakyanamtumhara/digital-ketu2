@@ -233,7 +233,13 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   // --- Check: Cooldown (Om intervened) — must be before media check ---
-  if (conversation.cooldownUntil && new Date() < new Date(conversation.cooldownUntil)) {
+  // Fresh DB read to catch cooldowns set by concurrent /api/intervention calls
+  // (the `conversation` object from line 150 may have stale cooldownUntil due to race condition)
+  const freshCooldown = await db.buyerConversation.findUnique({
+    where: { whatsappNumber },
+    select: { cooldownUntil: true },
+  })
+  if (freshCooldown?.cooldownUntil && new Date() < new Date(freshCooldown.cooldownUntil)) {
     await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
       status: 'COOLDOWN',
       deferReason: 'cooldown',
