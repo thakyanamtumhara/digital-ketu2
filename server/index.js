@@ -1969,12 +1969,16 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
 // Auto-migrate: add new columns if they don't exist yet
 ;(async () => {
   try {
-    // Add systemPrompt column to Settings if missing
+    // Add systemPrompt + promptUpdatedAt columns to Settings if missing
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "systemPrompt" TEXT`)
+    await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "promptUpdatedAt" TIMESTAMP(3)`)
     // Always sync: code (process.js) is the single source of truth for system prompt
     const settings = await db.settings.findUnique({ where: { id: 'default' } })
     if (settings) {
-      await db.settings.update({ where: { id: 'default' }, data: { systemPrompt: DEFAULT_SYSTEM_PROMPT } })
+      await db.$executeRawUnsafe(
+        `UPDATE "Settings" SET "systemPrompt" = $1, "promptUpdatedAt" = NOW() WHERE id = 'default'`,
+        DEFAULT_SYSTEM_PROMPT
+      )
     }
     console.log('[Migration] Schema up to date')
   } catch (err) {

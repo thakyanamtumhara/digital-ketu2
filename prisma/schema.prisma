@@ -155,8 +155,9 @@ model Settings {
   lastPremiumExportAt        DateTime?
   nextPremiumExportAt        DateTime?
   lastPremiumExportPairs     Int      @default(0)
-  // System prompt (editable from dashboard)
-  systemPrompt        String?                       // Claude system prompt — if null, uses hardcoded default
+  // System prompt (managed via code — auto-syncs on every deploy)
+  systemPrompt        String?                       // Claude system prompt — synced from process.js on deploy
+  promptUpdatedAt     DateTime?                     // when system prompt was last synced from code
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }

@@ -2233,8 +2233,12 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
         </div>
         {showSection.rules && (
           <div style={styles.kbContent}>
-            <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '12px' }}>
-              This prompt is sent to Claude with every message. Managed via code — auto-syncs on every deploy.
+            <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '12px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+              <span>Managed via code — auto-syncs on every deploy.</span>
+              <span style={{ color: '#64748b' }}>
+                {settings.systemPrompt ? `${settings.systemPrompt.trim().split(/\s+/).length} words` : '—'}
+                {settings.promptUpdatedAt && ` · Last updated: ${new Date(settings.promptUpdatedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}`}
+              </span>
             </div>
             <div style={styles.kbCard}>
               <div style={styles.promptBlock}>{settings.systemPrompt || '(Loading...)'}</div>
