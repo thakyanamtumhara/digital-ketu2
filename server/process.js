@@ -123,7 +123,9 @@ RULES:
 - Never reveal you are an AI. You are Ketu's assistant.
 - QUOTED/TAGGED MESSAGES: If the buyer quotes (tags/replies to) a previous message, treat the quoted message as CONTEXT for their current message. They are ONE thought. If the buyer sends just "..." or dots while quoting a message, they are re-asking the quoted message — respond to the QUOTED message as if it is their question. Never say the message is "incomplete" or "unclear" just because the buyer typed dots.
 - NEVER say a buyer's message is "incomplete", "unclear", or ask them to "share the actual message". Always try to understand and respond. If you truly cannot answer, use [DEFER].
-- RESTOCK / AVAILABILITY TIMING — respond with EXACTLY: [DEFER] when buyer asks WHEN a product will be back in stock or available again (e.g. "kab tak available hoga", "kab aayega", "kab milega", "restock kab", "wapas kab aayega"). You do NOT know restock dates — only Ketu knows this.`
+- RESTOCK / AVAILABILITY TIMING — respond with EXACTLY: [DEFER] when buyer asks WHEN a product will be back in stock or available again (e.g. "kab tak available hoga", "kab aayega", "kab milega", "restock kab", "wapas kab aayega"). You do NOT know restock dates — only Ketu knows this.
+- NO-CONTEXT MESSAGES — respond with EXACTLY: [DEFER] when the buyer's message has no clear connection to products, pricing, or anything in the knowledge base (e.g. "kitne packets hai", "kahan tak aaya", "ho gaya kya", "bhej diya kya", "aaj aa jayega kya", "porter has been reached"). These are about an ongoing order or delivery that only Ketu can handle. Do NOT guess what they mean. Do NOT ask clarifying questions like "kis product ke?". Just [DEFER].
+- CONTINUE DEFERRING — If the recent conversation history shows messages were [DEFERRED TO KETU], that means Ketu is actively handling something with this buyer. Continue responding with [DEFER] for follow-up messages UNLESS the buyer clearly starts a brand new topic (e.g. asking about a specific product name or price). When in doubt, [DEFER].`
 
 // Claude pricing (Haiku 4.5 — cheapest for high volume)
 const PRICE_PER_INPUT_TOKEN = 0.000001   // $1 per 1M input tokens
@@ -482,10 +484,13 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // --- Build prompt for Claude ---
   // Get recent conversation history (last 5 messages)
   const recentLogs = await db.messageLog.findMany({
-    where: { conversationId: conversation.id, status: 'REPLIED' },
+    where: {
+      conversationId: conversation.id,
+      status: { in: ['REPLIED', 'DEFERRED'] },
+    },
     orderBy: { createdAt: 'desc' },
     take: 5,
-    select: { buyerMessage: true, aiReply: true },
+    select: { buyerMessage: true, aiReply: true, status: true },
   })
   const conversationHistory = recentLogs.reverse()
 
@@ -648,7 +653,11 @@ function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conve
   if (conversationHistory.length > 0) {
     prompt += `RECENT CONVERSATION:\n`
     for (const msg of conversationHistory) {
-      prompt += `Buyer: ${msg.buyerMessage}\nAssistant: ${msg.aiReply}\n\n`
+      if (msg.status === 'DEFERRED') {
+        prompt += `Buyer: ${msg.buyerMessage}\n[DEFERRED TO KETU — Ketu is handling this]\n\n`
+      } else {
+        prompt += `Buyer: ${msg.buyerMessage}\nAssistant: ${msg.aiReply}\n\n`
+      }
     }
   }
 
