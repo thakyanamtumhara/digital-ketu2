@@ -180,6 +180,7 @@ function App() {
   }, [])
 
   useEffect(() => { fetchAnalytics() }, [period])
+  useEffect(() => { fetchKnowledgeStats() }, [])
 
   // Update settings
   const updateSetting = async (key, value) => {
