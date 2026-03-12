@@ -17,6 +17,7 @@ function App() {
   const [filterPeriod, setFilterPeriod] = useState('today')
   const [learningStats, setLearningStats] = useState(null)
   const [learningRunning, setLearningRunning] = useState(false)
+  const [knowledgeStats, setKnowledgeStats] = useState(null)
 
   // Knowledge base browsing
   const [kbStats, setKbStats] = useState(null)
@@ -54,6 +55,10 @@ function App() {
   const fetchKnowledge = useCallback(async () => {
     const res = await fetch(`${API}/knowledge/download`)
     if (res.ok) setKnowledge(await res.json())
+  }, [])
+  const fetchKnowledgeStats = useCallback(async () => {
+    const res = await fetch(`${API}/knowledge/stats`)
+    if (res.ok) setKnowledgeStats(await res.json())
   }, [])
 
   const fetchFilterStats = useCallback(async () => {
@@ -229,7 +234,7 @@ function App() {
 
       {/* Tabs */}
       <nav style={styles.tabs}>
-        {['live', 'analytics', 'defer', 'filters', 'learning', 'settings', 'sync'].map(t => (
+        {['live', 'analytics', 'defer', 'filters', 'pipeline', 'learning', 'settings', 'sync'].map(t => (
           <button
             key={t}
             data-tab={t}
@@ -239,11 +244,12 @@ function App() {
               if (t === 'defer') fetchDeferList()
               if (t === 'sync') { fetchSyncLogs(); fetchKnowledge() }
               if (t === 'analytics') fetchAnalytics()
+              if (t === 'pipeline') { fetchKnowledgeStats(); fetchFilterStats() }
               if (t === 'filters') { fetchFilterStats(); fetchDbFilters() }
               if (t === 'learning') fetchLearningStats()
             }}
           >
-            {{live:'Live Monitor', analytics:'Analytics', defer:'Corrections', filters:'Pre-AI Filters', learning:'Learning', settings:'Settings', sync:'Sync'}[t]}
+            {{live:'Live Monitor', analytics:'Analytics', defer:'Corrections', filters:'Pre-AI Filters', pipeline:'Pipeline', learning:'Learning', settings:'Settings', sync:'Sync'}[t]}
           </button>
         ))}
       </nav>
@@ -257,6 +263,7 @@ function App() {
         {tab === 'analytics' && <Analytics analytics={analytics} period={period} setPeriod={setPeriod} />}
         {tab === 'defer' && <DeferManager list={deferList} onDelete={deleteDefer} settings={settings} updateSetting={updateSetting} />}
         {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={() => { fetchFilterStats(); fetchDbFilters() }} dbFilters={dbFilters} />}
+        {tab === 'pipeline' && <PipelineGraph knowledgeStats={knowledgeStats} filterStats={filterStats} settings={settings} />}
         {tab === 'learning' && <LearningPanel stats={learningStats} settings={settings} onRun={triggerLearningRun} running={learningRunning} onToggle={toggleLearning} onRefresh={fetchLearningStats} onBacklog={triggerBacklog} backlogProgress={backlogProgress} onHistoryPull={triggerHistoryPull} historyPullProgress={historyPullProgress} />}
 {tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
         {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} updateSetting={updateSetting} onSync={triggerSync} syncing={syncing} knowledge={knowledge} />}
@@ -894,6 +901,250 @@ function DeferManager({ list, onDelete, settings, updateSetting }) {
 }
 
 // (Old keyword constants removed — now using vector search)
+
+function PipelineGraph({ knowledgeStats, filterStats, settings }) {
+  const box = (bg, border, color) => ({
+    padding: '12px 16px', borderRadius: 10, textAlign: 'center', fontSize: 13, fontWeight: 600,
+    background: bg, border: `2px solid ${border}`, color,
+  })
+  const label = { fontSize: 10, color: '#94a3b8', marginTop: 4, fontWeight: 400 }
+  const arrow = { color: '#475569', fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }
+  const arrowDown = { ...arrow, padding: '4px 0' }
+  const section = { background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 20 }
+  const sourceBox = (borderColor, titleColor) => ({
+    background: '#0f172a', borderRadius: 8, padding: '12px 14px', borderLeft: `3px solid ${borderColor}`,
+  })
+
+  const sources = knowledgeStats?.sources || {}
+  const filters = filterStats?.filters || []
+
+  return (
+    <div>
+      <h2 style={{ color: '#f1f5f9', fontSize: 18, marginBottom: 4 }}>AI Pipeline — How Messages Are Processed</h2>
+      <p style={{ color: '#64748b', fontSize: 13, marginBottom: 20 }}>Every buyer message goes through this pipeline. Each step is explained below.</p>
+
+      {/* =================== STEP 1: INCOMING =================== */}
+      <div style={section}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <span style={{ background: '#334155', color: '#f1f5f9', padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>STEP 1</span>
+          <span style={{ color: '#f1f5f9', fontSize: 15, fontWeight: 600 }}>Buyer Sends a Message</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <div style={box('#334155', '#64748b', '#f1f5f9')}>
+            Buyer Message
+            <div style={label}>from WhatsApp via wwbun</div>
+          </div>
+          <div style={arrow}>→</div>
+          <div style={{ background: '#0f172a', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#94a3b8', flex: 1, minWidth: 200 }}>
+            <div style={{ color: '#cbd5e1', fontWeight: 600, marginBottom: 4 }}>Message Merge (3 sec window)</div>
+            If buyer sends multiple messages quickly (e.g. "Hi" then "rate batao"), they get merged into one message before processing.
+          </div>
+        </div>
+      </div>
+
+      {/* =================== STEP 2: PRE-AI FILTERS =================== */}
+      <div style={{ textAlign: 'center' }}><div style={arrowDown}>↓</div></div>
+      <div style={section}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <span style={{ background: '#7c3aed', color: '#fff', padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>STEP 2</span>
+          <span style={{ color: '#f1f5f9', fontSize: 15, fontWeight: 600 }}>Pre-AI Filters</span>
+          <span style={{ color: '#22c55e', fontSize: 12 }}>(0 tokens — free)</span>
+        </div>
+        <p style={{ color: '#94a3b8', fontSize: 12, margin: '0 0 14px' }}>
+          Simple keyword/rule checks BEFORE Claude is called. Catches messages that don't need AI — saves money.
+          If any filter matches, the message is handled immediately and does NOT go to Claude.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+          <div style={sourceBox('#22c55e')}>
+            <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 13 }}>Acknowledgment</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+              "ok", "thanks", "theek hai", "done", "haan", "shukriya"
+            </div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>Action: Silent skip — no reply sent</div>
+          </div>
+          <div style={sourceBox('#3b82f6')}>
+            <div style={{ color: '#3b82f6', fontWeight: 700, fontSize: 13 }}>Greeting</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+              "hi", "hello", "namaste", "good morning"
+            </div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>Action: Sends welcome message + catalog link</div>
+          </div>
+          <div style={sourceBox('#f59e0b')}>
+            <div style={{ color: '#f59e0b', fontWeight: 700, fontSize: 13 }}>Informing / Status Update</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+              "payment done", "order kiya", "will buy later"
+            </div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>Action: Auto-reply "Noted, Ketu will check"</div>
+          </div>
+          <div style={sourceBox('#ef4444')}>
+            <div style={{ color: '#ef4444', fontWeight: 700, fontSize: 13 }}>Angry Buyer</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+              "bakwas", "scam", "fraud", "worst", "complaint"
+            </div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>Action: Defers to Ketu (you handle personally)</div>
+          </div>
+          <div style={sourceBox('#06b6d4')}>
+            <div style={{ color: '#06b6d4', fontWeight: 700, fontSize: 13 }}>Website Issue</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+              "site not opening", "sale91 error"
+            </div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>Action: Auto-reply with troubleshooting</div>
+          </div>
+          <div style={sourceBox('#a78bfa')}>
+            <div style={{ color: '#a78bfa', fontWeight: 700, fontSize: 13 }}>Others</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+              System ON/OFF, working hours, daily budget, emoji reactions, media-only, repeat messages, order IDs
+            </div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>Action: Various (skip, defer, auto-reply)</div>
+          </div>
+        </div>
+        <div style={{ background: '#14532d22', border: '1px solid #22c55e', borderRadius: 8, padding: '10px 14px', marginTop: 12, fontSize: 12, color: '#86efac' }}>
+          Auto-learn: When Claude later detects a conversation ender ([SKIP]), that phrase gets auto-added here so next time it's caught for free.
+        </div>
+      </div>
+
+      {/* =================== STEP 3: VECTOR SEARCH =================== */}
+      <div style={{ textAlign: 'center' }}><div style={arrowDown}>↓ message passed all filters</div></div>
+      <div style={section}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <span style={{ background: '#0ea5e9', color: '#fff', padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>STEP 3</span>
+          <span style={{ color: '#f1f5f9', fontSize: 15, fontWeight: 600 }}>Vector Search — Find Relevant Knowledge</span>
+        </div>
+        <p style={{ color: '#94a3b8', fontSize: 12, margin: '0 0 14px' }}>
+          The buyer's message is converted into a vector (Voyage AI) and matched against all knowledge in the database.
+          The <strong style={{ color: '#7dd3fc' }}>top 5 most relevant</strong> results are selected and sent to Claude as context.
+        </p>
+
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#7dd3fc', marginBottom: 10 }}>5 Knowledge Sources Searched:</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 12 }}>
+          <div style={sourceBox('#22c55e')}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 14 }}>CATALOG</div>
+              <span style={{ background: '#22c55e22', color: '#22c55e', padding: '1px 8px', borderRadius: 10, fontSize: 11 }}>{sources.CATALOG || 0} items</span>
+            </div>
+            <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 6 }}>Product information — name, GSM, price, colors, sizes</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Example: "Black 240 GSM Oversize T-Shirt — Rs 180/pc bulk, Rs 222 sample. Colors: Black, White, Navy. Sizes: S-5XL"</div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 6 }}>Source: products.json from catalog repo (auto-syncs every 2 days)</div>
+          </div>
+
+          <div style={sourceBox('#3b82f6')}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ color: '#3b82f6', fontWeight: 700, fontSize: 14 }}>SAVED REPLIES</div>
+              <span style={{ background: '#3b82f622', color: '#3b82f6', padding: '1px 8px', borderRadius: 10, fontSize: 11 }}>{sources.SAVED_REPLY || 0} templates</span>
+            </div>
+            <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 6 }}>Pre-made reply templates & FAQ answers</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Example: "MOQ 24 pcs hai. Sample bhi available Rs 222/pc. Order sale91.com se karein"</div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 6 }}>Source: wwbun saved replies (synced on import)</div>
+          </div>
+
+          <div style={sourceBox('#a78bfa')}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ color: '#a78bfa', fontWeight: 700, fontSize: 14 }}>STYLE PAIRS</div>
+              <span style={{ background: '#a78bfa22', color: '#a78bfa', padding: '1px 8px', borderRadius: 10, fontSize: 11 }}>{sources.STYLE_PAIR || 0} pairs</span>
+            </div>
+            <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 6 }}>Real Om-buyer conversations for matching</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Example: Buyer: "black oversize rate?" → Om: "180/pc bulk, 222 sample sir"</div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 6 }}>Source: wwbun chat history (337 quality pairs)</div>
+          </div>
+
+          <div style={sourceBox('#f59e0b')}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ color: '#f59e0b', fontWeight: 700, fontSize: 14 }}>CORRECTIONS</div>
+              <span style={{ background: '#f59e0b22', color: '#f59e0b', padding: '1px 8px', borderRadius: 10, fontSize: 11 }}>{sources.CORRECTION || 0} corrections</span>
+            </div>
+            <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 6 }}>Om's corrections when AI gave wrong answer</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Example: Buyer asked "kya return hota hai?" → AI said wrong → Om corrected: "7 din mein return"</div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 6 }}>Source: Edit button corrections (grows daily as you correct AI)</div>
+          </div>
+
+          <div style={sourceBox('#06b6d4')}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ color: '#06b6d4', fontWeight: 700, fontSize: 14 }}>POLICIES</div>
+              <span style={{ background: '#06b6d422', color: '#06b6d4', padding: '1px 8px', borderRadius: 10, fontSize: 11 }}>{sources.POLICY || 0} docs</span>
+            </div>
+            <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 6 }}>Business rules — MOQ, GST, payment, delivery</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Example: "MOQ 24 pcs. GST extra. Delhi warehouse. Delivery 4-5 days. Payment: advance/COD"</div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 6 }}>Source: catalog metadata (synced with catalog)</div>
+          </div>
+        </div>
+
+        <div style={{ background: '#0ea5e922', border: '1px solid #0ea5e9', borderRadius: 8, padding: '10px 14px', marginTop: 12, fontSize: 12, color: '#7dd3fc' }}>
+          Result: Top 5 most similar results from ALL sources are selected and passed to Claude as "KNOWLEDGE BASE" context.
+        </div>
+      </div>
+
+      {/* =================== STEP 4: CLAUDE =================== */}
+      <div style={{ textAlign: 'center' }}><div style={arrowDown}>↓ top 5 knowledge results ready</div></div>
+      <div style={section}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+          <span style={{ background: '#f59e0b', color: '#000', padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700 }}>STEP 4</span>
+          <span style={{ color: '#f1f5f9', fontSize: 15, fontWeight: 600 }}>Claude AI — Reads Everything & Decides</span>
+          <span style={{ color: '#f59e0b', fontSize: 12 }}>(Haiku 4.5 — ~Rs 0.10-0.14 per message)</span>
+        </div>
+        <p style={{ color: '#94a3b8', fontSize: 12, margin: '0 0 14px' }}>
+          Claude receives 4 things and uses them together to craft the reply:
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
+          <div style={{ ...sourceBox('#22c55e'), background: '#14532d15' }}>
+            <div style={{ color: '#22c55e', fontWeight: 700, fontSize: 13 }}>1. System Prompt</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+              All the AI behavior rules — how to reply, when to defer, politeness rules, sale91.com mention, don't be pushy, etc.
+            </div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>Editable from: Sync tab → AI System Prompt</div>
+          </div>
+          <div style={{ ...sourceBox('#0ea5e9'), background: '#0ea5e915' }}>
+            <div style={{ color: '#7dd3fc', fontWeight: 700, fontSize: 13 }}>2. Top 5 Knowledge Results</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+              The 5 most relevant results from vector search (shown with similarity %). Claude reads these to find the answer.
+            </div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>From: Vector search (Step 3)</div>
+          </div>
+          <div style={{ ...sourceBox('#c026d3'), background: '#c026d315' }}>
+            <div style={{ color: '#e879f9', fontWeight: 700, fontSize: 13 }}>3. Conversation History</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+              Last 5 buyer-AI messages so Claude knows what was already discussed. Prevents repeating info.
+            </div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>From: Database message logs</div>
+          </div>
+          <div style={{ ...sourceBox('#f59e0b'), background: '#f59e0b15' }}>
+            <div style={{ color: '#fcd34d', fontWeight: 700, fontSize: 13 }}>4. Om's Style Guide</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+              Compact communication style extracted from 337 real Om replies — tone, emoji usage, language patterns.
+            </div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>From: Auto-extracted (one-time, in system prompt)</div>
+          </div>
+        </div>
+
+        {/* Claude's 3 decisions */}
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#fbbf24', marginBottom: 10 }}>Claude makes one of 3 decisions:</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <div style={{ background: '#14532d', borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
+            <div style={{ color: '#22c55e', fontSize: 24, fontWeight: 800 }}>Reply</div>
+            <div style={{ color: '#86efac', fontSize: 12, marginTop: 6 }}>Claude has enough knowledge to answer</div>
+            <div style={{ color: '#22c55e44', fontSize: 11, marginTop: 8, borderTop: '1px solid #22c55e33', paddingTop: 8 }}>
+              → Reply sent to buyer via WhatsApp
+            </div>
+          </div>
+          <div style={{ background: '#450a0a', borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
+            <div style={{ color: '#ef4444', fontSize: 24, fontWeight: 800 }}>[DEFER]</div>
+            <div style={{ color: '#fca5a5', fontSize: 12, marginTop: 6 }}>Can't answer — order related, not enough info</div>
+            <div style={{ color: '#ef444444', fontSize: 11, marginTop: 8, borderTop: '1px solid #ef444433', paddingTop: 8 }}>
+              → "Ketu will reply shortly" sent to buyer
+            </div>
+          </div>
+          <div style={{ background: '#1e293b', border: '2px solid #475569', borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
+            <div style={{ color: '#94a3b8', fontSize: 24, fontWeight: 800 }}>[SKIP]</div>
+            <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 6 }}>Conversation ender — thanks, bye, ok done</div>
+            <div style={{ color: '#64748b', fontSize: 11, marginTop: 8, borderTop: '1px solid #47556933', paddingTop: 8 }}>
+              → Silent — no reply sent. Phrase auto-learned to pre-AI filter.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function SettingsPanel({ settings, updateSetting, onDownload }) {
   return (
@@ -1825,113 +2076,8 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
 
   const catalogItems = knowledge?.chunks?.CATALOG || []
 
-  const pipelineBox = { padding: '10px 14px', borderRadius: 8, textAlign: 'center', fontSize: 12, fontWeight: 600 }
-  const pipelineArrow = { color: '#475569', fontSize: 18, textAlign: 'center' }
-  const pipelineLabel = { fontSize: 10, color: '#94a3b8', marginTop: 4 }
-
   return (
     <div>
-      {/* Complete AI Pipeline Graph */}
-      <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, marginBottom: 20 }}>
-        <h3 style={{ margin: '0 0 16px', color: '#f1f5f9', fontSize: 15 }}>Complete AI Pipeline</h3>
-
-        {/* Row 1: Incoming → Pre-AI Filters */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-          <div style={{ ...pipelineBox, background: '#334155', color: '#f1f5f9', minWidth: 120 }}>
-            Buyer Message
-            <div style={pipelineLabel}>from WhatsApp</div>
-          </div>
-          <div style={pipelineArrow}>→</div>
-          <div style={{ ...pipelineBox, background: '#7c3aed22', border: '1px solid #7c3aed', color: '#a78bfa', minWidth: 140 }}>
-            Pre-AI Filters
-            <div style={pipelineLabel}>acknowledgment, greeting, angry, spam (0 tokens)</div>
-          </div>
-          <div style={pipelineArrow}>→</div>
-          <div style={{ ...pipelineBox, background: '#0369a122', border: '1px solid #0ea5e9', color: '#38bdf8', minWidth: 140 }}>
-            Vector Search
-            <div style={pipelineLabel}>Voyage AI embedding → top 5 matches</div>
-          </div>
-        </div>
-
-        {/* Row 2: What goes to Claude */}
-        <div style={{ background: '#0f172a', borderRadius: 10, padding: 14, marginBottom: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#f59e0b', marginBottom: 10, textAlign: 'center' }}>What goes to Claude (Haiku)</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-            <div style={{ ...pipelineBox, background: '#14532d22', border: '1px solid #22c55e', color: '#86efac' }}>
-              System Prompt
-              <div style={pipelineLabel}>AI behavior rules (editable from dashboard)</div>
-            </div>
-            <div style={{ ...pipelineBox, background: '#0369a122', border: '1px solid #0ea5e9', color: '#7dd3fc' }}>
-              Top 5 Knowledge
-              <div style={pipelineLabel}>catalog, replies, style pairs, corrections, policies</div>
-            </div>
-            <div style={{ ...pipelineBox, background: '#4a044e22', border: '1px solid #c026d3', color: '#e879f9' }}>
-              Conversation History
-              <div style={pipelineLabel}>last 5 buyer-AI messages</div>
-            </div>
-            <div style={{ ...pipelineBox, background: '#78350f22', border: '1px solid #f59e0b', color: '#fcd34d' }}>
-              Om's Style Guide
-              <div style={pipelineLabel}>tone, language, emoji (extracted from 337 pairs)</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Row 3: Claude Decisions */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'center', marginBottom: 12 }}>
-          <div style={{ ...pipelineBox, background: '#f59e0b22', border: '2px solid #f59e0b', color: '#fbbf24', minWidth: 100, fontSize: 14 }}>
-            Claude AI
-            <div style={pipelineLabel}>decides what to do</div>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-          <div style={{ ...pipelineBox, background: '#14532d', color: '#22c55e' }}>
-            Reply
-            <div style={{ ...pipelineLabel, color: '#86efac' }}>answers the buyer via WhatsApp</div>
-          </div>
-          <div style={{ ...pipelineBox, background: '#450a0a', color: '#ef4444' }}>
-            [DEFER]
-            <div style={{ ...pipelineLabel, color: '#fca5a5' }}>can't answer → "Ketu will reply shortly"</div>
-          </div>
-          <div style={{ ...pipelineBox, background: '#1e293b', border: '1px solid #64748b', color: '#94a3b8' }}>
-            [SKIP]
-            <div style={{ ...pipelineLabel, color: '#cbd5e1' }}>conversation ender → silent, no reply</div>
-          </div>
-        </div>
-
-        {/* Knowledge Sources Detail */}
-        <div style={{ marginTop: 16, borderTop: '1px solid #334155', paddingTop: 14 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', marginBottom: 10 }}>Vector Search — 5 Knowledge Sources:</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-            <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', fontSize: 11 }}>
-              <div style={{ color: '#22c55e', fontWeight: 600 }}>CATALOG</div>
-              <div style={{ color: '#94a3b8' }}>Products — price, GSM, colors, sizes</div>
-              <div style={{ color: '#64748b', fontSize: 10 }}>Source: products.json (auto-sync)</div>
-            </div>
-            <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', fontSize: 11 }}>
-              <div style={{ color: '#3b82f6', fontWeight: 600 }}>SAVED REPLIES</div>
-              <div style={{ color: '#94a3b8' }}>Pre-made reply templates & FAQs</div>
-              <div style={{ color: '#64748b', fontSize: 10 }}>Source: wwbun saved replies</div>
-            </div>
-            <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', fontSize: 11 }}>
-              <div style={{ color: '#a78bfa', fontWeight: 600 }}>STYLE PAIRS</div>
-              <div style={{ color: '#94a3b8' }}>337 real Om-buyer conversations</div>
-              <div style={{ color: '#64748b', fontSize: 10 }}>Source: wwbun chat history</div>
-            </div>
-            <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', fontSize: 11 }}>
-              <div style={{ color: '#f59e0b', fontWeight: 600 }}>CORRECTIONS</div>
-              <div style={{ color: '#94a3b8' }}>Om's edits when AI was wrong</div>
-              <div style={{ color: '#64748b', fontSize: 10 }}>Source: Edit button (grows daily)</div>
-            </div>
-            <div style={{ background: '#0f172a', borderRadius: 6, padding: '8px 10px', fontSize: 11 }}>
-              <div style={{ color: '#06b6d4', fontWeight: 600 }}>POLICIES</div>
-              <div style={{ color: '#94a3b8' }}>MOQ, GST, payment, delivery rules</div>
-              <div style={{ color: '#64748b', fontSize: 10 }}>Source: catalog metadata</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <h2 style={styles.sectionTitle}>Knowledge Base</h2>
 
       {/* Catalog Sync Info */}
