@@ -2370,6 +2370,24 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
                 } catch (err) { console.error(err) }
               }}
             >{settings.premiumExportEnabled ? 'Disable' : 'Enable'}</button>
+            <button
+              style={{ background: 'none', border: '1px solid #854d0e', borderRadius: '4px', padding: '1px 8px', fontSize: '11px', color: '#fbbf24', cursor: 'pointer' }}
+              onClick={async () => {
+                const fromDate = prompt('Re-scan from date (YYYY-MM-DD):', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
+                if (!fromDate) return
+                setPremiumExportRunning(true)
+                try {
+                  const res = await fetch('/api/premium-export/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromDate }) })
+                  const data = await res.json()
+                  if (!res.ok) throw new Error(data.error || 'Export failed')
+                  alert(`Re-scan complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)\nDate range: ${data.fromDate} to ${data.toDate}`)
+                  fetchSyncHistory()
+                  window.location.reload()
+                } catch (err) { alert('Re-scan failed: ' + err.message) }
+                setPremiumExportRunning(false)
+              }}
+              disabled={premiumExportRunning}
+            >Re-scan</button>
           </div>
         </div>
 

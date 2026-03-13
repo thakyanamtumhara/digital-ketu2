@@ -1629,7 +1629,12 @@ setInterval(runScheduledPremiumExport, 60 * 60 * 1000)
 // Manual trigger endpoint
 app.post('/api/premium-export/run', async (c) => {
   try {
+    const body = await c.req.json().catch(() => ({}))
     const settings = await getSettings()
+    // Allow manual fromDate override to re-scan a lost period
+    if (body.fromDate) {
+      settings.lastPremiumExportAt = new Date(body.fromDate)
+    }
     const result = await executePremiumExport(settings)
     return c.json({ status: 'success', ...result })
   } catch (err) {
