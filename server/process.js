@@ -10,6 +10,13 @@
 import { vectorSearch } from './embeddings.js'
 
 // ===========================================
+// Welcome Follow-Up Constants & State
+// ===========================================
+const THREE_MINUTES_MS = 3 * 60 * 1000
+const WELCOME_FOLLOWUP_GENERIC = 'Ask me if any questions sir?'
+export const pendingWelcomeFollowups = new Map() // keyed by whatsappNumber
+
+// ===========================================
 // Dynamic Pre-AI Filter Cache
 // ===========================================
 let filterCache = { filters: null, loadedAt: 0 }
@@ -93,6 +100,51 @@ async function autoLearnAcknowledgment(db, phrase) {
 const WWBUN_API_URL = process.env.WWBUN_API_URL
 const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 
+// ===========================================
+// Message Classification (generic vs real question)
+// ===========================================
+function isGenericMessage(text) {
+  if (!text || !text.trim()) return true
+  const normalized = text.trim().toLowerCase()
+    .replace(/[.!?,।🙏👋]+/g, '')
+    .trim()
+    .replace(/\s+(sir|ji|bhai|bhaiya|boss|bro|sahab|saheb|g)$/i, '')
+    .trim()
+
+  // Known greetings
+  const greetingPatterns = [
+    'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
+    'helo', 'hllo', 'helloo', 'hellooo',
+    'namaste', 'namaskar', 'namaskaar',
+    'good morning', 'good afternoon', 'good evening',
+    'gm', 'morning', 'evening', 'hy', 'hye', 'hola', 'yo',
+  ]
+  if (greetingPatterns.includes(normalized)) return true
+
+  // Generic catalog/detail requests
+  const genericPhrases = [
+    'share catalog', 'share catalogue', 'send catalog', 'send catalogue',
+    'share details', 'send details', 'catalog share', 'catalogue share',
+    'catalog bhejo', 'catalogue bhejo', 'details bhejo', 'catalog send',
+    'rate list', 'rate card', 'price list', 'catalog', 'catalogue',
+    'tshirt', 't shirt', 't-shirt', 'details',
+  ]
+  if (genericPhrases.some(p => normalized.includes(p))) return true
+
+  // 4 words or fewer without a question indicator → generic
+  const words = normalized.split(/\s+/).filter(w => w.length > 0)
+  const hasQuestionMark = text.includes('?')
+  const questionWords = [
+    'what', 'how', 'when', 'where', 'which', 'why', 'can', 'do', 'is', 'are',
+    'kya', 'kaise', 'kab', 'kaha', 'kaun', 'kitna', 'kitne', 'kitni', 'konsa', 'konsi',
+  ]
+  const hasQuestionWord = questionWords.some(qw => words.includes(qw) || normalized.startsWith(qw))
+
+  if (words.length <= 4 && !hasQuestionMark && !hasQuestionWord) return true
+
+  return false
+}
+
 // Default system prompt (used when dashboard systemPrompt field is empty)
 export const DEFAULT_SYSTEM_PROMPT = `You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
 
@@ -174,8 +226,16 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // Extract quoted message text (buyer replying to a previous message)
   const quotedText = messages.find(m => m.quotedText)?.quotedText || null
 
-  // --- Check: Is system active? ---
-  if (!settings.isActive) {
+  // --- Welcome eligibility (computed early so welcome bypasses isActive/schedule/budget) ---
+  const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+  const lastMessageAge = previousLastMessageAt
+    ? Date.now() - new Date(previousLastMessageAt).getTime()
+    : Infinity
+  const isFirstTime = !existingConversation
+  const isWelcomeEligible = isFirstTime || lastMessageAge > SEVEN_DAYS_MS
+
+  // --- Check: Is system active? (welcome-eligible buyers bypass this) ---
+  if (!settings.isActive && !isWelcomeEligible) {
     await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
       status: 'SKIPPED',
       deferReason: 'off_hours',
@@ -196,7 +256,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     const startTime_ = startH * 60 + startM
     const endTime_ = endH * 60 + endM
 
-    if (currentTime < startTime_ || currentTime > endTime_) {
+    if ((currentTime < startTime_ || currentTime > endTime_) && !isWelcomeEligible) {
       await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
         status: 'SKIPPED',
         deferReason: 'off_hours',
@@ -209,7 +269,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   // --- Check: Daily budget ---
   const dailySpentInr = settings.dailySpentUsd * USD_TO_INR
-  if (dailySpentInr >= settings.dailyBudgetInr) {
+  if (dailySpentInr >= settings.dailyBudgetInr && !isWelcomeEligible) {
     await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
       status: 'SKIPPED',
       deferReason: 'daily_limit',
@@ -407,14 +467,11 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     isGreeting = greetingPatterns.includes(normalizedForGreeting)
   }
 
-  // --- WELCOME MESSAGE BYPASS ---
-  // ONLY for greetings ("hi", "hello", etc.) from first-time buyers or returning after 7+ days
-  const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
-  const lastMessageAge = previousLastMessageAt
-    ? Date.now() - new Date(previousLastMessageAt).getTime()
-    : Infinity
-  const isFirstTime = !existingConversation
-  let shouldSendWelcome = isGreeting && (isFirstTime || lastMessageAge > SEVEN_DAYS_MS)
+  // --- WELCOME MESSAGE + 3-MIN FOLLOW-UP ---
+  // For ANY message from first-time buyers or returning after 7+ days:
+  // 1. Send /welcome immediately
+  // 2. After 3 min: generic nudge (if simple msg) or AI response (if real question)
+  let shouldSendWelcome = isWelcomeEligible
 
   // Extra safety: check message logs too — if there are recent logs (within 7 days), don't send welcome
   if (shouldSendWelcome && !isFirstTime) {
@@ -432,11 +489,11 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   if (shouldSendWelcome) {
+    // 1. Send /welcome immediately
     const welcomeChunk = await db.knowledgeChunk.findFirst({
       where: { source: 'SAVED_REPLY', sourceId: 'welcome' },
       select: { content: true },
     })
-    // Strip shortcut prefix (e.g. "/welcome: ") from stored content
     let welcomeMessage = welcomeChunk?.content || 'https://sale91.com/catalog\n\nCheck rates, color and buy 👆'
     welcomeMessage = welcomeMessage.replace(/^\/\w+:\s*/, '')
     await sendReplyViaWwbun(whatsappNumber, welcomeMessage)
@@ -447,8 +504,65 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       processingMs: Date.now() - startTime,
       sentViaWwbun: true,
     })
-    console.log(`[Welcome] ${whatsappNumber} — direct welcome, 0 tokens`)
-    return
+    console.log(`[Welcome] ${whatsappNumber} — welcome sent, scheduling 3-min followup`)
+
+    // 2. Schedule 3-minute delayed follow-up
+    const followupTimer = setTimeout(async () => {
+      pendingWelcomeFollowups.delete(whatsappNumber)
+      try {
+        // Re-check cooldown — if Om intervened, skip
+        const freshConvo = await db.buyerConversation.findUnique({
+          where: { whatsappNumber },
+          select: { cooldownUntil: true, id: true },
+        })
+        if (freshConvo?.cooldownUntil && new Date() < new Date(freshConvo.cooldownUntil)) {
+          console.log(`[Welcome Followup] ${whatsappNumber} — skipped: Om intervened (cooldown active)`)
+          return
+        }
+
+        if (isGenericMessage(mergedText)) {
+          // Generic message → send nudge
+          await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+          await createLog(db, conversation.id, mergedText, [], {
+            status: 'REPLIED',
+            aiReply: WELCOME_FOLLOWUP_GENERIC,
+            deferReason: 'welcome_followup_generic',
+            processingMs: 0,
+            sentViaWwbun: true,
+          })
+          console.log(`[Welcome Followup] ${whatsappNumber} — generic msg, sent nudge`)
+        } else {
+          // Real question → run AI (only if system is active)
+          const currentSettings = await db.settings.findUnique({ where: { id: 'default' } })
+          if (!currentSettings?.isActive) {
+            console.log(`[Welcome Followup] ${whatsappNumber} — AI is off, skipping AI followup`)
+            return
+          }
+          console.log(`[Welcome Followup] ${whatsappNumber} — real question, running AI flow`)
+          await runAiFlow({
+            whatsappNumber,
+            mergedText,
+            quotedText,
+            conversationId: conversation.id,
+            normalizedText,
+            db,
+            anthropic,
+            settings: currentSettings,
+            startTime: Date.now(),
+            messageIds: [],
+          })
+        }
+      } catch (err) {
+        console.error(`[Welcome Followup Error] ${whatsappNumber}:`, err.message)
+      }
+    }, THREE_MINUTES_MS)
+
+    pendingWelcomeFollowups.set(whatsappNumber, {
+      timer: followupTimer,
+      scheduledAt: Date.now(),
+    })
+
+    return // Welcome sent — delayed followup handles the rest
   }
 
   // --- Check: Order ID / tracking number detection ---
@@ -467,9 +581,16 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  // --- Run AI flow (vector search → Claude → reply) ---
+  await runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId: conversation.id, normalizedText, db, anthropic, settings, startTime, messageIds })
+}
+
+// ===========================================
+// AI Flow: Vector Search → Claude → Reply
+// Reusable by both main pipeline and welcome follow-up
+// ===========================================
+async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId, normalizedText, db, anthropic, settings, startTime, messageIds }) {
   // --- VECTOR SEARCH: Single search across all 4 knowledge sources ---
-  // Catalog + Reply Templates + Style Pairs (337 Q&A pairs) + Corrections (Om's edits) — top 5 overall
-  // Style Guide excluded (it's a compact summary, not a searchable chunk)
   const allVectorResults = await vectorSearch(db, anthropic, mergedText, {
     limit: 5,
     minSimilarity: 0.0,
@@ -480,19 +601,15 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     ? Math.max(...allVectorResults.map(r => Number(r.similarity)))
     : 0
 
-  // All top 5 results go to the user prompt as knowledge (style pairs are both knowledge AND style reference)
   const knowledgeResults = allVectorResults
-  const stylePairResults = [] // no longer separated — all results treated as knowledge
+  const stylePairResults = []
 
-  console.log(`[Vector] ${whatsappNumber} — ${allVectorResults.length} results (top 5 from all 3 sources), best: ${(bestSimilarity * 100).toFixed(1)}%`)
-
-  // All messages go to Claude — Claude decides: reply, [DEFER], or [SKIP]
+  console.log(`[Vector] ${whatsappNumber} — ${allVectorResults.length} results, best: ${(bestSimilarity * 100).toFixed(1)}%`)
 
   // --- Build prompt for Claude ---
-  // Get recent conversation history (last 5 messages)
   const recentLogs = await db.messageLog.findMany({
     where: {
-      conversationId: conversation.id,
+      conversationId,
       status: { in: ['REPLIED', 'DEFERRED'] },
     },
     orderBy: { createdAt: 'desc' },
@@ -501,7 +618,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   })
   const conversationHistory = recentLogs.reverse()
 
-  // Fetch Om's extracted style guide (compact, ~200 words)
   const styleGuideChunk = await db.knowledgeChunk.findFirst({
     where: { source: 'STYLE_GUIDE', sourceId: 'om_style_guide' },
     select: { content: true },
@@ -536,7 +652,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     costUsd = (promptTokens * PRICE_PER_INPUT_TOKEN) + (completionTokens * PRICE_PER_OUTPUT_TOKEN)
   } catch (err) {
     console.error(`[Claude Error] ${whatsappNumber}:`, err.message)
-    await createLog(db, conversation.id, mergedText, messageIds, {
+    await createLog(db, conversationId, mergedText, messageIds, {
       status: 'FAILED',
       deferReason: err.message,
       knowledgeChunks: allVectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
@@ -545,46 +661,32 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
-  // --- Check if Claude detected a conversation ender (thanks, bye, etc.) ---
+  // --- Check if Claude detected a conversation ender ---
   if (aiReply.includes('[SKIP]')) {
-    await createLog(db, conversation.id, mergedText, messageIds, {
+    await createLog(db, conversationId, mergedText, messageIds, {
       status: 'SKIPPED',
       deferReason: 'conversation_ended',
-      promptTokens,
-      completionTokens,
-      totalTokens,
-      costUsd,
+      promptTokens, completionTokens, totalTokens, costUsd,
       processingMs: Date.now() - startTime,
     })
-    await db.settings.update({
-      where: { id: 'default' },
-      data: { dailySpentUsd: { increment: costUsd } },
-    })
-    await autoLearnAcknowledgment(db, normalizedText)
+    await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
+    if (normalizedText) await autoLearnAcknowledgment(db, normalizedText)
     console.log(`[Skip] ${whatsappNumber} — conversation ender detected by Claude`)
     return
   }
 
-  // --- Check if Claude deferred (couldn't answer from knowledge base) ---
-  const DEFER_MARKER = '[DEFER]'
-  if (aiReply.includes(DEFER_MARKER)) {
+  // --- Check if Claude deferred ---
+  if (aiReply.includes('[DEFER]')) {
     await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
-    await createLog(db, conversation.id, mergedText, messageIds, {
+    await createLog(db, conversationId, mergedText, messageIds, {
       status: 'DEFERRED',
       deferReason: 'claude_deferred',
       aiReply: settings.deferMessage,
-      promptTokens,
-      completionTokens,
-      totalTokens,
-      costUsd,
+      promptTokens, completionTokens, totalTokens, costUsd,
       processingMs: Date.now() - startTime,
       sentViaWwbun: true,
     })
-    // Update daily spend even for deferred (Claude API was called)
-    await db.settings.update({
-      where: { id: 'default' },
-      data: { dailySpentUsd: { increment: costUsd } },
-    })
+    await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
     return
   }
 
@@ -592,23 +694,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const sendResult = await sendReplyViaWwbun(whatsappNumber, aiReply)
 
   // --- Update daily spend ---
-  await db.settings.update({
-    where: { id: 'default' },
-    data: { dailySpentUsd: { increment: costUsd } },
-  })
+  await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
 
   // --- Log ---
   const catalogMatches = knowledgeResults.filter(c => c.source === 'CATALOG')
-  await createLog(db, conversation.id, mergedText, messageIds, {
+  await createLog(db, conversationId, mergedText, messageIds, {
     status: 'REPLIED',
     aiReply,
     knowledgeChunks: allVectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
     similarityScore: bestSimilarity,
     catalogMatch: catalogMatches.length > 0 ? catalogMatches[0].metadata : null,
-    promptTokens,
-    completionTokens,
-    totalTokens,
-    costUsd,
+    promptTokens, completionTokens, totalTokens, costUsd,
     promptSent: { system: systemPrompt, user: userPrompt },
     sentViaWwbun: !!sendResult,
     wwbunMessageId: sendResult?.messageId || null,
@@ -617,8 +713,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   console.log(`[Reply] ${whatsappNumber} — ${totalTokens} tokens, $${costUsd.toFixed(6)}, ${Date.now() - startTime}ms`)
 }
-
-// (Old keyword-based chunk filtering removed — now using vector search)
 
 // ===========================================
 // Prompt Building (Vector-based v2)
