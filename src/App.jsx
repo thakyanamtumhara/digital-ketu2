@@ -2047,6 +2047,7 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
   // Sync history state
   const [syncHistory, setSyncHistory] = useState([])
   const [loadingSyncHistory, setLoadingSyncHistory] = useState(false)
+  const [syncHistoryFilter, setSyncHistoryFilter] = useState(null)
   const [premiumExportRunning, setPremiumExportRunning] = useState(false)
   const fetchSyncHistory = async () => {
     setLoadingSyncHistory(true)
@@ -2233,11 +2234,16 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
         {showSection.syncHistory && (
           <div style={styles.kbContent}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <span style={{ fontSize: '12px', color: '#94a3b8' }}>Last {syncHistory.length} sync operations</span>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: '#94a3b8' }}>Last {syncHistory.length} sync operations</span>
+                {['all', 'premium_export', 'catalog', 'saved_replies'].map(f => (
+                  <button key={f} style={{ background: (syncHistoryFilter || 'all') === f ? '#334155' : 'none', border: '1px solid #334155', borderRadius: '4px', padding: '1px 6px', fontSize: '10px', color: f === 'premium_export' ? '#fbbf24' : f === 'catalog' ? '#60a5fa' : f === 'saved_replies' ? '#a78bfa' : '#94a3b8', cursor: 'pointer' }} onClick={() => setSyncHistoryFilter(f === 'all' ? null : f)}>{f === 'all' ? 'All' : f === 'premium_export' ? 'Premium' : f === 'catalog' ? 'Catalog' : 'Replies'}</button>
+                ))}
+              </div>
               <button style={{ background: 'none', border: '1px solid #334155', borderRadius: '4px', padding: '2px 8px', fontSize: '11px', color: '#60a5fa', cursor: 'pointer' }} onClick={fetchSyncHistory} disabled={loadingSyncHistory}>{loadingSyncHistory ? 'Loading...' : 'Refresh'}</button>
             </div>
             {syncHistory.length === 0 && <p style={{ color: '#64748b', fontSize: '12px' }}>No sync logs yet</p>}
-            {syncHistory.map((log, i) => {
+            {syncHistory.filter(log => !syncHistoryFilter || log.syncType === syncHistoryFilter).map((log, i) => {
               const isPremium = log.syncType === 'premium_export'
               const typeColors = { premium_export: '#fbbf24', catalog: '#60a5fa', saved_replies: '#a78bfa', style_pairs: '#f472b6' }
               const typeColor = typeColors[log.syncType] || '#94a3b8'
@@ -2253,8 +2259,18 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
                     <span style={{ fontSize: '11px', color: '#64748b' }}>{new Date(log.createdAt).toLocaleString('en-IN')}</span>
                   </div>
                   <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
-                    Found: {log.itemsFound} | New: {log.itemsNew} | Updated: {log.itemsUpdated}
-                    {log.durationMs && <span> | {(log.durationMs / 1000).toFixed(1)}s</span>}
+                    {isPremium ? (
+                      <>
+                        Scanned: {log.itemsFound} pairs | Kept: {log.itemsNew} | Rejected: {log.itemsFound - log.itemsNew}
+                        {log.itemsFound > 0 && <span style={{ color: '#fbbf24', fontWeight: '600' }}> | {((log.itemsNew / log.itemsFound) * 100).toFixed(0)}% quality</span>}
+                        {log.durationMs && <span> | {(log.durationMs / 1000).toFixed(1)}s</span>}
+                      </>
+                    ) : (
+                      <>
+                        Found: {log.itemsFound} | New: {log.itemsNew} | Updated: {log.itemsUpdated}
+                        {log.durationMs && <span> | {(log.durationMs / 1000).toFixed(1)}s</span>}
+                      </>
+                    )}
                   </div>
                   {log.error && <div style={{ fontSize: '11px', color: '#f87171', marginTop: '2px' }}>{log.error}</div>}
                 </div>
