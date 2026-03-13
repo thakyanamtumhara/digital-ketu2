@@ -2305,7 +2305,7 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div>
               <div style={{ fontWeight: '600', color: '#fbbf24', fontSize: '14px', marginBottom: '4px' }}>Export Premium Style Pairs</div>
-              <p style={{ margin: 0, color: '#94a3b8', fontSize: '12px', lineHeight: '1.5' }}>Scans your recent WhatsApp chats and extracts buyer question → Om reply pairs. Each pair is judged by Claude Opus for quality (pricing accuracy, tone, helpfulness). Only high-quality pairs are kept and added to AI knowledge base, so the AI learns your real selling style. Runs automatically every week, or click "Export Now" to run manually.</p>
+              <p style={{ margin: 0, color: '#94a3b8', fontSize: '12px', lineHeight: '1.6' }}>Extracts buyer → Om reply pairs from WhatsApp chats and trains AI with them. 4 rules filter quality:{'\n'}Rule 1: Thought bundling — messages within 5s merged into one (wwbun).{'\n'}Rule 2: Minimum 4+ words on both buyer & seller side (wwbun).{'\n'}Rule 3: Non-context only — Claude Opus skips pairs referencing specific orders, prior conversations, or situations AI won't have context for.{'\n'}Rule 4: Permanent only — Claude Opus skips answers that expire (stock updates, delivery dates, temporary info). Keeps only facts that are always true (policies, MOQ, payment methods, factory details).{'\n'}Kept pairs are added to AI knowledge base permanently so the AI learns your real selling style. Runs weekly or click "Train AI Now".</p>
             </div>
             <button style={{ ...styles.btnPrimary, background: '#854d0e' }} onClick={async () => {
               setPremiumExportRunning(true)
@@ -2318,7 +2318,7 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
                 window.location.reload()
               } catch (err) { alert('Export failed: ' + err.message) }
               setPremiumExportRunning(false)
-            }} disabled={premiumExportRunning}>{premiumExportRunning ? 'Exporting...' : 'Export Now'}</button>
+            }} disabled={premiumExportRunning}>{premiumExportRunning ? 'Training...' : 'Train AI Now'}</button>
           </div>
           {settings.lastPremiumExportAt && <p style={{ margin: '0 0 4px', color: '#60a5fa', fontSize: '11px' }}>Last: {new Date(settings.lastPremiumExportAt).toLocaleString('en-IN')} ({settings.lastPremiumExportPairs || 0} pairs) | Next: {settings.nextPremiumExportAt ? new Date(settings.nextPremiumExportAt).toLocaleString('en-IN') : 'Pending'}</p>}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '6px' }}>
