@@ -2314,7 +2314,7 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
                 const res = await fetch('/api/premium-export/run', { method: 'POST' })
                 const data = await res.json()
                 if (!res.ok) throw new Error(data.error || 'Export failed')
-                alert(`Export complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)`)
+                alert(`Export complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)\nDate range: ${data.fromDate} to ${data.toDate}`)
                 fetchSyncHistory()
                 window.location.reload()
               } catch (err) { alert('Export failed: ' + err.message) }

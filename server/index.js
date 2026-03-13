@@ -1552,7 +1552,7 @@ async function executePremiumExport(settings) {
         lastPremiumExportPairs: 0,
       },
     })
-    return { imported: 0, total: 0, skipped: 0 }
+    return { imported: 0, total: 0, skipped: 0, fromDate, toDate }
   }
 
   // Step 2: Opus 4.6 judges Rules 3 & 4
@@ -1620,7 +1620,7 @@ async function executePremiumExport(settings) {
   })
 
   console.log(`[PremiumExport] ${imported} pairs imported in ${(durationMs / 1000).toFixed(1)}s`)
-  return { imported, total: mechanicalPairs.length, skipped: mechanicalPairs.length - kept.length }
+  return { imported, total: mechanicalPairs.length, skipped: mechanicalPairs.length - kept.length, fromDate, toDate }
 }
 
 // Check every hour if premium export is due
