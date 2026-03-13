@@ -2305,7 +2305,7 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div>
               <div style={{ fontWeight: '600', color: '#fbbf24', fontSize: '14px', marginBottom: '4px' }}>Export Premium Style Pairs</div>
-              <p style={{ margin: 0, color: '#94a3b8', fontSize: '12px' }}>Extracts quality buyer→Om pairs from live chats. Opus judges each pair. Kept pairs auto-import into AI knowledge.</p>
+              <p style={{ margin: 0, color: '#94a3b8', fontSize: '12px', lineHeight: '1.5' }}>Scans your recent WhatsApp chats and extracts buyer question → Om reply pairs. Each pair is judged by Claude Opus for quality (pricing accuracy, tone, helpfulness). Only high-quality pairs are kept and added to AI knowledge base, so the AI learns your real selling style. Runs automatically every week, or click "Export Now" to run manually.</p>
             </div>
             <button style={{ ...styles.btnPrimary, background: '#854d0e' }} onClick={async () => {
               setPremiumExportRunning(true)
