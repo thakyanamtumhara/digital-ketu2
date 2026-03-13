@@ -125,6 +125,7 @@ enum MessageStatus {
 model Settings {
   id                  String   @id @default("default")
   isActive            Boolean  @default(true)       // global ON/OFF toggle
+  partialAiEnabled    Boolean  @default(false)      // partial AI: only 3-min follow-up (no welcome, no full AI)
   dailyBudgetInr      Float    @default(500)        // daily spend limit in INR
   dailySpentUsd       Float    @default(0)          // today's spend in USD
   dailySpentResetAt   DateTime @default(now())      // when daily counter was last reset

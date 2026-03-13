@@ -226,7 +226,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // Extract quoted message text (buyer replying to a previous message)
   const quotedText = messages.find(m => m.quotedText)?.quotedText || null
 
-  // --- Welcome eligibility (computed early so welcome bypasses isActive/schedule/budget) ---
+  // --- Welcome eligibility (new buyer or 7+ days inactive) ---
   const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
   const lastMessageAge = previousLastMessageAt
     ? Date.now() - new Date(previousLastMessageAt).getTime()
@@ -234,8 +234,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const isFirstTime = !existingConversation
   const isWelcomeEligible = isFirstTime || lastMessageAge > SEVEN_DAYS_MS
 
-  // --- Check: Is system active? (welcome-eligible buyers bypass this) ---
-  if (!settings.isActive && !isWelcomeEligible) {
+  // --- Check: Is system active? ---
+  if (!settings.isActive && !settings.partialAiEnabled) {
+    // Both AI and partial AI are off → skip everything
     await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
       status: 'SKIPPED',
       deferReason: 'off_hours',
@@ -244,6 +245,83 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     })
     return
   }
+
+  // --- Partial AI mode: only 3-min follow-up for new/7+day buyers, nothing else ---
+  if (!settings.isActive && settings.partialAiEnabled) {
+    if (isWelcomeEligible) {
+      // Extra safety: check message logs for recent activity
+      let skipFollowup = false
+      if (!isFirstTime) {
+        const recentLog = await db.messageLog.findFirst({
+          where: {
+            conversationId: conversation.id,
+            createdAt: { gt: new Date(Date.now() - SEVEN_DAYS_MS) },
+          },
+          select: { id: true },
+        })
+        if (recentLog) skipFollowup = true
+      }
+
+      if (!skipFollowup) {
+        console.log(`[Partial AI] ${whatsappNumber} — scheduling 3-min followup only (wwbun sent welcome)`)
+        const followupTimer = setTimeout(async () => {
+          pendingWelcomeFollowups.delete(whatsappNumber)
+          try {
+            // Re-check cooldown
+            const freshConvo = await db.buyerConversation.findUnique({
+              where: { whatsappNumber },
+              select: { cooldownUntil: true },
+            })
+            if (freshConvo?.cooldownUntil && new Date() < new Date(freshConvo.cooldownUntil)) {
+              console.log(`[Partial AI Followup] ${whatsappNumber} — skipped: Om intervened`)
+              return
+            }
+
+            if (isGenericMessage(mergedText)) {
+              await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+              await createLog(db, conversation.id, mergedText, [], {
+                status: 'REPLIED',
+                aiReply: WELCOME_FOLLOWUP_GENERIC,
+                deferReason: 'partial_ai_followup_generic',
+                processingMs: 0,
+                sentViaWwbun: true,
+              })
+              console.log(`[Partial AI Followup] ${whatsappNumber} — generic msg, sent nudge`)
+            } else {
+              // Real question — but AI is off, so just send generic nudge too
+              // (Partial AI doesn't call Claude)
+              await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+              await createLog(db, conversation.id, mergedText, [], {
+                status: 'REPLIED',
+                aiReply: WELCOME_FOLLOWUP_GENERIC,
+                deferReason: 'partial_ai_followup_generic',
+                processingMs: 0,
+                sentViaWwbun: true,
+              })
+              console.log(`[Partial AI Followup] ${whatsappNumber} — real question but AI off, sent nudge`)
+            }
+          } catch (err) {
+            console.error(`[Partial AI Followup Error] ${whatsappNumber}:`, err.message)
+          }
+        }, THREE_MINUTES_MS)
+
+        pendingWelcomeFollowups.set(whatsappNumber, {
+          timer: followupTimer,
+          scheduledAt: Date.now(),
+        })
+      }
+    }
+    // Partial AI: don't process through normal pipeline
+    await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
+      status: 'SKIPPED',
+      deferReason: 'partial_ai_only',
+      processingMs: Date.now() - startTime,
+      isMedia: hasMediaOnly,
+    })
+    return
+  }
+
+  // --- From here: isActive=true → full AI flow ---
 
   // --- Check: Working hours schedule ---
   if (settings.scheduleEnabled && settings.scheduleStart && settings.scheduleEnd) {
@@ -256,7 +334,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     const startTime_ = startH * 60 + startM
     const endTime_ = endH * 60 + endM
 
-    if ((currentTime < startTime_ || currentTime > endTime_) && !isWelcomeEligible) {
+    if (currentTime < startTime_ || currentTime > endTime_) {
       await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
         status: 'SKIPPED',
         deferReason: 'off_hours',
@@ -269,7 +347,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   // --- Check: Daily budget ---
   const dailySpentInr = settings.dailySpentUsd * USD_TO_INR
-  if (dailySpentInr >= settings.dailyBudgetInr && !isWelcomeEligible) {
+  if (dailySpentInr >= settings.dailyBudgetInr) {
     await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
       status: 'SKIPPED',
       deferReason: 'daily_limit',
@@ -467,14 +545,12 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     isGreeting = greetingPatterns.includes(normalizedForGreeting)
   }
 
-  // --- WELCOME MESSAGE + 3-MIN FOLLOW-UP ---
-  // For ANY message from first-time buyers or returning after 7+ days:
-  // 1. Send /welcome immediately
-  // 2. After 3 min: generic nudge (if simple msg) or AI response (if real question)
-  let shouldSendWelcome = isWelcomeEligible
+  // --- 3-MIN FOLLOW-UP for new/7+day buyers (AI ON mode) ---
+  // wwbun handles the welcome message. Digital-ketu2 only schedules the 3-min follow-up.
+  let shouldFollowUp = isWelcomeEligible
 
-  // Extra safety: check message logs too — if there are recent logs (within 7 days), don't send welcome
-  if (shouldSendWelcome && !isFirstTime) {
+  // Extra safety: check message logs too — if there are recent logs (within 7 days), skip
+  if (shouldFollowUp && !isFirstTime) {
     const recentLog = await db.messageLog.findFirst({
       where: {
         conversationId: conversation.id,
@@ -483,40 +559,25 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       select: { id: true },
     })
     if (recentLog) {
-      shouldSendWelcome = false
-      console.log(`[Welcome] ${whatsappNumber} — skipped: recent message log found despite old lastMessageAt`)
+      shouldFollowUp = false
+      console.log(`[Followup] ${whatsappNumber} — skipped: recent message log found despite old lastMessageAt`)
     }
   }
 
-  if (shouldSendWelcome) {
-    // 1. Send /welcome immediately
-    const welcomeChunk = await db.knowledgeChunk.findFirst({
-      where: { source: 'SAVED_REPLY', sourceId: 'welcome' },
-      select: { content: true },
-    })
-    let welcomeMessage = welcomeChunk?.content || 'https://sale91.com/catalog\n\nCheck rates, color and buy 👆'
-    welcomeMessage = welcomeMessage.replace(/^\/\w+:\s*/, '')
-    await sendReplyViaWwbun(whatsappNumber, welcomeMessage)
-    await createLog(db, conversation.id, mergedText, messageIds, {
-      status: 'REPLIED',
-      aiReply: welcomeMessage,
-      deferReason: 'welcome_bypass',
-      processingMs: Date.now() - startTime,
-      sentViaWwbun: true,
-    })
-    console.log(`[Welcome] ${whatsappNumber} — welcome sent, scheduling 3-min followup`)
+  if (shouldFollowUp) {
+    console.log(`[Followup] ${whatsappNumber} — new/returning buyer, scheduling 3-min followup (wwbun sent welcome)`)
 
-    // 2. Schedule 3-minute delayed follow-up
+    // Schedule 3-minute delayed follow-up
     const followupTimer = setTimeout(async () => {
       pendingWelcomeFollowups.delete(whatsappNumber)
       try {
         // Re-check cooldown — if Om intervened, skip
         const freshConvo = await db.buyerConversation.findUnique({
           where: { whatsappNumber },
-          select: { cooldownUntil: true, id: true },
+          select: { cooldownUntil: true },
         })
         if (freshConvo?.cooldownUntil && new Date() < new Date(freshConvo.cooldownUntil)) {
-          console.log(`[Welcome Followup] ${whatsappNumber} — skipped: Om intervened (cooldown active)`)
+          console.log(`[Followup] ${whatsappNumber} — skipped: Om intervened (cooldown active)`)
           return
         }
 
@@ -530,15 +591,15 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
             processingMs: 0,
             sentViaWwbun: true,
           })
-          console.log(`[Welcome Followup] ${whatsappNumber} — generic msg, sent nudge`)
+          console.log(`[Followup] ${whatsappNumber} — generic msg, sent nudge`)
         } else {
-          // Real question → run AI (only if system is active)
+          // Real question → run AI
           const currentSettings = await db.settings.findUnique({ where: { id: 'default' } })
           if (!currentSettings?.isActive) {
-            console.log(`[Welcome Followup] ${whatsappNumber} — AI is off, skipping AI followup`)
+            console.log(`[Followup] ${whatsappNumber} — AI is off, skipping AI followup`)
             return
           }
-          console.log(`[Welcome Followup] ${whatsappNumber} — real question, running AI flow`)
+          console.log(`[Followup] ${whatsappNumber} — real question, running AI flow`)
           await runAiFlow({
             whatsappNumber,
             mergedText,
@@ -553,7 +614,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
           })
         }
       } catch (err) {
-        console.error(`[Welcome Followup Error] ${whatsappNumber}:`, err.message)
+        console.error(`[Followup Error] ${whatsappNumber}:`, err.message)
       }
     }, THREE_MINUTES_MS)
 
@@ -562,7 +623,13 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       scheduledAt: Date.now(),
     })
 
-    return // Welcome sent — delayed followup handles the rest
+    // Log the welcome-eligible message and return — the follow-up handles the rest
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'SKIPPED',
+      deferReason: 'welcome_followup_scheduled',
+      processingMs: Date.now() - startTime,
+    })
+    return
   }
 
   // --- Check: Order ID / tracking number detection ---

@@ -230,6 +230,12 @@ function App() {
           >
             {settings.isActive ? 'AI ON' : 'AI OFF'}
           </button>
+          <button
+            style={{ ...styles.toggleBtn, background: settings.partialAiEnabled ? '#f59e0b' : '#6b7280', marginLeft: 8 }}
+            onClick={() => updateSetting('partialAiEnabled', !settings.partialAiEnabled)}
+          >
+            {settings.partialAiEnabled ? 'Partial ON' : 'Partial OFF'}
+          </button>
         </div>
       </header>
 
