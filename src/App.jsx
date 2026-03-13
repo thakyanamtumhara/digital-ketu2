@@ -2103,11 +2103,11 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
             <p style={{ margin: '0 0 4px' }}><strong>Catalog last sync:</strong> {settings.lastSyncAt ? new Date(settings.lastSyncAt).toLocaleString('en-IN') : 'Never'}</p>
             <p style={{ margin: '0 0 4px' }}><strong>Next auto-sync:</strong> {settings.nextSyncAt ? new Date(settings.nextSyncAt).toLocaleString('en-IN') : 'Not scheduled'}</p>
             <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>
-              <strong>Total:</strong> {catalogItems.length} products | {replyTemplates.length} saved replies | {STYLE_PAIRS.length} style pairs
+              <strong>Total:</strong> {catalogItems.length} products | {replyTemplates.length} saved replies
             </p>
           </div>
           <button style={styles.btnPrimary} onClick={onSync} disabled={syncing}>
-            {syncing ? 'Syncing Catalog...' : 'Sync Catalog'}
+            {syncing ? 'Syncing...' : 'Sync Catalog + Replies'}
           </button>
         </div>
       </div>
