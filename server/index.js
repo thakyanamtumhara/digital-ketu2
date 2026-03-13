@@ -1427,10 +1427,9 @@ app.post('/api/sync/style-pairs', async (c) => {
 
 app.post('/api/sync/all', async (c) => {
   try {
-    const [replies, catalog, stylePairs] = await Promise.all([
+    const [replies, catalog] = await Promise.all([
       syncSavedReplies(db, anthropic),
       syncCatalog(db, anthropic),
-      syncStylePairs(db, anthropic).catch(err => ({ status: 'failed', error: err.message })),
     ])
     // Update last sync time
     await db.settings.update({
@@ -1440,7 +1439,7 @@ app.post('/api/sync/all', async (c) => {
         nextSyncAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 days
       },
     })
-    return c.json({ savedReplies: replies, catalog, stylePairs })
+    return c.json({ savedReplies: replies, catalog })
   } catch (err) {
     return c.json({ error: err.message }, 500)
   }
@@ -1473,11 +1472,7 @@ async function runScheduledSync() {
   try {
     await syncSavedReplies(db, anthropic)
     await syncCatalog(db, anthropic)
-    // Style pairs: only sync on FIRST run (empty DB), not every 3 days
-    // Om's communication style doesn't change — re-extract manually if needed
-    if (chunkCount === 0) {
-      await syncStylePairs(db, anthropic).catch(err => console.error('[Sync] Style pairs failed:', err.message))
-    }
+    // Style pairs handled by weekly Premium Export (Opus quality filtering)
     await db.settings.update({
       where: { id: 'default' },
       data: {
