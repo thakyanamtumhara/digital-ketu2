@@ -2007,7 +2007,7 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
 }
 
 function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }) {
-  const [showSection, setShowSection] = useState({ rules: false, catalog: false, replies: false, stylePairs: false, syncHistory: false })
+  const [showSection, setShowSection] = useState({ rules: false, catalog: false, replies: false, stylePairs: false, syncHistory: false, premiumInfo: false })
   const toggle = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
   const [replyTemplates, setReplyTemplates] = useState(REPLY_TEMPLATES)
   const deleteReplyTemplate = async (index) => {
@@ -2305,7 +2305,8 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div>
               <div style={{ fontWeight: '600', color: '#fbbf24', fontSize: '14px', marginBottom: '4px' }}>Export Premium Style Pairs</div>
-              <p style={{ margin: 0, color: '#94a3b8', fontSize: '12px', lineHeight: '1.6' }}>Extracts buyer → Om reply pairs from WhatsApp chats and trains AI with them. 4 rules filter quality:{'\n'}Rule 1: Thought bundling — messages within 5s merged into one (wwbun).{'\n'}Rule 2: Minimum 4+ words on both buyer & seller side (wwbun).{'\n'}Rule 3: Non-context only — Claude Opus skips pairs referencing specific orders, prior conversations, or situations AI won't have context for.{'\n'}Rule 4: Permanent only — Claude Opus skips answers that expire (stock updates, delivery dates, temporary info). Keeps only facts that are always true (policies, MOQ, payment methods, factory details).{'\n'}Kept pairs are added to AI knowledge base permanently so the AI learns your real selling style. Runs weekly or click "Train AI Now".</p>
+              <p style={{ margin: 0, color: '#94a3b8', fontSize: '12px' }}>Extracts quality pairs from your chats and trains AI with your selling style.</p>
+              <span onClick={() => toggle('premiumInfo')} style={{ color: '#fbbf24', fontSize: '11px', cursor: 'pointer', marginTop: '4px', display: 'inline-block' }}>{showSection.premiumInfo ? '▼' : '▶'} How it works</span>
             </div>
             <button style={{ ...styles.btnPrimary, background: '#854d0e' }} onClick={async () => {
               setPremiumExportRunning(true)
@@ -2320,6 +2321,41 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
               setPremiumExportRunning(false)
             }} disabled={premiumExportRunning}>{premiumExportRunning ? 'Training...' : 'Train AI Now'}</button>
           </div>
+          {showSection.premiumInfo && (
+            <div style={{ margin: '8px 0', padding: '12px', background: '#1a1a2e', borderRadius: '8px', border: '1px solid #854d0e', fontSize: '12px', lineHeight: '1.8' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ color: '#e2e8f0', fontWeight: '600', marginBottom: '2px' }}>WhatsApp Chats</div>
+                <div style={{ color: '#fbbf24', paddingLeft: '8px' }}>{'  ↓'}</div>
+                <div style={{ padding: '6px 10px', background: '#0f2a1a', borderRadius: '6px', borderLeft: '3px solid #4ade80' }}>
+                  <span style={{ color: '#4ade80', fontWeight: '600' }}>Rule 1</span><span style={{ color: '#94a3b8' }}> — Thought Bundling</span>
+                  <div style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>Messages within 5 seconds merged into one thought (wwbun)</div>
+                </div>
+                <div style={{ color: '#fbbf24', paddingLeft: '8px' }}>{'  ↓'}</div>
+                <div style={{ padding: '6px 10px', background: '#0f2a1a', borderRadius: '6px', borderLeft: '3px solid #4ade80' }}>
+                  <span style={{ color: '#4ade80', fontWeight: '600' }}>Rule 2</span><span style={{ color: '#94a3b8' }}> — Quality Filter</span>
+                  <div style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>Keep only pairs with 4+ words on both buyer & seller side (wwbun)</div>
+                </div>
+                <div style={{ color: '#fbbf24', paddingLeft: '8px' }}>{'  ↓'}</div>
+                <div style={{ padding: '6px 10px', background: '#1c1305', borderRadius: '6px', borderLeft: '3px solid #f59e0b' }}>
+                  <span style={{ color: '#f59e0b', fontWeight: '600' }}>Rule 3</span><span style={{ color: '#94a3b8' }}> — Non-Context Only</span><span style={{ color: '#64748b', fontSize: '10px' }}> (Claude Opus)</span>
+                  <div style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>Skip pairs about specific orders, prior conversations, or situations AI won't have context for</div>
+                  <div style={{ color: '#f87171', fontSize: '10px', marginTop: '2px' }}>{"✗ \"My order hasn't arrived\" • \"Any update?\" • \"Aaj dispatch hua kya?\""}</div>
+                </div>
+                <div style={{ color: '#fbbf24', paddingLeft: '8px' }}>{'  ↓'}</div>
+                <div style={{ padding: '6px 10px', background: '#1c1305', borderRadius: '6px', borderLeft: '3px solid #f59e0b' }}>
+                  <span style={{ color: '#f59e0b', fontWeight: '600' }}>Rule 4</span><span style={{ color: '#94a3b8' }}> — Permanent Only</span><span style={{ color: '#64748b', fontSize: '10px' }}> (Claude Opus)</span>
+                  <div style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>Skip answers that expire over time. Keep only facts that are always true.</div>
+                  <div style={{ color: '#f87171', fontSize: '10px', marginTop: '2px' }}>{"✗ \"Charcoal out of stock\" • \"2-3 din mein aayega\" • \"Holiday tomorrow\""}</div>
+                  <div style={{ color: '#4ade80', fontSize: '10px', marginTop: '1px' }}>{"✓ Policies, MOQ, payment methods, factory location, product details"}</div>
+                </div>
+                <div style={{ color: '#fbbf24', paddingLeft: '8px' }}>{'  ↓'}</div>
+                <div style={{ padding: '6px 10px', background: '#0c1a3a', borderRadius: '6px', borderLeft: '3px solid #60a5fa' }}>
+                  <span style={{ color: '#60a5fa', fontWeight: '600' }}>AI Knowledge Base</span>
+                  <div style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>Kept pairs added permanently — AI learns your real selling style</div>
+                </div>
+              </div>
+            </div>
+          )}
           {settings.lastPremiumExportAt && <p style={{ margin: '0 0 4px', color: '#60a5fa', fontSize: '11px' }}>Last: {new Date(settings.lastPremiumExportAt).toLocaleString('en-IN')} ({settings.lastPremiumExportPairs || 0} pairs) | Next: {settings.nextPremiumExportAt ? new Date(settings.nextPremiumExportAt).toLocaleString('en-IN') : 'Pending'}</p>}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '6px' }}>
             <span style={{ fontSize: '11px', color: settings.premiumExportEnabled ? '#4ade80' : '#f87171' }}>
