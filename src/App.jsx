@@ -226,7 +226,17 @@ function App() {
           <span style={{ ...styles.statusDot, background: settings.isActive ? '#22c55e' : '#ef4444' }} />
           <button
             style={{ ...styles.toggleBtn, background: settings.isActive ? '#22c55e' : '#ef4444' }}
-            onClick={() => updateSetting('isActive', !settings.isActive)}
+            onClick={async () => {
+              const newStatus = !settings.isActive
+              const body = { isActive: newStatus }
+              if (newStatus) body.partialAiEnabled = false // auto-OFF partial when AI turns ON
+              const res = await fetch(`${API}/settings`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+              })
+              if (res.ok) setSettings(await res.json())
+            }}
           >
             {settings.isActive ? 'AI ON' : 'AI OFF'}
           </button>
