@@ -2314,7 +2314,9 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
                 const res = await fetch('/api/premium-export/run', { method: 'POST' })
                 const data = await res.json()
                 if (!res.ok) throw new Error(data.error || 'Export failed')
-                alert(`Export complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)\nDate range: ${data.fromDate} to ${data.toDate}`)
+                const s = data.wwbunFilterStats
+                const statsMsg = s ? `\n\nwwbun breakdown:\n${s.totalConvs} conversations, ${s.totalMsgs} messages, ${s.totalThoughts} thoughts\n${s.rawPairs} Om replies found\nFiltered: ${s.skipAi} AI-generated, ${s.skipShortWords} too short (<4 words), ${s.skipGreeting} greetings, ${s.skipAck} acks, ${s.skipMedia} media, ${s.skipCatalog} catalog/welcome, ${s.skipProductSpec} product specs, ${s.skipDateRange} outside date range, ${s.skipTemplate} templates, ${s.skipEmpty} empty` : ''
+                alert(`Export complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)\nDate range: ${data.fromDate} to ${data.toDate}${statsMsg}`)
                 fetchSyncHistory()
                 window.location.reload()
               } catch (err) { alert('Export failed: ' + err.message) }
@@ -2380,7 +2382,9 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
                   const res = await fetch('/api/premium-export/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromDate }) })
                   const data = await res.json()
                   if (!res.ok) throw new Error(data.error || 'Export failed')
-                  alert(`Re-scan complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)\nDate range: ${data.fromDate} to ${data.toDate}`)
+                  const s = data.wwbunFilterStats
+                  const statsMsg = s ? `\n\nwwbun breakdown:\n${s.totalConvs} conversations, ${s.totalMsgs} messages, ${s.totalThoughts} thoughts\n${s.rawPairs} Om replies found\nFiltered: ${s.skipAi} AI-generated, ${s.skipShortWords} too short (<4 words), ${s.skipGreeting} greetings, ${s.skipAck} acks, ${s.skipMedia} media, ${s.skipCatalog} catalog/welcome, ${s.skipProductSpec} product specs, ${s.skipDateRange} outside date range, ${s.skipTemplate} templates, ${s.skipEmpty} empty` : ''
+                  alert(`Re-scan complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)\nDate range: ${data.fromDate} to ${data.toDate}${statsMsg}`)
                   fetchSyncHistory()
                   window.location.reload()
                 } catch (err) { alert('Re-scan failed: ' + err.message) }
