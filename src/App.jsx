@@ -2303,49 +2303,38 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
         {/* Export Premium Style Pairs */}
         <div style={{ ...styles.syncInfo, marginTop: '10px', borderColor: '#854d0e' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <div style={{ fontWeight: '600', color: '#fbbf24', fontSize: '14px' }}>Export Premium Style Pairs</div>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <span style={{ fontSize: '11px', color: settings.premiumExportEnabled ? '#4ade80' : '#f87171' }}>
-                Auto-export: {settings.premiumExportEnabled ? 'ON' : 'OFF'} (every {settings.premiumExportIntervalDays || 7} days)
-              </span>
-              <button
-                style={{ background: 'none', border: '1px solid #475569', borderRadius: '4px', padding: '2px 8px', fontSize: '11px', color: settings.premiumExportEnabled ? '#f87171' : '#4ade80', cursor: 'pointer' }}
-                onClick={async () => {
-                  try {
-                    await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ premiumExportEnabled: !settings.premiumExportEnabled }) })
-                    window.location.reload()
-                  } catch (err) { console.error(err) }
-                }}
-              >{settings.premiumExportEnabled ? 'Disable' : 'Enable'}</button>
+            <div>
+              <div style={{ fontWeight: '600', color: '#fbbf24', fontSize: '14px', marginBottom: '4px' }}>Export Premium Style Pairs</div>
+              <p style={{ margin: 0, color: '#94a3b8', fontSize: '12px' }}>Extracts quality buyer→Om pairs from live chats. Opus judges each pair. Kept pairs auto-import into AI knowledge.</p>
             </div>
-          </div>
-          <p style={{ margin: '0 0 4px', color: '#94a3b8', fontSize: '12px' }}>Extract high-quality buyer→Om reply pairs (Rules 1-4: thought bundling, 4+ words, non-context, permanent only). Auto-imports into AI knowledge base.</p>
-          {settings.lastPremiumExportAt && <p style={{ margin: '0 0 4px', color: '#60a5fa', fontSize: '11px' }}>Last: {new Date(settings.lastPremiumExportAt).toLocaleString('en-IN')} ({settings.lastPremiumExportPairs || 0} pairs) | Next: {settings.nextPremiumExportAt ? new Date(settings.nextPremiumExportAt).toLocaleString('en-IN') : 'Pending'}</p>}
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '8px' }}>
-            <label style={{ color: '#94a3b8', fontSize: '12px' }}>From:</label>
-            <input type="date" value={exportFromDate} onChange={e => setExportFromDate(e.target.value)} style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '4px', padding: '4px 8px', fontSize: '13px' }} />
-            <label style={{ color: '#94a3b8', fontSize: '12px' }}>To:</label>
-            <input type="date" value={exportToDate} onChange={e => setExportToDate(e.target.value)} style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '4px', padding: '4px 8px', fontSize: '13px' }} />
-            <button style={{ ...styles.btnPrimary, background: '#854d0e' }} onClick={handleExportPairs} disabled={exporting || !exportFromDate}>{exporting ? 'Exporting...' : 'Export Pairs'}</button>
-            {exportResult && <button style={{ ...styles.btnPrimary, background: '#166534' }} onClick={downloadExport}>Download ({exportResult.totalPremium} pairs)</button>}
-          </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '6px' }}>
-            <button style={{ ...styles.btnPrimary, background: '#6b21a8', fontSize: '12px', padding: '4px 12px' }} onClick={async () => {
+            <button style={{ ...styles.btnPrimary, background: '#854d0e' }} onClick={async () => {
               setPremiumExportRunning(true)
               try {
                 const res = await fetch('/api/premium-export/run', { method: 'POST' })
                 const data = await res.json()
                 if (!res.ok) throw new Error(data.error || 'Export failed')
-                alert(`Premium export complete! ${data.imported} pairs imported (${data.total} mechanical, ${data.skipped} skipped)`)
+                alert(`Export complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)`)
                 fetchSyncHistory()
                 window.location.reload()
               } catch (err) { alert('Export failed: ' + err.message) }
               setPremiumExportRunning(false)
-            }} disabled={premiumExportRunning}>{premiumExportRunning ? 'Running...' : 'Run Auto-Export Now'}</button>
-            <span style={{ fontSize: '11px', color: '#94a3b8' }}>Weekly export + Opus judging + auto-import</span>
+            }} disabled={premiumExportRunning}>{premiumExportRunning ? 'Exporting...' : 'Export Now'}</button>
           </div>
-          {exportResult && <p style={{ margin: '8px 0 0', color: '#4ade80', fontSize: '12px' }}>{exportResult.totalMechanical} mechanical → {exportResult.totalPremium} premium (skipped {exportResult.totalSkipped})</p>}
-          {exportError && <p style={{ margin: '8px 0 0', color: '#f87171', fontSize: '12px' }}>{exportError}</p>}
+          {settings.lastPremiumExportAt && <p style={{ margin: '0 0 4px', color: '#60a5fa', fontSize: '11px' }}>Last: {new Date(settings.lastPremiumExportAt).toLocaleString('en-IN')} ({settings.lastPremiumExportPairs || 0} pairs) | Next: {settings.nextPremiumExportAt ? new Date(settings.nextPremiumExportAt).toLocaleString('en-IN') : 'Pending'}</p>}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '6px' }}>
+            <span style={{ fontSize: '11px', color: settings.premiumExportEnabled ? '#4ade80' : '#f87171' }}>
+              Weekly auto-export: {settings.premiumExportEnabled ? 'ON' : 'OFF'}
+            </span>
+            <button
+              style={{ background: 'none', border: '1px solid #475569', borderRadius: '4px', padding: '1px 8px', fontSize: '11px', color: settings.premiumExportEnabled ? '#f87171' : '#4ade80', cursor: 'pointer' }}
+              onClick={async () => {
+                try {
+                  await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ premiumExportEnabled: !settings.premiumExportEnabled }) })
+                  window.location.reload()
+                } catch (err) { console.error(err) }
+              }}
+            >{settings.premiumExportEnabled ? 'Disable' : 'Enable'}</button>
+          </div>
         </div>
 
         {/* Export Cleaned Reply Templates */}
