@@ -2069,6 +2069,21 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
     setImporting(false)
   }
 
+  // Premium + DB style pairs
+  const [premiumPairs, setPremiumPairs] = useState([])
+  const [dbStylePairs, setDbStylePairs] = useState([])
+  const fetchPremiumPairs = useCallback(async () => {
+    try {
+      const [premRes, styleRes] = await Promise.all([
+        fetch(`${API}/knowledge/chunks?source=PREMIUM_PAIR&pageSize=500`),
+        fetch(`${API}/knowledge/chunks?source=STYLE_PAIR&pageSize=500`)
+      ])
+      if (premRes.ok) { const data = await premRes.json(); setPremiumPairs(data.chunks || []) }
+      if (styleRes.ok) { const data = await styleRes.json(); setDbStylePairs(data.chunks || []) }
+    } catch (err) { console.error('Failed to fetch pairs:', err) }
+  }, [])
+  useEffect(() => { fetchPremiumPairs() }, [])
+
   // Sync history state
   const [syncHistory, setSyncHistory] = useState([])
   const [loadingSyncHistory, setLoadingSyncHistory] = useState(false)
