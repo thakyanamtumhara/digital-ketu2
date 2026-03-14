@@ -2486,7 +2486,6 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
           {templateError && <p style={{ margin: '8px 0 0', color: '#f87171', fontSize: '12px' }}>{templateError}</p>}
         </div>
       </div>
-    </div>
 
     {/* Training Report Modal */}
     {trainingReport && (() => {
@@ -2629,6 +2628,7 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
         </div>
       </div>
     })()}
+    </div>
   )
 }
 
