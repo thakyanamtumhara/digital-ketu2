@@ -2031,6 +2031,34 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
         DEFAULT_SYSTEM_PROMPT
       )
     }
+    // Fix broken STYLE_PAIR metadata (omReply was stored as "undefined")
+    const brokenSample = await db.knowledgeChunk.findFirst({
+      where: { source: 'STYLE_PAIR' },
+      select: { metadata: true },
+    })
+    if (brokenSample?.metadata?.omReply === 'undefined') {
+      console.log('[Migration] Fixing broken STYLE_PAIR metadata (omReply was "undefined")...')
+      // Get all style pair chunks and fix metadata using content field
+      const allStylePairs = await db.knowledgeChunk.findMany({
+        where: { source: 'STYLE_PAIR' },
+        select: { id: true, content: true, metadata: true },
+      })
+      let fixed = 0
+      for (const chunk of allStylePairs) {
+        // content format: Buyer: "..."\nOm's reply: "..."
+        const omMatch = chunk.content.match(/Om's reply:\s*"(.+)"$/s)
+        if (omMatch) {
+          const metadata = { ...(chunk.metadata || {}), omReply: omMatch[1] }
+          await db.$executeRawUnsafe(
+            `UPDATE "KnowledgeChunk" SET metadata = $1::jsonb WHERE id = $2`,
+            JSON.stringify(metadata), chunk.id
+          )
+          fixed++
+        }
+      }
+      console.log(`[Migration] Fixed ${fixed}/${allStylePairs.length} STYLE_PAIR metadata entries`)
+    }
+
     console.log('[Migration] Schema up to date')
   } catch (err) {
     if (!err.message.includes('already exists')) {
