@@ -290,7 +290,7 @@ function App() {
               if (t === 'training') fetchTrainingHistory()
             }}
           >
-            {{live:'Live Monitor', analytics:'Analytics', defer:'Corrections', filters:'Pre-AI Filters', pipeline:'Pipeline', learning:'Learning', settings:'Settings', sync:'Sync'}[t]}
+            {{live:'Live Monitor', analytics:'Analytics', defer:'Corrections', filters:'Pre-AI Filters', pipeline:'Pipeline', learning:'Learning', training:'Training', settings:'Settings', sync:'Sync'}[t]}
           </button>
         ))}
       </nav>
