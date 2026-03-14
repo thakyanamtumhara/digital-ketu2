@@ -1454,6 +1454,16 @@ app.get('/api/sync/logs', async (c) => {
   return c.json(logs)
 })
 
+// Training history — premium_export runs with full details
+app.get('/api/training/history', async (c) => {
+  const logs = await db.syncLog.findMany({
+    where: { syncType: 'premium_export' },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  })
+  return c.json(logs)
+})
+
 // ===========================================
 // Scheduled Sync (every 3 days)
 // ===========================================
@@ -1549,7 +1559,9 @@ async function executePremiumExport(settings) {
 
   if (mechanicalPairs.length === 0) {
     await db.syncLog.create({
-      data: { syncType: 'premium_export', status: 'success', itemsFound: 0, itemsNew: 0, itemsUpdated: 0, durationMs: Date.now() - startTime },
+      data: { syncType: 'premium_export', status: 'success', itemsFound: 0, itemsNew: 0, itemsUpdated: 0, durationMs: Date.now() - startTime,
+        details: { fromDate, toDate, filterStats: wwbunFilterStats, dbDiagnostics: wwbunDbDiagnostics, rejectedSamples: wwbunRejectedSamples, keptPairs: [], claudeRejected: [] },
+      },
     })
     await db.settings.update({
       where: { id: 'default' },
@@ -1566,11 +1578,14 @@ async function executePremiumExport(settings) {
   const classifications = await classifyPairsWithClaude(mechanicalPairs)
 
   const kept = []
+  const claudeRejected = []
   for (const cls of classifications) {
     const pair = mechanicalPairs[cls.index]
     if (!pair) continue
     if (cls.verdict === 'KEEP') {
       kept.push({ ...pair, classifyReason: cls.reason })
+    } else {
+      claudeRejected.push({ buyerMessage: pair.buyerMessage.slice(0, 150), omReply: pair.omReply.slice(0, 150), reason: cls.reason })
     }
   }
 
@@ -1614,6 +1629,14 @@ async function executePremiumExport(settings) {
       itemsNew: imported,
       itemsUpdated: 0,
       durationMs,
+      details: {
+        fromDate, toDate,
+        filterStats: wwbunFilterStats,
+        dbDiagnostics: wwbunDbDiagnostics,
+        rejectedSamples: wwbunRejectedSamples,
+        keptPairs: kept.map(p => ({ buyerMessage: p.buyerMessage.slice(0, 200), omReply: p.omReply.slice(0, 200), classifyReason: p.classifyReason })),
+        claudeRejected,
+      },
     },
   })
 
@@ -1988,6 +2011,8 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
     // Add systemPrompt + promptUpdatedAt columns to Settings if missing
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "systemPrompt" TEXT`)
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "promptUpdatedAt" TIMESTAMP(3)`)
+    // Add details JSON column to SyncLog for training history
+    await db.$executeRawUnsafe(`ALTER TABLE "SyncLog" ADD COLUMN IF NOT EXISTS "details" JSONB`)
     // Always sync: code (process.js) is the single source of truth for system prompt
     const settings = await db.settings.findUnique({ where: { id: 'default' } })
     if (settings) {

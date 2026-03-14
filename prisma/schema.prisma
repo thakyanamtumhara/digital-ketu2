@@ -219,12 +219,13 @@ model DiscoveredKeyword {
 
 model SyncLog {
   id            String   @id @default(cuid())
-  syncType      String                // "saved_replies" | "catalog"
+  syncType      String                // "saved_replies" | "catalog" | "premium_export"
   status        String                // "success" | "failed"
   itemsFound    Int      @default(0)
   itemsUpdated  Int      @default(0)
   itemsNew      Int      @default(0)
   error         String?
   durationMs    Int?
+  details       Json?                 // detailed results for premium_export (kept pairs, rejected, filter stats)
   createdAt     DateTime @default(now())
 }

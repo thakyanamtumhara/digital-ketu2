@@ -19,6 +19,16 @@ function App() {
   const [learningRunning, setLearningRunning] = useState(false)
   const [knowledgeStats, setKnowledgeStats] = useState(null)
 
+  // Training history
+  const [trainingHistory, setTrainingHistory] = useState([])
+  const [expandedRun, setExpandedRun] = useState(null)
+  const fetchTrainingHistory = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/training/history`)
+      if (res.ok) setTrainingHistory(await res.json())
+    } catch (err) { console.error('Failed to fetch training history:', err) }
+  }, [])
+
   // Knowledge base browsing
   const [kbStats, setKbStats] = useState(null)
   const [kbChunks, setKbChunks] = useState(null)
@@ -251,7 +261,7 @@ function App() {
 
       {/* Tabs */}
       <nav style={styles.tabs}>
-        {['live', 'analytics', 'defer', 'filters', 'pipeline', 'learning', 'settings', 'sync'].map(t => (
+        {['live', 'analytics', 'defer', 'filters', 'pipeline', 'learning', 'training', 'settings', 'sync'].map(t => (
           <button
             key={t}
             data-tab={t}
@@ -264,6 +274,7 @@ function App() {
               if (t === 'pipeline') { fetchKnowledgeStats(); fetchFilterStats() }
               if (t === 'filters') { fetchFilterStats(); fetchDbFilters() }
               if (t === 'learning') fetchLearningStats()
+              if (t === 'training') fetchTrainingHistory()
             }}
           >
             {{live:'Live Monitor', analytics:'Analytics', defer:'Corrections', filters:'Pre-AI Filters', pipeline:'Pipeline', learning:'Learning', settings:'Settings', sync:'Sync'}[t]}
@@ -284,6 +295,7 @@ function App() {
         {tab === 'learning' && <LearningPanel stats={learningStats} settings={settings} onRun={triggerLearningRun} running={learningRunning} onToggle={toggleLearning} onRefresh={fetchLearningStats} onBacklog={triggerBacklog} backlogProgress={backlogProgress} onHistoryPull={triggerHistoryPull} historyPullProgress={historyPullProgress} />}
 {tab === 'settings' && <SettingsPanel settings={settings} updateSetting={updateSetting} onDownload={downloadKnowledge} />}
         {tab === 'sync' && <SyncPanel logs={syncLogs} settings={settings} updateSetting={updateSetting} onSync={triggerSync} syncing={syncing} knowledge={knowledge} />}
+        {tab === 'training' && <TrainingHistory history={trainingHistory} expandedRun={expandedRun} setExpandedRun={setExpandedRun} />}
       </main>
     </div>
   )
@@ -2579,6 +2591,171 @@ function statusColor(status) {
     case 'PROCESSING': return '#3b82f6'
     default: return '#6b7280'
   }
+}
+
+// ===========================================
+// Training History Component
+// ===========================================
+function TrainingHistory({ history, expandedRun, setExpandedRun }) {
+  if (!history || history.length === 0) {
+    return <div style={{ padding: '20px', color: '#94a3b8', textAlign: 'center' }}>No training runs yet. Click "Train AI Now" in the Sync tab to run your first scan.</div>
+  }
+
+  const filterRuleLabels = {
+    skipAi: { label: 'AI-Generated Reply', why: "AI replies don't show YOUR selling style" },
+    skipShortWords: { label: 'Too Short (<4 words)', why: 'Both buyer & Om must have 4+ words' },
+    skipGreeting: { label: 'Greeting Only', why: 'Buyer sent just "hi/hello" — no context' },
+    skipAck: { label: 'Acknowledgment', why: 'Buyer sent "ok/thanks" — no question' },
+    skipMedia: { label: 'Contains Media', why: "Image/video/audio can't be stored as text" },
+    skipCatalog: { label: 'Catalog/Welcome', why: 'Generic catalog links — already in catalog' },
+    skipGenericOm: { label: 'Generic Om Reply', why: 'Om just said "ok/thanks" — no value' },
+    skipProductSpec: { label: 'Product Specs', why: 'Short price/GSM — catalog has this' },
+    skipNumberOnly: { label: 'Number Only', why: 'Just a number like "50"' },
+    skipUrlOnly: { label: 'URL Only', why: 'Just a link' },
+    skipMediaRef: { label: 'Media Reference', why: '"Check the image/video" — needs media' },
+    skipTemplate: { label: 'Template/System', why: 'Starts with / or [' },
+    skipNoMatch: { label: 'No Buyer Match', why: "Om's reply had no buyer message before it" },
+    skipDateRange: { label: 'Outside Date Range', why: 'Om replied outside scan period' },
+    skipEmpty: { label: 'Empty Content', why: 'No text content' },
+  }
+
+  return <div>
+    {history.map(run => {
+      const d = run.details || {}
+      const s = d.filterStats || {}
+      const db = d.dbDiagnostics || {}
+      const isExpanded = expandedRun === run.id
+      const date = new Date(run.createdAt)
+
+      return <div key={run.id} style={{ marginBottom: '8px', background: '#1e293b', borderRadius: '8px', border: '1px solid #334155', overflow: 'hidden' }}>
+        {/* Row header — always visible */}
+        <div
+          onClick={() => setExpandedRun(isExpanded ? null : run.id)}
+          style={{ padding: '12px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: isExpanded ? '#1a2744' : 'transparent' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: '#94a3b8', fontSize: '12px', minWidth: '130px' }}>{date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} {date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+            <span style={{ color: run.itemsNew > 0 ? '#4ade80' : '#fbbf24', fontWeight: '700', fontSize: '14px' }}>{run.itemsNew} pairs imported</span>
+            <span style={{ color: '#94a3b8', fontSize: '12px' }}>from {run.itemsFound} scanned</span>
+            {d.fromDate && <span style={{ color: '#64748b', fontSize: '11px' }}>({d.fromDate} to {d.toDate})</span>}
+          </div>
+          <span style={{ color: '#94a3b8', fontSize: '16px' }}>{isExpanded ? '▼' : '▶'}</span>
+        </div>
+
+        {/* Expanded details */}
+        {isExpanded && <div style={{ padding: '0 16px 16px', borderTop: '1px solid #334155' }}>
+
+          {/* DB Overview */}
+          {db.totalMsgsInRange != null && <div style={{ marginTop: '12px' }}>
+            <h4 style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>WhatsApp DB Overview</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', fontSize: '12px' }}>
+              <div style={{ background: '#0f172a', padding: '8px', borderRadius: '6px' }}>
+                <div style={{ color: '#64748b' }}>Total Messages</div>
+                <div style={{ color: '#f8fafc', fontWeight: '700', fontSize: '16px' }}>{db.totalMsgsInRange?.toLocaleString()}</div>
+              </div>
+              <div style={{ background: '#0f172a', padding: '8px', borderRadius: '6px' }}>
+                <div style={{ color: '#64748b' }}>Om's Messages</div>
+                <div style={{ color: '#22c55e', fontWeight: '700', fontSize: '16px' }}>{((db.byStatus?.SENT||0) + (db.byStatus?.READ||0))}</div>
+              </div>
+              <div style={{ background: '#0f172a', padding: '8px', borderRadius: '6px' }}>
+                <div style={{ color: '#64748b' }}>Buyer Messages</div>
+                <div style={{ color: '#3b82f6', fontWeight: '700', fontSize: '16px' }}>{db.byStatus?.DELIVERED||0}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+              Text: {db.byType?.TEXT||0} | Image: {db.byType?.IMAGE||0} | Audio: {db.byType?.AUDIO||0} | Manual: {db.byAiGenerated?.false||0} | AI: {db.byAiGenerated?.true||0}
+            </div>
+          </div>}
+
+          {/* Filter Pipeline */}
+          <div style={{ marginTop: '12px' }}>
+            <h4 style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Rules 1 & 2 — Mechanical Filters</h4>
+            <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '6px' }}>
+              {s.totalConvs || '?'} conversations | {s.totalMsgs?.toLocaleString() || '?'} messages loaded | {s.totalThoughts || '?'} thoughts | {s.rawPairs || '?'} Om replies
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+              <thead><tr style={{ borderBottom: '1px solid #334155' }}>
+                <th style={{ padding: '4px 6px', textAlign: 'left', color: '#64748b' }}>Filter Rule</th>
+                <th style={{ padding: '4px 6px', textAlign: 'left', color: '#64748b' }}>Why</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right', color: '#64748b' }}>Removed</th>
+              </tr></thead>
+              <tbody>
+                {Object.entries(filterRuleLabels).filter(([k]) => (s[k] || 0) > 0).map(([key, info]) =>
+                  <tr key={key} style={{ borderBottom: '1px solid #1e293b' }}>
+                    <td style={{ padding: '3px 6px', color: '#f87171' }}>{info.label}</td>
+                    <td style={{ padding: '3px 6px', color: '#64748b' }}>{info.why}</td>
+                    <td style={{ padding: '3px 6px', color: '#f87171', fontWeight: '600', textAlign: 'right' }}>{s[key]}</td>
+                  </tr>
+                )}
+                <tr style={{ borderTop: '2px solid #334155' }}>
+                  <td colSpan={2} style={{ padding: '3px 6px', color: '#22c55e', fontWeight: '700' }}>Passed to Claude (Rules 3 & 4)</td>
+                  <td style={{ padding: '3px 6px', color: '#22c55e', fontWeight: '700', textAlign: 'right' }}>{run.itemsFound}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Sample Rejected by Mechanical Filters */}
+          {d.rejectedSamples && Object.keys(d.rejectedSamples).length > 0 && <div style={{ marginTop: '12px' }}>
+            <h4 style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Sample Rejected Pairs (Mechanical)</h4>
+            {Object.entries(d.rejectedSamples).map(([cat, pairs]) => <div key={cat} style={{ marginBottom: '4px' }}>
+              <span style={{ color: '#f87171', fontSize: '10px', fontWeight: '600' }}>{filterRuleLabels['skip' + cat.charAt(0).toUpperCase() + cat.slice(1)]?.label || cat}:</span>
+              {pairs.map((p, i) => <div key={i} style={{ padding: '2px 6px', background: '#0f172a', borderRadius: '3px', fontSize: '10px', marginTop: '2px', display: 'flex', gap: '6px' }}>
+                <span style={{ color: '#3b82f6', flex: 1 }}>B: {p.buyer || '(empty)'}</span>
+                <span style={{ color: '#94a3b8', flex: 1 }}>Om: {p.om || '(empty)'}</span>
+              </div>)}
+            </div>)}
+          </div>}
+
+          {/* Kept Pairs (imported) */}
+          {d.keptPairs && d.keptPairs.length > 0 && <div style={{ marginTop: '12px' }}>
+            <h4 style={{ color: '#4ade80', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Imported Pairs ({d.keptPairs.length})</h4>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+              <thead><tr style={{ borderBottom: '1px solid #334155' }}>
+                <th style={{ padding: '4px 6px', textAlign: 'left', color: '#64748b' }}>#</th>
+                <th style={{ padding: '4px 6px', textAlign: 'left', color: '#64748b' }}>Buyer Message</th>
+                <th style={{ padding: '4px 6px', textAlign: 'left', color: '#64748b' }}>Om Reply</th>
+                <th style={{ padding: '4px 6px', textAlign: 'left', color: '#64748b' }}>Why Kept</th>
+              </tr></thead>
+              <tbody>
+                {d.keptPairs.map((p, i) => <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
+                  <td style={{ padding: '3px 6px', color: '#64748b' }}>{i + 1}</td>
+                  <td style={{ padding: '3px 6px', color: '#3b82f6', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.buyerMessage}</td>
+                  <td style={{ padding: '3px 6px', color: '#22c55e', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.omReply}</td>
+                  <td style={{ padding: '3px 6px', color: '#94a3b8' }}>{p.classifyReason}</td>
+                </tr>)}
+              </tbody>
+            </table>
+          </div>}
+
+          {/* Claude Rejected Pairs */}
+          {d.claudeRejected && d.claudeRejected.length > 0 && <div style={{ marginTop: '12px' }}>
+            <h4 style={{ color: '#f87171', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Rejected by Claude — Rules 3 & 4 ({d.claudeRejected.length})</h4>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+              <thead><tr style={{ borderBottom: '1px solid #334155' }}>
+                <th style={{ padding: '4px 6px', textAlign: 'left', color: '#64748b' }}>#</th>
+                <th style={{ padding: '4px 6px', textAlign: 'left', color: '#64748b' }}>Buyer Message</th>
+                <th style={{ padding: '4px 6px', textAlign: 'left', color: '#64748b' }}>Om Reply</th>
+                <th style={{ padding: '4px 6px', textAlign: 'left', color: '#64748b' }}>Why Rejected</th>
+              </tr></thead>
+              <tbody>
+                {d.claudeRejected.map((p, i) => <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
+                  <td style={{ padding: '3px 6px', color: '#64748b' }}>{i + 1}</td>
+                  <td style={{ padding: '3px 6px', color: '#3b82f6', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.buyerMessage}</td>
+                  <td style={{ padding: '3px 6px', color: '#f87171', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.omReply}</td>
+                  <td style={{ padding: '3px 6px', color: '#94a3b8' }}>{p.reason}</td>
+                </tr>)}
+              </tbody>
+            </table>
+          </div>}
+
+          <div style={{ marginTop: '8px', fontSize: '11px', color: '#64748b' }}>
+            Duration: {run.durationMs ? (run.durationMs / 1000).toFixed(1) + 's' : '?'}
+          </div>
+        </div>}
+      </div>
+    })}
+  </div>
 }
 
 // ===========================================
