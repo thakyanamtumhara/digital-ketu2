@@ -1558,11 +1558,11 @@ async function executePremiumExport(settings) {
   if (wwbunDbDiagnostics) console.log(`[PremiumExport] wwbun DB diagnostics:`, JSON.stringify(wwbunDbDiagnostics))
 
   if (mechanicalPairs.length === 0) {
-    await db.syncLog.create({
-      data: { syncType: 'premium_export', status: 'success', itemsFound: 0, itemsNew: 0, itemsUpdated: 0, durationMs: Date.now() - startTime,
-        details: { fromDate, toDate, filterStats: wwbunFilterStats, dbDiagnostics: wwbunDbDiagnostics, rejectedSamples: wwbunRejectedSamples, keptPairs: [], claudeRejected: [] },
-      },
+    const detailsObj = { fromDate, toDate, filterStats: wwbunFilterStats, dbDiagnostics: wwbunDbDiagnostics, rejectedSamples: wwbunRejectedSamples, keptPairs: [], claudeRejected: [] }
+    const log = await db.syncLog.create({
+      data: { syncType: 'premium_export', status: 'success', itemsFound: 0, itemsNew: 0, itemsUpdated: 0, durationMs: Date.now() - startTime },
     })
+    await db.syncLog.update({ where: { id: log.id }, data: { details: detailsObj } }).catch(err => console.error('[PremiumExport] Failed to store details:', err.message))
     await db.settings.update({
       where: { id: 'default' },
       data: {
@@ -1621,7 +1621,15 @@ async function executePremiumExport(settings) {
   const durationMs = Date.now() - startTime
 
   // Step 4: Log and update settings
-  await db.syncLog.create({
+  const detailsObj = {
+    fromDate, toDate,
+    filterStats: wwbunFilterStats || {},
+    dbDiagnostics: wwbunDbDiagnostics || {},
+    rejectedSamples: wwbunRejectedSamples || {},
+    keptPairs: kept.map(p => ({ buyerMessage: p.buyerMessage.slice(0, 200), omReply: p.omReply.slice(0, 200), classifyReason: p.classifyReason })),
+    claudeRejected,
+  }
+  const syncLog = await db.syncLog.create({
     data: {
       syncType: 'premium_export',
       status: 'success',
@@ -1629,16 +1637,11 @@ async function executePremiumExport(settings) {
       itemsNew: imported,
       itemsUpdated: 0,
       durationMs,
-      details: {
-        fromDate, toDate,
-        filterStats: wwbunFilterStats,
-        dbDiagnostics: wwbunDbDiagnostics,
-        rejectedSamples: wwbunRejectedSamples,
-        keptPairs: kept.map(p => ({ buyerMessage: p.buyerMessage.slice(0, 200), omReply: p.omReply.slice(0, 200), classifyReason: p.classifyReason })),
-        claudeRejected,
-      },
     },
   })
+  // Store details separately (workaround for Prisma Json field on create)
+  await db.syncLog.update({ where: { id: syncLog.id }, data: { details: detailsObj } }).catch(err => console.error('[PremiumExport] Failed to store details:', err.message))
+  console.log(`[PremiumExport] SyncLog ${syncLog.id} created, details stored: ${JSON.stringify(detailsObj).length} bytes`)
 
   await db.settings.update({
     where: { id: 'default' },
