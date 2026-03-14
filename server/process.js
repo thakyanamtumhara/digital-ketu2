@@ -250,6 +250,37 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   // --- Partial AI mode: only 3-min follow-up for new/7+day buyers, nothing else ---
   if (!settings.isActive && settings.partialAiEnabled) {
+    // Bill/order detection in Partial AI — same as Full AI
+    const isBillDoc = mergedText?.match(/\[Document:.*BillNo.*\.pdf\]/i)
+    if (isBillDoc) {
+      const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
+      await sendReplyViaWwbun(whatsappNumber, mediaReply)
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'REPLIED',
+        aiReply: mediaReply,
+        deferReason: 'bill_document',
+        processingMs: Date.now() - startTime,
+        isMedia: true,
+        sentViaWwbun: true,
+      })
+      console.log(`[Partial AI] ${whatsappNumber} — bill document detected, replied with dispatch confirmation`)
+      return
+    }
+
+    const trimmedText = mergedText?.trim() || ''
+    const isOrderId = /^\d{10,}$/.test(trimmedText)
+    if (isOrderId) {
+      await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'DEFERRED',
+        deferReason: 'order_id_detected',
+        aiReply: settings.deferMessage,
+        processingMs: Date.now() - startTime,
+        sentViaWwbun: true,
+      })
+      console.log(`[Partial AI] ${whatsappNumber} — order ID detected, deferred to Ketu`)
+      return
+    }
     if (isWelcomeEligible) {
       // Extra safety: check message logs for recent activity
       let skipFollowup = false
