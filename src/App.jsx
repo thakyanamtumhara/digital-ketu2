@@ -2740,9 +2740,15 @@ function TrainingHistory({ history, expandedRun, setExpandedRun }) {
           {/* Filter Pipeline */}
           <div style={{ marginTop: '12px' }}>
             <h4 style={{ color: '#94a3b8', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Rules 1 & 2 — Mechanical Filters</h4>
-            <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '6px' }}>
-              {s.totalConvs || '?'} conversations | {s.totalMsgs?.toLocaleString() || '?'} messages loaded | {s.totalThoughts || '?'} thoughts | {s.rawPairs || '?'} Om replies
-            </div>
+            {s.totalConvs ? (
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '6px' }}>
+                {s.totalConvs} conversations | {s.totalMsgs?.toLocaleString()} messages loaded | {s.totalThoughts} thoughts | {s.rawPairs} Om replies
+              </div>
+            ) : (
+              <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '6px', fontStyle: 'italic' }}>
+                Filter stats not available for this run (wwbun was not returning stats at the time). Next scan will show full breakdown.
+              </div>
+            )}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
               <thead><tr style={{ borderBottom: '1px solid #334155' }}>
                 <th style={{ padding: '4px 6px', textAlign: 'left', color: '#64748b' }}>Filter Rule</th>
@@ -2756,6 +2762,9 @@ function TrainingHistory({ history, expandedRun, setExpandedRun }) {
                     <td style={{ padding: '3px 6px', color: '#64748b' }}>{info.why}</td>
                     <td style={{ padding: '3px 6px', color: '#f87171', fontWeight: '600', textAlign: 'right' }}>{s[key]}</td>
                   </tr>
+                )}
+                {Object.entries(filterRuleLabels).filter(([k]) => (s[k] || 0) > 0).length === 0 && s.totalConvs == null && (
+                  <tr><td colSpan={3} style={{ padding: '3px 6px', color: '#64748b', fontStyle: 'italic' }}>No filter breakdown available</td></tr>
                 )}
                 <tr style={{ borderTop: '2px solid #334155' }}>
                   <td colSpan={2} style={{ padding: '3px 6px', color: '#22c55e', fontWeight: '700' }}>Passed to Claude (Rules 3 & 4)</td>
