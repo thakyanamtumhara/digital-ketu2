@@ -2315,8 +2315,10 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
                 const data = await res.json()
                 if (!res.ok) throw new Error(data.error || 'Export failed')
                 const s = data.wwbunFilterStats
+                const d = data.wwbunDbDiagnostics
+                const dbMsg = d ? `\n\nDB totals in range: ${d.totalMsgsInRange} messages across ${d.totalConvsInRange} conversations\nBy status: ${JSON.stringify(d.byStatus)}\nBy type: ${JSON.stringify(d.byType)}\nBy AI flag: ${JSON.stringify(d.byAiGenerated)}` : ''
                 const statsMsg = s ? `\n\nwwbun breakdown:\n${s.totalConvs} conversations, ${s.totalMsgs} messages, ${s.totalThoughts} thoughts\n${s.rawPairs} Om replies found\nFiltered: ${s.skipAi} AI-generated, ${s.skipShortWords} too short (<4 words), ${s.skipGreeting} greetings, ${s.skipAck} acks, ${s.skipMedia} media, ${s.skipCatalog} catalog/welcome, ${s.skipProductSpec} product specs, ${s.skipDateRange} outside date range, ${s.skipTemplate} templates, ${s.skipEmpty} empty` : ''
-                alert(`Export complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)\nDate range: ${data.fromDate} to ${data.toDate}${statsMsg}`)
+                alert(`Export complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)\nDate range: ${data.fromDate} to ${data.toDate}${dbMsg}${statsMsg}`)
                 fetchSyncHistory()
                 window.location.reload()
               } catch (err) { alert('Export failed: ' + err.message) }
@@ -2383,8 +2385,10 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
                   const data = await res.json()
                   if (!res.ok) throw new Error(data.error || 'Export failed')
                   const s = data.wwbunFilterStats
+                  const d = data.wwbunDbDiagnostics
+                  const dbMsg = d ? `\n\nDB totals in range: ${d.totalMsgsInRange} messages across ${d.totalConvsInRange} conversations\nBy status: ${JSON.stringify(d.byStatus)}\nBy type: ${JSON.stringify(d.byType)}\nBy AI flag: ${JSON.stringify(d.byAiGenerated)}` : ''
                   const statsMsg = s ? `\n\nwwbun breakdown:\n${s.totalConvs} conversations, ${s.totalMsgs} messages, ${s.totalThoughts} thoughts\n${s.rawPairs} Om replies found\nFiltered: ${s.skipAi} AI-generated, ${s.skipShortWords} too short (<4 words), ${s.skipGreeting} greetings, ${s.skipAck} acks, ${s.skipMedia} media, ${s.skipCatalog} catalog/welcome, ${s.skipProductSpec} product specs, ${s.skipDateRange} outside date range, ${s.skipTemplate} templates, ${s.skipEmpty} empty` : ''
-                  alert(`Re-scan complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)\nDate range: ${data.fromDate} to ${data.toDate}${statsMsg}`)
+                  alert(`Re-scan complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)\nDate range: ${data.fromDate} to ${data.toDate}${dbMsg}${statsMsg}`)
                   fetchSyncHistory()
                   window.location.reload()
                 } catch (err) { alert('Re-scan failed: ' + err.message) }
