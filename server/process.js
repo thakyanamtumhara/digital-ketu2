@@ -278,6 +278,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
             }
 
             if (isGenericMessage(mergedText)) {
+              // Short/generic message (hi, hello, etc.) → send nudge
               await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
               await createLog(db, conversation.id, mergedText, [], {
                 status: 'REPLIED',
@@ -288,17 +289,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
               })
               console.log(`[Partial AI Followup] ${whatsappNumber} — generic msg, sent nudge`)
             } else {
-              // Real question — but AI is off, so just send generic nudge too
-              // (Partial AI doesn't call Claude)
-              await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
-              await createLog(db, conversation.id, mergedText, [], {
-                status: 'REPLIED',
-                aiReply: WELCOME_FOLLOWUP_GENERIC,
-                deferReason: 'partial_ai_followup_generic',
-                processingMs: 0,
-                sentViaWwbun: true,
-              })
-              console.log(`[Partial AI Followup] ${whatsappNumber} — real question but AI off, sent nudge`)
+              // Real question (4+ words) — don't send "ask me any questions" nudge
+              // It would be weird to say "ask me questions" when they already asked one
+              console.log(`[Partial AI Followup] ${whatsappNumber} — real question, skipping nudge (AI off)`)
             }
           } catch (err) {
             console.error(`[Partial AI Followup Error] ${whatsappNumber}:`, err.message)
