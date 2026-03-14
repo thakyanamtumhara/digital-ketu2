@@ -2049,6 +2049,7 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
   const [loadingSyncHistory, setLoadingSyncHistory] = useState(false)
   const [syncHistoryFilter, setSyncHistoryFilter] = useState(null)
   const [premiumExportRunning, setPremiumExportRunning] = useState(false)
+  const [trainingReport, setTrainingReport] = useState(null) // { data, type: 'train'|'rescan' }
   const fetchSyncHistory = async () => {
     setLoadingSyncHistory(true)
     try {
@@ -2314,13 +2315,8 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
                 const res = await fetch('/api/premium-export/run', { method: 'POST' })
                 const data = await res.json()
                 if (!res.ok) throw new Error(data.error || 'Export failed')
-                const s = data.wwbunFilterStats
-                const d = data.wwbunDbDiagnostics
-                const dbMsg = d ? `\n\nDB totals in range: ${d.totalMsgsInRange} messages across ${d.totalConvsInRange} conversations\nBy status: ${JSON.stringify(d.byStatus)}\nBy type: ${JSON.stringify(d.byType)}\nBy AI flag: ${JSON.stringify(d.byAiGenerated)}` : ''
-                const statsMsg = s ? `\n\nwwbun breakdown:\n${s.totalConvs} conversations, ${s.totalMsgs} messages, ${s.totalThoughts} thoughts\n${s.rawPairs} Om replies found\nFiltered: ${s.skipAi} AI-generated, ${s.skipShortWords} too short (<4 words), ${s.skipGreeting} greetings, ${s.skipAck} acks, ${s.skipMedia} media, ${s.skipCatalog} catalog/welcome, ${s.skipProductSpec} product specs, ${s.skipDateRange} outside date range, ${s.skipTemplate} templates, ${s.skipEmpty} empty` : ''
-                alert(`Export complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)\nDate range: ${data.fromDate} to ${data.toDate}${dbMsg}${statsMsg}`)
+                setTrainingReport({ data, type: 'train' })
                 fetchSyncHistory()
-                window.location.reload()
               } catch (err) { alert('Export failed: ' + err.message) }
               setPremiumExportRunning(false)
             }} disabled={premiumExportRunning}>{premiumExportRunning ? 'Training...' : 'Train AI Now'}</button>
@@ -2384,13 +2380,8 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
                   const res = await fetch('/api/premium-export/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromDate }) })
                   const data = await res.json()
                   if (!res.ok) throw new Error(data.error || 'Export failed')
-                  const s = data.wwbunFilterStats
-                  const d = data.wwbunDbDiagnostics
-                  const dbMsg = d ? `\n\nDB totals in range: ${d.totalMsgsInRange} messages across ${d.totalConvsInRange} conversations\nBy status: ${JSON.stringify(d.byStatus)}\nBy type: ${JSON.stringify(d.byType)}\nBy AI flag: ${JSON.stringify(d.byAiGenerated)}` : ''
-                  const statsMsg = s ? `\n\nwwbun breakdown:\n${s.totalConvs} conversations, ${s.totalMsgs} messages, ${s.totalThoughts} thoughts\n${s.rawPairs} Om replies found\nFiltered: ${s.skipAi} AI-generated, ${s.skipShortWords} too short (<4 words), ${s.skipGreeting} greetings, ${s.skipAck} acks, ${s.skipMedia} media, ${s.skipCatalog} catalog/welcome, ${s.skipProductSpec} product specs, ${s.skipDateRange} outside date range, ${s.skipTemplate} templates, ${s.skipEmpty} empty` : ''
-                  alert(`Re-scan complete! ${data.imported} pairs kept from ${data.total} scanned (${data.skipped} rejected)\nDate range: ${data.fromDate} to ${data.toDate}${dbMsg}${statsMsg}`)
+                  setTrainingReport({ data, type: 'rescan' })
                   fetchSyncHistory()
-                  window.location.reload()
                 } catch (err) { alert('Re-scan failed: ' + err.message) }
                 setPremiumExportRunning(false)
               }}
@@ -2429,6 +2420,148 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
         </div>
       </div>
     </div>
+
+    {/* Training Report Modal */}
+    {trainingReport && (() => {
+      const { data, type } = trainingReport
+      const s = data.wwbunFilterStats || {}
+      const d = data.wwbunDbDiagnostics || {}
+      const samples = data.wwbunRejectedSamples || {}
+      const title = type === 'rescan' ? 'Re-scan Report' : 'Training Report'
+      const totalFiltered = (s.skipAi||0)+(s.skipShortWords||0)+(s.skipGreeting||0)+(s.skipAck||0)+(s.skipMedia||0)+(s.skipCatalog||0)+(s.skipProductSpec||0)+(s.skipDateRange||0)+(s.skipTemplate||0)+(s.skipEmpty||0)+(s.skipGenericOm||0)+(s.skipNoMatch||0)+(s.skipNumberOnly||0)+(s.skipUrlOnly||0)+(s.skipMediaRef||0)
+
+      const filterRules = [
+        { rule: 'AI-Generated Reply', why: 'AI replies don\'t show YOUR selling style', count: s.skipAi, key: 'ai' },
+        { rule: 'Too Short (<4 words)', why: 'Both buyer & Om must have 4+ words for meaningful training', count: s.skipShortWords, key: 'shortWords' },
+        { rule: 'Greeting Only', why: 'Buyer sent just "hi/hello/namaste" — no selling context', count: s.skipGreeting, key: 'greeting' },
+        { rule: 'Acknowledgment Only', why: 'Buyer sent "ok/thanks/ha" — no question to learn from', count: s.skipAck, key: 'ack' },
+        { rule: 'Contains Media', why: 'Image/video/audio messages can\'t be stored as text pairs', count: s.skipMedia, key: 'media' },
+        { rule: 'Catalog/Welcome Reply', why: 'Generic catalog links — already in your catalog data', count: s.skipCatalog, key: 'catalog' },
+        { rule: 'Generic Om Reply', why: 'Om just said "ok/thanks" back — no selling value', count: s.skipGenericOm, key: 'genericOm' },
+        { rule: 'Product Specs (<15 words)', why: 'Short price/GSM replies — catalog already has this', count: s.skipProductSpec, key: 'productSpec' },
+        { rule: 'Number-Only Buyer Msg', why: 'Buyer sent just a number like "50" — no context', count: s.skipNumberOnly, key: 'numberOnly' },
+        { rule: 'URL-Only Message', why: 'Just a link with no conversation', count: s.skipUrlOnly, key: 'urlOnly' },
+        { rule: 'Media Reference', why: 'Om said "check the image/video" — needs media we can\'t store', count: s.skipMediaRef, key: 'mediaRef' },
+        { rule: 'Template/System Msg', why: 'Message starts with / or [ — not real conversation', count: s.skipTemplate, key: 'template' },
+        { rule: 'No Buyer Match', why: 'Om\'s reply had no matching buyer message before it', count: s.skipNoMatch, key: 'noMatch' },
+        { rule: 'Outside Date Range', why: 'Om replied outside the requested scan period', count: s.skipDateRange, key: 'dateRange' },
+        { rule: 'Empty Content', why: 'Message had no text content', count: s.skipEmpty, key: 'empty' },
+      ].filter(r => (r.count || 0) > 0)
+
+      return <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, overflow: 'auto', padding: '20px' }} onClick={() => setTrainingReport(null)}>
+        <div style={{ maxWidth: '700px', margin: '20px auto', background: '#1e293b', borderRadius: '12px', border: '1px solid #334155', padding: '24px' }} onClick={e => e.stopPropagation()}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h2 style={{ margin: 0, color: '#f8fafc', fontSize: '18px' }}>{title}</h2>
+            <button onClick={() => setTrainingReport(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '20px', cursor: 'pointer' }}>x</button>
+          </div>
+
+          {/* Result Summary */}
+          <div style={{ padding: '12px', background: data.imported > 0 ? '#052e16' : '#1c1917', borderRadius: '8px', border: `1px solid ${data.imported > 0 ? '#166534' : '#854d0e'}`, marginBottom: '16px' }}>
+            <div style={{ fontSize: '16px', fontWeight: '700', color: data.imported > 0 ? '#4ade80' : '#fbbf24' }}>
+              {data.imported} quality pairs imported from {data.total} scanned ({data.skipped} rejected by Claude)
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '4px' }}>Date range: {data.fromDate} to {data.toDate}</div>
+          </div>
+
+          {/* DB Overview */}
+          {d.totalMsgsInRange != null && <div style={{ marginBottom: '16px' }}>
+            <h3 style={{ color: '#94a3b8', fontSize: '13px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>WhatsApp DB Overview</h3>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <tbody>
+                <tr style={{ borderBottom: '1px solid #334155' }}>
+                  <td style={{ padding: '6px 8px', color: '#94a3b8' }}>Total Messages in Range</td>
+                  <td style={{ padding: '6px 8px', color: '#f8fafc', fontWeight: '600', textAlign: 'right' }}>{d.totalMsgsInRange?.toLocaleString()}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #334155' }}>
+                  <td style={{ padding: '6px 8px', color: '#94a3b8' }}>Conversations</td>
+                  <td style={{ padding: '6px 8px', color: '#f8fafc', fontWeight: '600', textAlign: 'right' }}>{d.totalConvsInRange}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #334155' }}>
+                  <td style={{ padding: '6px 8px', color: '#94a3b8' }}>Om's Messages (SENT+READ)</td>
+                  <td style={{ padding: '6px 8px', color: '#22c55e', fontWeight: '600', textAlign: 'right' }}>{(d.byStatus?.SENT||0) + (d.byStatus?.READ||0)}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #334155' }}>
+                  <td style={{ padding: '6px 8px', color: '#94a3b8' }}>Buyer Messages (DELIVERED)</td>
+                  <td style={{ padding: '6px 8px', color: '#3b82f6', fontWeight: '600', textAlign: 'right' }}>{d.byStatus?.DELIVERED||0}</td>
+                </tr>
+                <tr style={{ borderBottom: '1px solid #334155' }}>
+                  <td style={{ padding: '6px 8px', color: '#94a3b8' }}>Text / Image / Audio / Other</td>
+                  <td style={{ padding: '6px 8px', color: '#f8fafc', textAlign: 'right' }}>{d.byType?.TEXT||0} / {d.byType?.IMAGE||0} / {d.byType?.AUDIO||0} / {((d.byType?.VIDEO||0)+(d.byType?.DOCUMENT||0)+(d.byType?.LOCATION||0)+(d.byType?.TEMPLATE||0))}</td>
+                </tr>
+                <tr>
+                  <td style={{ padding: '6px 8px', color: '#94a3b8' }}>Manual vs AI-Generated</td>
+                  <td style={{ padding: '6px 8px', color: '#f8fafc', textAlign: 'right' }}>{d.byAiGenerated?.false||0} manual / {d.byAiGenerated?.true||0} AI</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>}
+
+          {/* Filter Pipeline */}
+          <div style={{ marginBottom: '16px' }}>
+            <h3 style={{ color: '#94a3b8', fontSize: '13px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Filter Pipeline (Rules 1 & 2 — Mechanical)</h3>
+            <div style={{ padding: '8px 12px', background: '#0f172a', borderRadius: '6px', border: '1px solid #334155', marginBottom: '8px', fontSize: '12px' }}>
+              <span style={{ color: '#94a3b8' }}>Conversations with Om's manual replies: </span><span style={{ color: '#f8fafc', fontWeight: '600' }}>{s.totalConvs}</span>
+              <span style={{ color: '#94a3b8', margin: '0 8px' }}>|</span>
+              <span style={{ color: '#94a3b8' }}>Messages loaded: </span><span style={{ color: '#f8fafc', fontWeight: '600' }}>{s.totalMsgs?.toLocaleString()}</span>
+              <span style={{ color: '#94a3b8', margin: '0 8px' }}>|</span>
+              <span style={{ color: '#94a3b8' }}>Thoughts bundled: </span><span style={{ color: '#f8fafc', fontWeight: '600' }}>{s.totalThoughts}</span>
+              <span style={{ color: '#94a3b8', margin: '0 8px' }}>|</span>
+              <span style={{ color: '#94a3b8' }}>Om replies found: </span><span style={{ color: '#fbbf24', fontWeight: '600' }}>{s.rawPairs}</span>
+            </div>
+
+            {filterRules.length > 0 && <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #334155' }}>
+                  <th style={{ padding: '6px 8px', textAlign: 'left', color: '#94a3b8', fontWeight: '600' }}>Filter Rule</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'left', color: '#94a3b8', fontWeight: '600' }}>Why We Filter This</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right', color: '#94a3b8', fontWeight: '600' }}>Removed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filterRules.map((r, i) => <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
+                  <td style={{ padding: '5px 8px', color: '#f87171', fontWeight: '500' }}>{r.rule}</td>
+                  <td style={{ padding: '5px 8px', color: '#94a3b8' }}>{r.why}</td>
+                  <td style={{ padding: '5px 8px', color: '#f87171', fontWeight: '600', textAlign: 'right' }}>{r.count}</td>
+                </tr>)}
+                <tr style={{ borderTop: '2px solid #334155' }}>
+                  <td style={{ padding: '5px 8px', color: '#f8fafc', fontWeight: '700' }}>Total Filtered</td>
+                  <td></td>
+                  <td style={{ padding: '5px 8px', color: '#f87171', fontWeight: '700', textAlign: 'right' }}>{totalFiltered}</td>
+                </tr>
+                <tr>
+                  <td style={{ padding: '5px 8px', color: '#22c55e', fontWeight: '700' }}>Passed to Claude (Rules 3 & 4)</td>
+                  <td></td>
+                  <td style={{ padding: '5px 8px', color: '#22c55e', fontWeight: '700', textAlign: 'right' }}>{data.total}</td>
+                </tr>
+              </tbody>
+            </table>}
+          </div>
+
+          {/* Sample Rejected Pairs */}
+          {Object.keys(samples).length > 0 && <div style={{ marginBottom: '16px' }}>
+            <h3 style={{ color: '#94a3b8', fontSize: '13px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Sample Rejected Pairs</h3>
+            {Object.entries(samples).map(([category, pairs]) => <div key={category} style={{ marginBottom: '8px' }}>
+              <div style={{ color: '#f87171', fontSize: '11px', fontWeight: '600', marginBottom: '4px' }}>{category}</div>
+              {pairs.map((p, i) => <div key={i} style={{ padding: '4px 8px', background: '#0f172a', borderRadius: '4px', fontSize: '11px', marginBottom: '2px', display: 'flex', gap: '8px' }}>
+                <span style={{ color: '#3b82f6', minWidth: '45%' }}>B: {p.buyer || '(empty)'}</span>
+                <span style={{ color: '#22c55e' }}>Om: {p.om || '(empty)'}</span>
+              </div>)}
+            </div>)}
+          </div>}
+
+          {/* Sample Accepted Pairs */}
+          {data.total > 0 && <div style={{ marginBottom: '16px' }}>
+            <h3 style={{ color: '#94a3b8', fontSize: '13px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Quality Pairs Sent to Claude (Rules 3 & 4)</h3>
+            <div style={{ color: '#94a3b8', fontSize: '11px', marginBottom: '4px' }}>Claude judges: Is it conversational? Does it teach Om's selling style?</div>
+            <div style={{ padding: '6px 8px', background: '#052e16', borderRadius: '4px', fontSize: '12px', color: '#4ade80' }}>
+              {data.imported} kept / {data.skipped} rejected by Claude
+            </div>
+          </div>}
+
+          <button onClick={() => { setTrainingReport(null); window.location.reload() }} style={{ ...styles.btnPrimary, width: '100%', marginTop: '8px' }}>Close & Refresh</button>
+        </div>
+      </div>
+    })()}
   )
 }
 

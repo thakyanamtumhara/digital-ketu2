@@ -1542,6 +1542,7 @@ async function executePremiumExport(settings) {
   const mechanicalPairs = Array.isArray(wwbunData) ? wwbunData : (wwbunData.pairs || [])
   const wwbunFilterStats = wwbunData.filterStats || null
   const wwbunDbDiagnostics = wwbunData.dbDiagnostics || null
+  const wwbunRejectedSamples = wwbunData.rejectedSamples || null
   console.log(`[PremiumExport] Fetched ${mechanicalPairs.length} mechanical pairs (${fromDate} to ${toDate})`)
   if (wwbunFilterStats) console.log(`[PremiumExport] wwbun filter stats:`, JSON.stringify(wwbunFilterStats))
   if (wwbunDbDiagnostics) console.log(`[PremiumExport] wwbun DB diagnostics:`, JSON.stringify(wwbunDbDiagnostics))
@@ -1558,7 +1559,7 @@ async function executePremiumExport(settings) {
         lastPremiumExportPairs: 0,
       },
     })
-    return { imported: 0, total: 0, skipped: 0, fromDate, toDate, wwbunFilterStats, wwbunDbDiagnostics }
+    return { imported: 0, total: 0, skipped: 0, fromDate, toDate, wwbunFilterStats, wwbunDbDiagnostics, wwbunRejectedSamples }
   }
 
   // Step 2: Opus 4.6 judges Rules 3 & 4
@@ -1626,7 +1627,7 @@ async function executePremiumExport(settings) {
   })
 
   console.log(`[PremiumExport] ${imported} pairs imported in ${(durationMs / 1000).toFixed(1)}s`)
-  return { imported, total: mechanicalPairs.length, skipped: mechanicalPairs.length - kept.length, fromDate, toDate, wwbunFilterStats, wwbunDbDiagnostics }
+  return { imported, total: mechanicalPairs.length, skipped: mechanicalPairs.length - kept.length, fromDate, toDate, wwbunFilterStats, wwbunDbDiagnostics, wwbunRejectedSamples }
 }
 
 // Check every hour if premium export is due
