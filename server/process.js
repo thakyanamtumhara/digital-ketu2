@@ -380,18 +380,29 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
-  // --- Check: Media-only message (actual image/audio/video/document) ---
-  if (hasMediaOnly) {
-    // Bill/invoice PDFs from website orders → acknowledge dispatch
-    const isBillDocument = mergedText.match(/\[Document:.*BillNo.*\.pdf\]/i)
-    const mediaReply = isBillDocument
-      ? 'Ok noted sir, dispatching ASAP 🚚'
-      : settings.mediaMessage
+  // --- Check: Bill/invoice PDF (can have text caption) ---
+  const isBillDocument = mergedText.match(/\[Document:.*BillNo.*\.pdf\]/i)
+  if (isBillDocument) {
+    const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
     await sendReplyViaWwbun(whatsappNumber, mediaReply)
-    await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
+    await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'REPLIED',
       aiReply: mediaReply,
-      deferReason: isBillDocument ? 'bill_document' : 'media_only',
+      deferReason: 'bill_document',
+      processingMs: Date.now() - startTime,
+      isMedia: true,
+      sentViaWwbun: true,
+    })
+    return
+  }
+
+  // --- Check: Media-only message (actual image/audio/video/document) ---
+  if (hasMediaOnly) {
+    await sendReplyViaWwbun(whatsappNumber, settings.mediaMessage)
+    await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
+      status: 'REPLIED',
+      aiReply: settings.mediaMessage,
+      deferReason: 'media_only',
       processingMs: Date.now() - startTime,
       isMedia: true,
       sentViaWwbun: true,
