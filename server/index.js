@@ -1259,7 +1259,7 @@ app.get('/api/knowledge/chunks', async (c) => {
   const [chunks, total] = await Promise.all([
     db.knowledgeChunk.findMany({
       where,
-      select: { id: true, source: true, sourceId: true, title: true, content: true, metadata: true, updatedAt: true },
+      select: { id: true, source: true, sourceId: true, title: true, content: true, metadata: true, createdAt: true, updatedAt: true },
       orderBy: { updatedAt: 'desc' },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -1274,7 +1274,7 @@ app.get('/api/knowledge/chunks', async (c) => {
 app.get('/api/knowledge/download', async (c) => {
   const [chunks, deferList, settings] = await Promise.all([
     db.knowledgeChunk.findMany({
-      select: { id: true, source: true, sourceId: true, title: true, content: true, metadata: true, updatedAt: true },
+      select: { id: true, source: true, sourceId: true, title: true, content: true, metadata: true, createdAt: true, updatedAt: true },
       orderBy: { source: 'asc' },
     }),
     db.deferToKetu.findMany({
