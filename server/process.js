@@ -121,7 +121,7 @@ function isGenericMessage(text) {
   ]
   if (greetingPatterns.includes(normalized)) return true
 
-  // Generic catalog/detail requests — ONLY if message is short (≤6 words)
+  // Generic catalog/detail requests — ONLY if message is short (≤4 words)
   // Longer messages like "I want samples of oversized tshirts and regular tshirts"
   // are real inquiries even if they contain "tshirt" or "details"
   const words = normalized.split(/\s+/).filter(w => w.length > 0)
@@ -132,7 +132,7 @@ function isGenericMessage(text) {
     'rate list', 'rate card', 'price list', 'catalog', 'catalogue',
     'tshirt', 't shirt', 't-shirt', 'details',
   ]
-  if (words.length <= 6 && genericPhrases.some(p => normalized.includes(p))) return true
+  if (words.length <= 4 && genericPhrases.some(p => normalized.includes(p))) return true
 
   // 4 words or fewer without a question indicator → generic
   const hasQuestionMark = text.includes('?')
