@@ -31,6 +31,7 @@ function App() {
 
   // Knowledge base browsing
   const [kbStats, setKbStats] = useState(null)
+  const [premiumPairs, setPremiumPairs] = useState([])
   const [kbChunks, setKbChunks] = useState(null)
   const [kbSource, setKbSource] = useState('')
   const [kbPage, setKbPage] = useState(1)
@@ -69,6 +70,12 @@ function App() {
   const fetchKnowledgeStats = useCallback(async () => {
     const res = await fetch(`${API}/knowledge/stats`)
     if (res.ok) setKnowledgeStats(await res.json())
+  }, [])
+  const fetchPremiumPairs = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/knowledge/chunks?source=PREMIUM_PAIR&pageSize=500`)
+      if (res.ok) { const data = await res.json(); setPremiumPairs(data.chunks || []) }
+    } catch (err) { console.error('Failed to fetch premium pairs:', err) }
   }, [])
 
   const fetchFilterStats = useCallback(async () => {
@@ -191,6 +198,7 @@ function App() {
 
   useEffect(() => { fetchAnalytics() }, [period])
   useEffect(() => { fetchKnowledgeStats() }, [])
+  useEffect(() => { fetchPremiumPairs() }, [])
 
   // Update settings
   const updateSetting = async (key, value) => {
@@ -2216,16 +2224,45 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
       {/* Style Pairs */}
       <div style={styles.kbSection}>
         <div style={styles.kbHeader} onClick={() => toggle('stylePairs')}>
-          <span style={styles.kbHeaderTitle}>Style Pairs ({STYLE_PAIRS.length})</span>
+          <span style={styles.kbHeaderTitle}>Style Pairs ({STYLE_PAIRS.length + premiumPairs.length})</span>
           <span style={{ color: '#64748b' }}>{showSection.stylePairs ? '\u25BC' : '\u25B6'}</span>
         </div>
         {showSection.stylePairs && (
           <div style={styles.kbContent}>
             <div style={{ marginBottom: '8px', padding: '8px', background: '#0f172a', borderRadius: '6px', fontSize: '12px', color: '#94a3b8' }}>
               Buyer question → Om reply pairs. These define how Ketu should respond to common queries.
+              {premiumPairs.length > 0 && <span style={{ color: '#fbbf24', marginLeft: '8px' }}>({STYLE_PAIRS.length} permanent + {premiumPairs.length} from training scans)</span>}
             </div>
+
+            {/* Premium pairs from training scans — shown first */}
+            {premiumPairs.length > 0 && <>
+              <div style={{ padding: '6px 10px', background: '#1a1a2e', borderRadius: '6px', border: '1px solid #854d0e', fontSize: '11px', color: '#fbbf24', fontWeight: '600', marginBottom: '6px' }}>
+                From Training Scans ({premiumPairs.length} pairs)
+              </div>
+              {premiumPairs.map((chunk) => {
+                const m = chunk.metadata || {}
+                const addedDate = m.exportedAt ? new Date(m.exportedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null
+                return <div key={chunk.id} style={{ ...styles.kbCard, borderLeft: '3px solid #854d0e' }}>
+                  <div style={{ fontSize: '13px', marginBottom: '4px' }}>
+                    <span style={{ color: '#f87171', fontWeight: '600' }}>Buyer:</span> <span style={{ color: '#e2e8f0' }}>{m.buyerMessage || chunk.title}</span>
+                  </div>
+                  <div style={{ fontSize: '13px' }}>
+                    <span style={{ color: '#22c55e', fontWeight: '600' }}>Om:</span> <span style={{ color: '#86efac' }}>{m.omReply || ''}</span>
+                  </div>
+                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
+                    {addedDate && <span>Added: {addedDate}</span>}
+                    {m.classifyReason && <span style={{ marginLeft: '8px' }}>| Claude: {m.classifyReason}</span>}
+                  </div>
+                </div>
+              })}
+
+              <div style={{ padding: '6px 10px', background: '#0f172a', borderRadius: '6px', fontSize: '11px', color: '#94a3b8', fontWeight: '600', marginTop: '12px', marginBottom: '6px' }}>
+                Permanent Pairs ({STYLE_PAIRS.length})
+              </div>
+            </>}
+
             {STYLE_PAIRS.map((p, i) => (
-              <div key={i} style={styles.kbCard}>
+              <div key={`perm-${i}`} style={styles.kbCard}>
                 <div style={{ fontSize: '13px', marginBottom: '4px' }}>
                   <span style={{ color: '#f87171', fontWeight: '600' }}>Buyer:</span> <span style={{ color: '#e2e8f0' }}>{p.buyer}</span>
                 </div>
@@ -2570,7 +2607,7 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
             </div>
           </div>}
 
-          <button onClick={() => { setTrainingReport(null); window.location.reload() }} style={{ ...styles.btnPrimary, width: '100%', marginTop: '8px' }}>Close & Refresh</button>
+          <button onClick={() => { setTrainingReport(null); fetchPremiumPairs(); fetchTrainingHistory() }} style={{ ...styles.btnPrimary, width: '100%', marginTop: '8px' }}>Close & Refresh</button>
         </div>
       </div>
     })()}
