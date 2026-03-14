@@ -1375,10 +1375,16 @@ app.post('/api/sync/import-style-pairs', async (c) => {
       return c.json({ error: 'Missing pairs array' }, 400)
     }
 
-    // Check how many STYLE_PAIR chunks already exist
+    // Check how many STYLE_PAIR chunks already exist (force re-import if metadata has "undefined" omReply)
     const existingCount = await db.knowledgeChunk.count({ where: { source: 'STYLE_PAIR' } })
-    if (existingCount >= pairs.length) {
-      return c.json({ status: 'already_imported', existing: existingCount, requested: pairs.length })
+    const forceReimport = await c.req.query('force') === 'true'
+    if (existingCount >= pairs.length && !forceReimport) {
+      // Check if existing data is valid (omReply should not be "undefined")
+      const sample = await db.knowledgeChunk.findFirst({ where: { source: 'STYLE_PAIR' }, select: { metadata: true } })
+      if (sample?.metadata?.omReply && sample.metadata.omReply !== 'undefined') {
+        return c.json({ status: 'already_imported', existing: existingCount, requested: pairs.length })
+      }
+      console.log('[Import] Existing style pairs have broken metadata, re-importing...')
     }
 
     // Delete existing style pair chunks (fresh import)
@@ -1386,7 +1392,7 @@ app.post('/api/sync/import-style-pairs', async (c) => {
     console.log(`[Import] Cleared ${existingCount} existing STYLE_PAIR chunks, importing ${pairs.length} new ones...`)
 
     // Prepare texts for batch embedding
-    const texts = pairs.map(p => `Buyer: "${p.buyer}"\nOm's reply: "${p.reply}"`)
+    const texts = pairs.map(p => `Buyer: "${p.buyer}"\nOm's reply: "${p.om || p.reply}"`)
 
     // Batch embed (128 at a time via Voyage AI)
     const embeddings = await getVoyageBatch(texts)
@@ -1397,10 +1403,11 @@ app.post('/api/sync/import-style-pairs', async (c) => {
       const sourceId = `style_${i}`
       const content = texts[i]
       const title = `Style: "${pairs[i].buyer.substring(0, 60)}"`
+      const omReply = pairs[i].om || pairs[i].reply || ''
       try {
         await db.$executeRaw`
           INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
-          VALUES (${crypto.randomUUID()}, 'STYLE_PAIR', ${sourceId}, ${title}, ${content}, ${embeddings[i]}::vector, ${JSON.stringify({ buyerMessage: pairs[i].buyer, omReply: pairs[i].reply })}::jsonb, NOW(), NOW())
+          VALUES (${crypto.randomUUID()}, 'STYLE_PAIR', ${sourceId}, ${title}, ${content}, ${embeddings[i]}::vector, ${JSON.stringify({ buyerMessage: pairs[i].buyer, omReply })}::jsonb, NOW(), NOW())
         `
         inserted++
       } catch (err) {
