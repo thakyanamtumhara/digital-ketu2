@@ -665,7 +665,7 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
   const allVectorResults = await vectorSearch(db, anthropic, mergedText, {
     limit: 10,  // fetch extra so corrections can be boosted into top 5
     minSimilarity: 0.0,
-    excludeSources: ['STYLE_GUIDE'],
+    excludeSources: ['STYLE_GUIDE', 'STYLE_PAIR', 'PREMIUM_PAIR'],
   })
 
   const bestSimilarity = allVectorResults.length > 0
@@ -680,7 +680,12 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
   }))
   boostedResults.sort((a, b) => b.similarity - a.similarity)
   const knowledgeResults = boostedResults.slice(0, 5)
-  const stylePairResults = []
+  // Personality DNA: find 3 similar real Om-buyer conversations to use as style examples
+  const stylePairResults = await vectorSearch(db, anthropic, mergedText, {
+    limit: 3,
+    minSimilarity: 0.3,
+    sources: ['STYLE_PAIR', 'PREMIUM_PAIR'],
+  })
 
   console.log(`[Vector] ${whatsappNumber} — ${allVectorResults.length} results, best: ${(bestSimilarity * 100).toFixed(1)}%`)
 
@@ -803,6 +808,17 @@ function buildSystemPrompt({ settings, styleGuide, stylePairs }) {
   // Om's extracted style guide (compact — extracted once from 337 real reply pairs)
   if (styleGuide) {
     prompt += `\n\nOM'S COMMUNICATION STYLE:\n${styleGuide}`
+  }
+
+  // Personality DNA: inject similar real Om-buyer conversations as tone examples
+  if (stylePairs && stylePairs.length > 0) {
+    prompt += `\n\nSIMILAR PAST CONVERSATIONS (reply like Om — match his tone, length, and style):\n`
+    for (const pair of stylePairs) {
+      const meta = typeof pair.metadata === 'string' ? JSON.parse(pair.metadata) : pair.metadata
+      if (meta?.buyerMessage && meta?.omReply) {
+        prompt += `Buyer: ${meta.buyerMessage}\nOm: ${meta.omReply}\n\n`
+      }
+    }
   }
 
   return prompt

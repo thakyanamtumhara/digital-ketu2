@@ -1124,7 +1124,7 @@ function PipelineGraph({ knowledgeStats, filterStats, settings }) {
           <span style={{ color: '#f59e0b', fontSize: 12 }}>(Haiku 4.5 — ~Rs 0.10-0.14 per message)</span>
         </div>
         <p style={{ color: '#94a3b8', fontSize: 12, margin: '0 0 14px' }}>
-          Claude receives 4 things and uses them together to craft the reply:
+          Claude receives 5 things and uses them together to craft the reply:
         </p>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
@@ -1155,6 +1155,13 @@ function PipelineGraph({ knowledgeStats, filterStats, settings }) {
               Compact communication style extracted from 337 real Om replies — tone, emoji usage, language patterns.
             </div>
             <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>From: Auto-extracted (one-time, in system prompt)</div>
+          </div>
+          <div style={{ ...sourceBox('#ec4899'), background: '#ec489915' }}>
+            <div style={{ color: '#f472b6', fontWeight: 700, fontSize: 13 }}>5. Personality DNA (Similar Conversations)</div>
+            <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>
+              3 real Om-buyer conversations most similar to THIS buyer's message — so Claude sees exactly how Om replied to similar questions.
+            </div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>From: Vector search on STYLE_PAIR + PREMIUM_PAIR chunks (per-query)</div>
           </div>
         </div>
 
