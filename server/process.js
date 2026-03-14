@@ -652,7 +652,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId, normalizedText, db, anthropic, settings, startTime, messageIds }) {
   // --- VECTOR SEARCH: Single search across all 4 knowledge sources ---
   const allVectorResults = await vectorSearch(db, anthropic, mergedText, {
-    limit: 5,
+    limit: 10,  // fetch extra so corrections can be boosted into top 5
     minSimilarity: 0.0,
     excludeSources: ['STYLE_GUIDE'],
   })
@@ -661,7 +661,14 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
     ? Math.max(...allVectorResults.map(r => Number(r.similarity)))
     : 0
 
-  const knowledgeResults = allVectorResults
+  // Boost CORRECTION results to the top — corrections are Om's manual fixes and should always take priority
+  const boostedResults = allVectorResults.map(r => ({
+    ...r,
+    similarity: r.source === 'CORRECTION' ? Math.min(Number(r.similarity) + 0.15, 1.0) : Number(r.similarity),
+    boosted: r.source === 'CORRECTION',
+  }))
+  boostedResults.sort((a, b) => b.similarity - a.similarity)
+  const knowledgeResults = boostedResults.slice(0, 5)
   const stylePairResults = []
 
   console.log(`[Vector] ${whatsappNumber} — ${allVectorResults.length} results, best: ${(bestSimilarity * 100).toFixed(1)}%`)
@@ -795,10 +802,13 @@ function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conve
 
   // Knowledge results from vector search (top 5 matches from catalog + templates + policies)
   if (knowledgeResults.length > 0) {
+    const hasCorrection = knowledgeResults.some(r => r.source === 'CORRECTION')
     prompt += `KNOWLEDGE BASE (top matches for this question — use this info to answer):\n`
+    if (hasCorrection) prompt += `⚠️ CORRECTION entries below are Om's manual fixes to previous AI mistakes. ALWAYS follow corrections over other sources.\n`
     for (const result of knowledgeResults) {
       const sim = (Number(result.similarity) * 100).toFixed(0)
-      prompt += `---\n[${result.source}] ${result.title || ''} (${sim}% match)\n${result.content}\n`
+      const prefix = result.source === 'CORRECTION' ? '⚠️ ' : ''
+      prompt += `---\n${prefix}[${result.source}] ${result.title || ''} (${sim}% match)\n${result.content}\n`
       if (result.source === 'CATALOG' && result.metadata) {
         const meta = typeof result.metadata === 'string' ? JSON.parse(result.metadata) : result.metadata
         if (meta.bulkPrice) prompt += `Bulk price: ₹${meta.bulkPrice}/pc\n`
