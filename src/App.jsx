@@ -2401,11 +2401,20 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
             <button style={{ ...styles.btnPrimary, background: '#854d0e' }} onClick={async () => {
               setPremiumExportRunning(true)
               try {
-                const res = await fetch('/api/premium-export/run', { method: 'POST' })
-                const data = await res.json()
-                if (!res.ok) throw new Error(data.error || 'Export failed')
-                setTrainingReport({ data, type: 'train' })
-                fetchSyncHistory()
+                const startRes = await fetch('/api/premium-export/run', { method: 'POST' })
+                const startData = await startRes.json()
+                if (!startRes.ok) throw new Error(startData.error || 'Export failed')
+                if (startData.status === 'running') { alert('Training is already in progress. Please wait.'); setPremiumExportRunning(false); return }
+                // Poll for completion
+                while (true) {
+                  await new Promise(r => setTimeout(r, 3000))
+                  const pollRes = await fetch('/api/premium-export/status')
+                  const pollData = await pollRes.json()
+                  if (pollData.status === 'running') continue
+                  if (pollData.status === 'failed') throw new Error(pollData.error || 'Training failed')
+                  if (pollData.status === 'success') { setTrainingReport({ data: pollData, type: 'train' }); fetchSyncHistory(); break }
+                  break // idle or unknown
+                }
               } catch (err) { alert('Export failed: ' + err.message) }
               setPremiumExportRunning(false)
             }} disabled={premiumExportRunning}>{premiumExportRunning ? 'Training...' : 'Train AI Now'}</button>
@@ -2466,11 +2475,19 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
                 if (!fromDate) return
                 setPremiumExportRunning(true)
                 try {
-                  const res = await fetch('/api/premium-export/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromDate }) })
-                  const data = await res.json()
-                  if (!res.ok) throw new Error(data.error || 'Export failed')
-                  setTrainingReport({ data, type: 'rescan' })
-                  fetchSyncHistory()
+                  const startRes = await fetch('/api/premium-export/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromDate }) })
+                  const startData = await startRes.json()
+                  if (!startRes.ok) throw new Error(startData.error || 'Export failed')
+                  if (startData.status === 'running') { alert('Training is already in progress. Please wait.'); setPremiumExportRunning(false); return }
+                  while (true) {
+                    await new Promise(r => setTimeout(r, 3000))
+                    const pollRes = await fetch('/api/premium-export/status')
+                    const pollData = await pollRes.json()
+                    if (pollData.status === 'running') continue
+                    if (pollData.status === 'failed') throw new Error(pollData.error || 'Re-scan failed')
+                    if (pollData.status === 'success') { setTrainingReport({ data: pollData, type: 'rescan' }); fetchSyncHistory(); break }
+                    break
+                  }
                 } catch (err) { alert('Re-scan failed: ' + err.message) }
                 setPremiumExportRunning(false)
               }}

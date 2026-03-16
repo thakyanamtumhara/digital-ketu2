@@ -1527,6 +1527,9 @@ async function runScheduledPremiumExport() {
   }
 }
 
+// Background job state for premium export
+let premiumExportJob = { running: false, result: null, error: null, startedAt: null }
+
 async function executePremiumExport(settings) {
   const startTime = Date.now()
   const WWBUN_API_URL = settings.wwbunApiUrl || process.env.WWBUN_API_URL
@@ -1666,21 +1669,51 @@ async function executePremiumExport(settings) {
 // Check every hour if premium export is due
 setInterval(runScheduledPremiumExport, 60 * 60 * 1000)
 
-// Manual trigger endpoint
+// Manual trigger endpoint — starts export in background to avoid Railway timeouts
 app.post('/api/premium-export/run', async (c) => {
+  if (premiumExportJob.running) {
+    return c.json({ status: 'running', message: 'Training is already in progress', startedAt: premiumExportJob.startedAt })
+  }
   try {
     const body = await c.req.json().catch(() => ({}))
     const settings = await getSettings()
-    // Allow manual fromDate override to re-scan a lost period
     if (body.fromDate) {
       settings.lastPremiumExportAt = new Date(body.fromDate)
     }
-    const result = await executePremiumExport(settings)
-    return c.json({ status: 'success', ...result })
+    // Start in background — don't await
+    premiumExportJob = { running: true, result: null, error: null, startedAt: new Date().toISOString() }
+    executePremiumExport(settings)
+      .then(result => {
+        premiumExportJob = { running: false, result, error: null, startedAt: premiumExportJob.startedAt }
+        console.log('[PremiumExport] Background job completed successfully')
+      })
+      .catch(err => {
+        premiumExportJob = { running: false, result: null, error: err.message, startedAt: premiumExportJob.startedAt }
+        console.error('[PremiumExport] Background job failed:', err.message)
+      })
+    return c.json({ status: 'started', message: 'Training started in background' })
   } catch (err) {
     console.error('[PremiumExport] Manual trigger failed:', err.message)
     return c.json({ error: err.message }, 500)
   }
+})
+
+// Poll for premium export job status
+app.get('/api/premium-export/status', (c) => {
+  if (premiumExportJob.running) {
+    return c.json({ status: 'running', startedAt: premiumExportJob.startedAt })
+  }
+  if (premiumExportJob.error) {
+    const error = premiumExportJob.error
+    premiumExportJob = { running: false, result: null, error: null, startedAt: null }
+    return c.json({ status: 'failed', error })
+  }
+  if (premiumExportJob.result) {
+    const result = premiumExportJob.result
+    premiumExportJob = { running: false, result: null, error: null, startedAt: null }
+    return c.json({ status: 'success', ...result })
+  }
+  return c.json({ status: 'idle' })
 })
 
 // ===========================================
