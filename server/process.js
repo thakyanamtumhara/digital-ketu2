@@ -101,6 +101,46 @@ const WWBUN_API_URL = process.env.WWBUN_API_URL
 const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 
 // ===========================================
+// Invoice Image Detection (Vision API)
+// ===========================================
+async function isInvoiceImage(anthropic, mediaUrl) {
+  if (!mediaUrl) return false
+  try {
+    // Fetch the image from wwbun storage
+    const response = await fetch(mediaUrl)
+    if (!response.ok) return false
+    const buffer = await response.arrayBuffer()
+    const base64 = Buffer.from(buffer).toString('base64')
+    const contentType = response.headers.get('content-type') || 'image/jpeg'
+    // Only process image types
+    if (!contentType.startsWith('image/')) return false
+
+    const result = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 10,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: contentType, data: base64 },
+          },
+          {
+            type: 'text',
+            text: 'Is this a purchase bill, tax invoice, or order receipt? Reply only YES or NO.',
+          },
+        ],
+      }],
+    })
+    const answer = result.content?.[0]?.text?.trim().toUpperCase() || ''
+    return answer.startsWith('YES')
+  } catch (err) {
+    console.error('[Invoice Image] Detection error:', err.message)
+    return false
+  }
+}
+
+// ===========================================
 // Message Classification (generic vs real question)
 // ===========================================
 function isGenericMessage(text) {
@@ -225,6 +265,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     .map(m => m.messageText.trim())
     .join(' ')
 
+  // Extract media URL (first image message with a mediaUrl)
+  const imageMediaUrl = messages.find(m => m.messageType === 'image' && m.mediaUrl)?.mediaUrl || null
+
   // Extract quoted message text (buyer replying to a previous message)
   const quotedText = messages.find(m => m.quotedText)?.quotedText || null
 
@@ -264,6 +307,22 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         sentViaWwbun: true,
       })
       console.log(`[Partial AI] ${whatsappNumber} — bill document detected, replied with dispatch confirmation`)
+      return
+    }
+
+    // Invoice image detection (screenshot of purchase bill/tax invoice)
+    if (imageMediaUrl && await isInvoiceImage(anthropic, imageMediaUrl)) {
+      const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
+      await sendReplyViaWwbun(whatsappNumber, mediaReply)
+      await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
+        status: 'REPLIED',
+        aiReply: mediaReply,
+        deferReason: 'bill_document',
+        processingMs: Date.now() - startTime,
+        isMedia: true,
+        sentViaWwbun: true,
+      })
+      console.log(`[Partial AI] ${whatsappNumber} — invoice image detected, replied with dispatch confirmation`)
       return
     }
 
@@ -419,6 +478,21 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
     await sendReplyViaWwbun(whatsappNumber, mediaReply)
     await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'REPLIED',
+      aiReply: mediaReply,
+      deferReason: 'bill_document',
+      processingMs: Date.now() - startTime,
+      isMedia: true,
+      sentViaWwbun: true,
+    })
+    return
+  }
+
+  // --- Check: Invoice image (screenshot of purchase bill/tax invoice) ---
+  if (imageMediaUrl && await isInvoiceImage(anthropic, imageMediaUrl)) {
+    const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
+    await sendReplyViaWwbun(whatsappNumber, mediaReply)
+    await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
       status: 'REPLIED',
       aiReply: mediaReply,
       deferReason: 'bill_document',
