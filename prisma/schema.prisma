@@ -1,0 +1,231 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// --- Knowledge Base ---
+
+model KnowledgeChunk {
+  id        String   @id @default(cuid())
+  source    ChunkSource
+  sourceId  String?           // original ID from source (template ID, product slug, etc.)
+  title     String?           // short label for dashboard display
+  content   String            // the text content
+  embedding Unsupported("vector(1024)")? // Claude embedding dimension
+  metadata  Json?             // extra info (product price, category, etc.)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([source])
+  @@index([sourceId])
+}
+
+enum ChunkSource {
+  SAVED_REPLY     // from wwbun ReplyTemplate
+  CATALOG         // from catalog repo products
+  STYLE_GUIDE     // communication style rules (compact, extracted once)
+  STYLE_PAIR      // individual buyer→Om reply pairs for vector matching
+  FAQ             // extracted FAQ pairs
+  POLICY          // shipping, payment, MOQ policies
+  CORRECTION      // Om's corrections — buyer question + correct reply (from Defer to Ketu edits)
+  PREMIUM_PAIR    // weekly auto-exported premium pairs (Opus-judged, non-context + permanent)
+}
+
+// --- Defer to Ketu ---
+
+model DeferToKetu {
+  id              String   @id @default(cuid())
+  buyerQuestion   String            // the question AI got wrong
+  aiWrongReply    String            // what AI replied (incorrectly)
+  correctReply    String            // what Om typed as correction
+  embedding       Unsupported("vector(1024)")? // embedding of buyer question
+  triggerCount    Int      @default(0) // how many times this has been triggered since
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// --- Conversation Tracking ---
+
+model BuyerConversation {
+  id              String   @id @default(cuid())
+  whatsappNumber  String   @unique
+  isFirstTime     Boolean  @default(true)
+  cooldownUntil   DateTime?          // if Om intervened, AI pauses until this time
+  lastMessageAt   DateTime?
+  messageCount    Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  messages        MessageLog[]
+}
+
+// --- Message Log (for dashboard + analytics) ---
+
+model MessageLog {
+  id                String   @id @default(cuid())
+  conversationId    String
+  conversation      BuyerConversation @relation(fields: [conversationId], references: [id])
+
+  // Incoming
+  buyerMessage      String            // merged message from buyer
+  messageIds        String[]          // WhatsApp message IDs (for dedup)
+  isMedia           Boolean  @default(false)
+
+  // Processing
+  status            MessageStatus
+  deferReason       String?           // "defer_to_ketu" | "low_confidence" | "cooldown" | "spam" | "media_only" | "daily_limit" | "off_hours"
+  knowledgeChunks   Json?             // which chunks were retrieved
+  similarityScore   Float?            // best match score from vector search
+  catalogMatch      Json?             // product matched from catalog
+
+  // Claude API
+  promptTokens      Int?
+  completionTokens  Int?
+  totalTokens       Int?
+  costUsd           Float?
+  promptSent        Json?             // the full prompt sent to Claude (for dashboard)
+
+  // Output
+  aiReply           String?           // the reply generated
+  sentViaWwbun      Boolean  @default(false) // whether reply was sent via wwbun API
+  wwbunMessageId    String?           // message ID from wwbun after sending
+
+  // Timing
+  processingMs      Int?              // total processing time
+  createdAt         DateTime @default(now())
+
+  // Self-learning review (populated by reviewer job)
+  reviewedAt        DateTime?         // when reviewed by Sonnet
+  reviewRating      Int?              // 1-5 rating
+  reviewNote        String?           // reviewer's reasoning
+
+  @@index([conversationId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([reviewedAt])
+}
+
+enum MessageStatus {
+  PROCESSING
+  REPLIED            // AI replied successfully
+  DEFERRED           // deferred to Ketu
+  COOLDOWN           // Om intervened, AI paused
+  SKIPPED            // spam, media-only, off-hours, daily limit
+  FAILED             // error occurred
+}
+
+// --- Settings ---
+
+model Settings {
+  id                  String   @id @default("default")
+  isActive            Boolean  @default(true)       // global ON/OFF toggle
+  partialAiEnabled    Boolean  @default(false)      // partial AI: only 3-min follow-up (no welcome, no full AI)
+  dailyBudgetInr      Float    @default(500)        // daily spend limit in INR
+  dailySpentUsd       Float    @default(0)          // today's spend in USD
+  dailySpentResetAt   DateTime @default(now())      // when daily counter was last reset
+  deferMessage        String   @default("Ketu will get back to you shortly on this.")
+  mediaMessage        String   @default("Sir, Ketu is not available right now. I'm not able to see images or listen to audio at the moment — could you please write your query in text? I'll read and reply right away.")
+  confidenceThreshold Float    @default(0.80)       // single threshold: ≥80% → Claude answers, <80% → defer to Ketu
+  deferThreshold      Float    @default(0.80)       // deprecated — kept for DB compatibility, use confidenceThreshold instead
+  mergeWindowMs       Int      @default(3000)       // message merge window (3 sec)
+  cooldownMinutes     Int      @default(10)         // cooldown after Om intervenes
+  scheduleEnabled     Boolean  @default(false)
+  scheduleStart       String?  @default("09:00")    // HH:MM IST
+  scheduleEnd         String?  @default("21:00")    // HH:MM IST
+  productKeywords     String?                       // comma-separated keywords for catalog filtering
+  logisticsKeywords   String?                       // comma-separated keywords for logistics/saved-reply filtering
+  informingKeywords   String?                       // comma-separated keywords for informing/future-intent detection
+  lastSyncAt          DateTime?
+  nextSyncAt          DateTime?
+  // Self-learning settings
+  learningEnabled     Boolean  @default(true)        // toggle learning on/off
+  learningIntervalHours Int    @default(2)            // run review every N hours (aggressive for first weeks)
+  lastReviewAt        DateTime?
+  learningDailyBudgetUsd Float @default(0.59)         // max daily spend on review calls (~Rs 50) — enough for history pull + daily reviews
+  learningDailySpentUsd  Float @default(0)            // today's spend on review
+  learningSpentResetAt   DateTime @default(now())     // when learning counter was last reset
+  // Weekly premium export settings
+  premiumExportEnabled       Boolean  @default(true)
+  premiumExportIntervalDays  Int      @default(7)
+  lastPremiumExportAt        DateTime?
+  nextPremiumExportAt        DateTime?
+  lastPremiumExportPairs     Int      @default(0)
+  // System prompt (managed via code — auto-syncs on every deploy)
+  systemPrompt        String?                       // Claude system prompt — synced from process.js on deploy
+  promptUpdatedAt     DateTime?                     // when system prompt was last synced from code
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+// --- Self-Learning: Manual Reply Pairs (collected when AI is OFF) ---
+
+model ManualReplyPair {
+  id              String    @id @default(cuid())
+  whatsappNumber  String
+  buyerMessage    String
+  ketuReply       String
+  reviewedAt      DateTime?           // when Sonnet reviewed this
+  reviewResult    String?             // "correction_added" | "ai_would_handle" | "skipped"
+  reviewNote      String?             // reviewer's reasoning
+  category        String?             // "order_issue" | "payment" | "delivery" | "complaint" | "pricing" | "product_inquiry" | "website" | "greeting" | "informing" | "other"
+  createdAt       DateTime  @default(now())
+
+  @@index([reviewedAt])
+  @@index([createdAt])
+  @@index([category])
+}
+
+// --- Pre-AI Filters (dynamic keyword filters) ---
+
+model PreAIFilter {
+  id            String   @id @default(cuid())
+  name          String   @unique    // "acknowledgment", "greeting", "angry_buyer", etc.
+  displayName   String               // "Acknowledgment", "Greeting", "Angry Buyer"
+  description   String?              // "Skip messages that are just acknowledgments"
+  filterType    String               // "keyword" | "system"
+  matchType     String               // "exact" | "partial" | "combo"
+  action        String               // "skip" | "defer" | "auto_reply" | "welcome_bypass"
+  autoReplyText String?              // Text for auto_reply action
+  keywords      String   @default("") // CSV of keywords
+  enabled       Boolean  @default(true)
+  isSystem      Boolean  @default(true)  // true = seeded, false = user-created
+  priority      Int      @default(100)   // lower = checked first
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model DiscoveredKeyword {
+  id            String    @id @default(cuid())
+  keyword       String               // The discovered keyword/phrase
+  category      String               // Which filter category it belongs to
+  confidence    Float                // 0.0 to 1.0
+  source        String               // "auto_review" | "manual_review"
+  status        String    @default("pending") // "pending" | "approved" | "dismissed" | "auto_added"
+  filterId      String?              // If approved, which PreAIFilter it was added to
+  discoveredAt  DateTime  @default(now())
+  processedAt   DateTime?            // When approved/dismissed/auto-added
+
+  @@index([status])
+  @@index([category])
+}
+
+// --- Sync Log ---
+
+model SyncLog {
+  id            String   @id @default(cuid())
+  syncType      String                // "saved_replies" | "catalog" | "premium_export"
+  status        String                // "success" | "failed"
+  itemsFound    Int      @default(0)
+  itemsUpdated  Int      @default(0)
+  itemsNew      Int      @default(0)
+  error         String?
+  durationMs    Int?
+  details       Json?                 // detailed results for premium_export (kept pairs, rejected, filter stats)
+  createdAt     DateTime @default(now())
+}

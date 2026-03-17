@@ -1,8 +1,8 @@
 # WhatsApp Auto-Reply System — Master Plan
 
 **Project Owner:** Om (BulkPlainTshirt.com / sale91.com)
-**Last Updated:** March 9, 2026
-**Status:** Planning Phase
+**Last Updated:** March 10, 2026
+**Status:** Live & Running
 
 ---
 
@@ -55,20 +55,24 @@ The system connects to Om's WhatsApp repo via **API token** and syncs automatica
 
 ---
 
-## 3. How AI Generates Replies (RAG Approach)
+## 3. How AI Generates Replies
 
-The AI does **NOT** read the entire knowledge base for every reply. That would be too expensive and slow.
+### Current MVP Approach: Send All Chunks to Claude
+Since the knowledge base is small (~30-50 chunks), **ALL knowledge chunks** are sent to Claude with every message. Claude picks what's relevant and generates the reply.
 
-### Flow:
-1. **Buyer sends a question**
-2. **Search step (fast, cheap):** System searches the knowledge base using vector/embedding search and pulls only the **relevant chunks** (5-10 small pieces)
-3. **Generate step (Claude):** Only those relevant chunks + communication style are sent to Claude
-4. **Claude generates reply** that sounds like Om and has accurate info
+**Why this approach (instead of vector search):**
+- Hash-based embeddings produce low similarity scores → vector search was failing to find relevant chunks
+- With a small KB, sending everything costs only ~2000-4000 tokens per message (~₹0.02-0.04 per reply with Haiku 4.5)
+- Claude is much better at judging relevance than hash-based similarity
+- No false "low confidence" deferrals — Claude answers if it has the info
 
-### Result:
-- Even if knowledge base grows, each reply uses only a small portion
-- Token cost stays **low and predictable**
-- Better results because AI focuses on relevant info only
+**Claude decides when to defer:** If Claude doesn't have enough info in the knowledge base to answer accurately, it responds with `[DEFER]` and the system sends the defer message instead.
+
+### Future Upgrade: Vector Search (when KB grows)
+When the knowledge base grows beyond ~100 chunks, switch to proper vector search:
+- Add Voyage AI embeddings (Anthropic's recommended embedding model)
+- Re-enable the confidence threshold check
+- This will reduce tokens per message by only sending relevant chunks
 
 ### What Exactly Gets Sent to Claude (Prompt Structure)
 For every buyer message, the system builds a prompt with exactly **5 components**:
@@ -77,11 +81,11 @@ For every buyer message, the system builds a prompt with exactly **5 components*
 |---|-----------|-----------------|---------------------|-----------------|
 | 1 | Instructions | System rules (cooldown, merge, first-time buyer, guide to website, etc.) | No — fixed every time | ~300-500 |
 | 2 | Style Guide | Om's communication tone, language, greeting/closing style | No — fixed every time | ~100-200 |
-| 3 | Knowledge chunks | Relevant pieces from saved replies + catalog (pulled via vector search) | Yes — different per question | ~200-500 |
+| 3 | Knowledge chunks | ALL saved replies + catalog + policies (full KB) | No — same every time (until sync) | ~1500-3000 |
 | 4 | Conversation history | Last **5 messages** from this buyer's conversation | Yes — changes as conversation progresses | ~100-300 |
 | 5 | Buyer's message | The actual new question from the buyer | Yes — unique every time | ~20-50 |
 
-**Estimated total per reply: ~700-1500 input tokens + output tokens for the reply**
+**Estimated total per reply: ~2000-4000 input tokens + output tokens for the reply**
 
 **Notes on conversation history:**
 - Only the **last 5 messages** are included (not entire conversation)
@@ -123,6 +127,17 @@ For every buyer message, the system builds a prompt with exactly **5 components*
 - If yes → **ignore it** (don't reply again).
 - If no → process normally.
 - This prevents the AI from sending duplicate replies to the same buyer message.
+
+### 4.6 Post-Defer Acknowledgment Handling (Conversation Closure Detection)
+- When AI defers a message ("Ketu will get back to you"), the buyer often replies with a simple acknowledgment: "Ok", "Okay", "Thanks", "Theek hai", etc.
+- This acknowledgment means **the conversation is closed** — the buyer accepted that Ketu will reply later.
+- **Rule:** If the last AI interaction was a **DEFERRED** status, and the buyer's new message is a short acknowledgment, **do NOT reply**. Stay silent.
+- The message is logged as `SKIPPED` with reason `post_defer_ack` for dashboard visibility.
+- **Acknowledgment patterns detected** (case-insensitive, trailing punctuation stripped):
+  - English: ok, okay, fine, sure, thanks, thank you, alright, got it, noted, understood, no problem, np, cool, great, good, right, yes, yep, ya, yaa
+  - Hindi/Hinglish: theek hai, thik hai, accha, acha, sahi hai, ji, haan, ha, dhanyavaad, shukriya, bas, theek, thik, hmm, hm, k, kk
+- If the buyer sends a **real follow-up question** (not an acknowledgment), the normal pipeline continues as usual.
+- **Implementation:** Check runs after cooldown check and before the defer-to-Ketu vector search, so it's fast and costs zero tokens.
 
 ---
 
@@ -218,12 +233,17 @@ back to you shortly"        Claude AI reply flow
 (no Claude API call)
 ```
 
-### 6.7 Low Confidence Fallback — Defer to Ketu
-Even if a question doesn't match the "Defer to Ketu" list, the AI may still not have a good answer. This happens when the knowledge base search returns **low similarity results** — meaning no saved reply or catalog entry is relevant to what the buyer asked.
+### 6.7 Low Confidence Fallback — Claude Decides When to Defer
+Since the MVP sends ALL knowledge chunks to Claude, **Claude itself decides** whether it has enough info to answer.
 
-**Rule:** After searching the knowledge base, if the best match similarity score is **below 60%**, do NOT call Claude. Instead reply: **"Ketu will get back to you shortly on this."**
+**How it works:**
+- System prompt tells Claude: "If you don't have enough info, respond with exactly: `[DEFER]`"
+- If Claude responds with `[DEFER]`, the system sends the defer message instead
+- This is more accurate than similarity threshold — Claude understands context, not just word overlap
 
-**Example:** Buyer asks "Do you do custom embroidery on t-shirts?" but there's no saved reply about embroidery. Search returns "round neck pricing" as closest match at 35% similarity → too low → defer to Ketu.
+**Example:** Buyer asks "Do you do custom embroidery on t-shirts?" → Claude sees the full knowledge base, finds no embroidery info → responds with `[DEFER]` → buyer gets "Ketu will get back to you shortly on this."
+
+**Future (when KB grows):** Switch to vector search with Voyage AI embeddings and re-enable the 60% confidence threshold.
 
 **Complete message flow with all checks:**
 ```
@@ -233,43 +253,56 @@ Is it media only? ──YES──▶ "Please write in text, can't view media"
        ↓ NO
 Merge messages (≤3 sec gap)
        ↓
-Is buyer first-time? ──YES──▶ Include sale91.com/catalog in reply
-       ↓
+Post-defer ack? ──YES──▶ Stay silent (section 4.6)
+       ↓ NO
 Check "Defer to Ketu" list (≥85% match?)
        ↓ YES                    ↓ NO
-"Ketu will get back       Search knowledge base
-to you shortly"           (saved replies + catalog)
-                               ↓
-                    Best match similarity ≥60%?
-                     ↓ YES              ↓ NO
-               Build prompt &      "Ketu will get back
-               call Claude API     to you shortly"
-                     ↓
-               Send AI reply
+"Ketu will get back       Send ALL knowledge chunks
+to you shortly"           + buyer message to Claude
+(no Claude API call)           ↓
+                         Claude responds with [DEFER]?
+                          ↓ YES              ↓ NO
+                    "Ketu will get back    Send Claude's
+                    to you shortly"        AI reply to buyer
 ```
 
 ---
 
 ## 7. Architecture Summary
 
+### Integration Model: wwbun forwards → digital-ketu2 processes → wwbun sends reply
+
 ```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────┐
-│  WhatsApp    │────▶│  Auto-Reply      │────▶│   Claude    │
-│  API/Repo    │◀────│  Server          │◀────│   API       │
-└─────────────┘     └──────────────────┘     └─────────────┘
-                            │
-                   ┌────────┼────────┐
-                   │        │        │
-             ┌─────▼─────┐ ┌▼──────┐ ┌▼────────────┐
-             │ Knowledge  │ │Defer  │ │ Intervention │
-             │ Base       │ │to Ketu│ │ Log          │
-             │ (Vector DB)│ │ List  │ │ (Learning)   │
-             └───────────┘ └───────┘ └──────────────┘
+┌──────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌─────────────┐
+│  WhatsApp    │────▶│  wwbun           │────▶│  digital-ketu2   │────▶│   Claude    │
+│  Cloud API   │     │  (WhatsApp app)  │     │  (Auto-Reply     │     │   API       │
+│              │◀────│                  │◀────│   Server)        │◀────│             │
+└──────────────┘     └──────────────────┘     └──────────────────┘     └─────────────┘
+                                                      │
+                                             ┌────────┼────────┐
+                                             │        │        │
+                                       ┌─────▼─────┐ ┌▼──────┐ ┌▼────────────┐
+                                       │ Knowledge  │ │Defer  │ │ Intervention │
+                                       │ Base       │ │to Ketu│ │ Log          │
+                                       │ (Vector DB)│ │ List  │ │ (Learning)   │
+                                       └───────────┘ └───────┘ └──────────────┘
+
+Flow:
+1. WhatsApp Cloud API sends webhook to wwbun (existing behavior)
+2. wwbun forwards incoming message to digital-ketu2 API
+3. digital-ketu2 processes (merge, RAG search, Claude API)
+4. digital-ketu2 calls wwbun API to send the AI reply
+5. wwbun sends via WhatsApp API and tracks the message properly
 
 Knowledge Base Sources:
-├── Saved Replies (from WhatsApp repo)
-├── Product Catalog (sale91.com/catalog)
+├── Saved Replies (from wwbun repo via GitHub API)
+├── Product Catalog (from catalog repo via GitHub API)
 └── Communication Style Guide
+
+Edit Button (already exists in wwbun):
+├── Om clicks Edit on AI reply → types correct response
+├── wwbun sends correction data to digital-ketu2 API
+└── digital-ketu2 saves to "Defer to Ketu" list
 ```
 
 ---
@@ -332,12 +365,13 @@ Each step shows timing (how many ms it took) and token/cost impact.
 
 ## 10. Infrastructure — Railway
 
-### 10.1 Vector Database: Railway PostgreSQL + pgvector
-- Use **existing Railway PostgreSQL** database — no new service needed.
+### 10.1 Vector Database: Neon PostgreSQL + pgvector
+- Use **Neon** (free tier) PostgreSQL with pgvector — Railway's default PostgreSQL doesn't include pgvector.
+- **Neon project:** `digitalketu-2` on AWS Asia Pacific 1 (Singapore)
 - Enable **pgvector extension** for smart similarity search on knowledge base.
 - All saved replies and catalog entries stored as vector embeddings in PostgreSQL.
 - When buyer asks a question → pgvector finds the most relevant chunks by meaning (not exact words).
-- Setup: `CREATE EXTENSION vector;` on existing Railway PostgreSQL.
+- Setup: pgvector auto-enabled via `CREATE EXTENSION IF NOT EXISTS vector;` in Dockerfile CMD.
 
 ### 10.2 What Runs on Railway (Everything)
 | Component | Technology | Purpose |
@@ -387,7 +421,7 @@ Each step shows timing (how many ms it took) and token/cost impact.
 | Intervention cooldown | 10 min from last manual msg | Gives Om time to handle conversation without AI interference |
 | Wrong reply marking | Edit button on WhatsApp repo app | Om stays in his natural workflow; no dashboard switching |
 | Reply frequency | One reply per buyer thought | Avoids spamming buyer with multiple AI messages |
-| Vector database | Railway PostgreSQL + pgvector | Already running, no extra cost, no new platform |
+| Vector database | Neon PostgreSQL + pgvector | Free tier, pgvector built-in, Railway PostgreSQL doesn't support pgvector |
 | Hosting | Railway (everything) | Already in use, WhatsApp Business API already deployed there |
 | Working hours | Schedule option on dashboard | Configurable when AI is active |
 | Cost protection | ₹500/day spending cap | Protects against spikes, spam, or abuse |
@@ -400,21 +434,59 @@ Each step shows timing (how many ms it took) and token/cost impact.
 
 | # | What | Details | Status |
 |---|------|---------|--------|
-| 1 | WhatsApp repo token | Fine-grained token for WhatsApp Business API on Railway. Needs: read messages, send messages, read saved replies. **Plus code read/write access** for adding the Edit button to the WhatsApp repo app UI. | Pending |
-| 2 | Anthropic API key | For Claude API to generate replies. | Pending |
-| 3 | GitHub token (catalog repo) | **Fine-grained token with Content: Read access** to the catalog repo. Used to pull product data via GitHub API every 3-4 days. | Pending |
-| 4 | Railway access | Project setup for auto-reply server. Om creates the Railway project. | Already have |
-| 5 | Catalog repo name/URL | The GitHub repo where product catalog is stored. | Pending |
-| 6 | WhatsApp repo name/URL | The Railway-deployed WhatsApp Business API endpoint details. | Pending |
+| 1 | WhatsApp repo token | Fine-grained token for WhatsApp Business API on Railway. Needs: read messages, send messages, read saved replies. **Plus code read/write access** for adding the Edit button to the WhatsApp repo app UI. | ✅ Not needed — repo connected directly via Claude Code (`thakyanamtumhara/wwbun`) |
+| 2 | Anthropic API key | For Claude API to generate replies. | ✅ Added as Railway env variable (`ANTHROPIC_API_KEY`) |
+| 3 | GitHub token (for Railway auto-sync) | **Fine-grained read-only token** for `thakyanamtumhara/wwbun` + `thakyanamtumhara/catalog`. Railway server uses this to auto-sync saved replies + catalog every 3-4 days. | ✅ Added as Railway env variable (`GITHUB_TOKEN`) |
+| 4 | Railway access | Project setup for auto-reply server. Om creates the Railway project. | ✅ Deployed on Railway (charismatic-integrity project) |
+| 5 | Catalog repo name/URL | The GitHub repo where product catalog is stored. | ✅ `thakyanamtumhara/catalog` |
+| 6 | WhatsApp repo name/URL | The Railway-deployed WhatsApp Business API endpoint details. | ✅ `thakyanamtumhara/wwbun` |
 
 ---
 
 ## 13. Pending / To Be Decided
 
-- [ ] WhatsApp repo token handover (including code read/write for Edit button)
-- [ ] Railway project setup for auto-reply server
-- [ ] Push notification to Om when AI defers to Ketu (so Om knows a buyer is waiting)
-- [ ] Edit button UI implementation on WhatsApp repo app
+- [x] ~~WhatsApp repo token handover~~ — Not needed, repo connected directly via Claude Code
+- [x] Railway project setup for auto-reply server — ✅ Deployed, server running on Railway
+- [x] Om adds env variables to Railway: `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `DATABASE_URL` (Neon), `WWBUN_API_URL`, `DIGITAL_KETU_SECRET`
+- [x] Database setup — ✅ Neon PostgreSQL with pgvector (digitalketu-2 project, Singapore region)
+- [x] Server-to-server auth — ✅ Shared secret (`DIGITAL_KETU_SECRET`) between wwbun and digital-ketu2
+- [x] wwbun env variables — ✅ `DIGITAL_KETU_URL` and `DIGITAL_KETU_SECRET` added to wwbun on Railway
+- [x] End-to-end test — ✅ AI replies working (buyer "Stylo" received AI responses)
+- [x] Post-defer acknowledgment fix — ✅ AI no longer replies to "Ok"/"Okay" after deferring (section 4.6)
+- [x] Fix AI deferring all messages — ✅ Removed wasted Claude API call from embeddings, switched to send-all-chunks approach for MVP (KB is small)
+- [x] Auto-sync on startup — ✅ Server forces sync when knowledge base is empty
+- [ ] Upgrade to Voyage AI embeddings — When KB grows beyond ~100 chunks, switch to proper vector search
+- [x] Edit button UI implementation on WhatsApp repo app (`thakyanamtumhara/wwbun`) — ✅ Implemented
+- [x] Smart chunk filtering — Only sends relevant chunks to Claude (~2000-3000 tokens vs ~8000)
+- [x] Style guide extraction from Om's real conversations — ✅ Compact ~200 word guide
+- [x] Dispatch intent detection — Reassures buyer about immediate dispatch
+- [x] Buying intent detection — Mentions sale91.com only once
+- [x] Price negotiation detection — Politely says prices are fixed
+- [x] BillNo PDF detection — Auto-acknowledges dispatch for invoice PDFs (0 tokens)
+- [x] Welcome message bypass — First-time or 7+ day gap buyers get welcome directly (0 tokens)
+- [x] Acknowledgment keyword skip — 29 words (ok, thanks, hmm, theek hai...) skip Claude (0 tokens)
+- [x] Pre-AI Filters dashboard tab — Dedicated tab showing all 14 pre-AI rules with live stats
+
+---
+
+## 14. Dashboard Tabs (6 Total)
+
+| Tab | Purpose |
+|-----|---------|
+| **Live Monitor** | Real-time message feed with expandable 5-step pipeline view per message |
+| **Analytics** | Aggregate stats: messages, tokens, costs, intervention rate (today/week/month) |
+| **Defer to Ketu** | View/manage Om's corrections, edit defer message, delete entries |
+| **Pre-AI Filters** | All 14 rules that run before Claude — 0 tokens consumed, with trigger counts and period filter |
+| **Settings** | AI ON/OFF, daily budget, schedule, confidence threshold, defer threshold, messages |
+| **Sync** | Full knowledge base viewer + sync controls + sync history |
+
+### Pre-AI Filters Tab Details
+Shows every check that runs before Claude is called:
+- **Summary cards**: Messages filtered, reached Claude, filter rate %
+- **Visual pipeline flow**: Message path through all 14 filters → Claude
+- **Expandable filter list**: Click any filter to see description, current state, action, keywords
+- **Period selector**: Today / 7 Days / 30 Days
+- **Color-coded types**: System (blue), Message (purple), Keyword (amber), User (green), AI Match (pink), Post-AI (red)
 
 ---
 
