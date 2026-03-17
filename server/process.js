@@ -101,14 +101,17 @@ const WWBUN_API_URL = process.env.WWBUN_API_URL
 const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 
 // ===========================================
-// Invoice Image Detection (Vision API)
+// Invoice/Bill Image Detection (Claude Vision)
 // ===========================================
 async function isInvoiceImage(anthropic, mediaUrl) {
   if (!mediaUrl) return false
   try {
     // Fetch the image from wwbun storage
     const response = await fetch(mediaUrl)
-    if (!response.ok) return false
+    if (!response.ok) {
+      console.log('[InvoiceDetect] Failed to fetch image:', response.status)
+      return false
+    }
     const buffer = await response.arrayBuffer()
     const base64 = Buffer.from(buffer).toString('base64')
     const contentType = response.headers.get('content-type') || 'image/jpeg'
@@ -133,9 +136,10 @@ async function isInvoiceImage(anthropic, mediaUrl) {
       }],
     })
     const answer = result.content?.[0]?.text?.trim().toUpperCase() || ''
+    console.log(`[InvoiceDetect] Vision result: ${answer}`)
     return answer.startsWith('YES')
   } catch (err) {
-    console.error('[Invoice Image] Detection error:', err.message)
+    console.error('[InvoiceDetect] Detection error:', err.message)
     return false
   }
 }
@@ -293,6 +297,21 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   // --- Partial AI mode: only 3-min follow-up for new/7+day buyers, nothing else ---
   if (!settings.isActive && settings.partialAiEnabled) {
+    // Cooldown check — if Om responded, 10-min silence for ALL message types
+    const freshCooldownPartial = await db.buyerConversation.findUnique({
+      where: { whatsappNumber },
+      select: { cooldownUntil: true },
+    })
+    if (freshCooldownPartial?.cooldownUntil && new Date() < new Date(freshCooldownPartial.cooldownUntil)) {
+      await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
+        status: 'COOLDOWN',
+        deferReason: 'cooldown',
+        processingMs: Date.now() - startTime,
+      })
+      console.log(`[Partial AI] ${whatsappNumber} — cooldown active (Om responded), skipping`)
+      return
+    }
+
     // Bill/order detection in Partial AI — same as Full AI
     const isBillDoc = mergedText?.match(/\[Document:.*BillNo.*\.pdf\]/i)
     if (isBillDoc) {
@@ -500,6 +519,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       isMedia: true,
       sentViaWwbun: true,
     })
+    console.log(`[Full AI] ${whatsappNumber} — invoice image detected, replied with dispatch confirmation`)
     return
   }
 
