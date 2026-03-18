@@ -190,17 +190,22 @@ const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 // Invoice/Bill Image Detection (Claude Vision)
 // ===========================================
 async function isInvoiceImage(anthropic, mediaUrl) {
-  if (!mediaUrl) return false
+  if (!mediaUrl) {
+    console.log('[InvoiceDetect] No mediaUrl provided, skipping vision check')
+    return false
+  }
   try {
     // Fetch the image/document from wwbun storage
+    console.log(`[InvoiceDetect] Fetching media from: ${mediaUrl}`)
     const response = await fetch(mediaUrl)
     if (!response.ok) {
-      console.log('[InvoiceDetect] Failed to fetch media:', response.status)
+      console.log(`[InvoiceDetect] Failed to fetch media: ${response.status} ${response.statusText}`)
       return false
     }
     const buffer = await response.arrayBuffer()
     const base64 = Buffer.from(buffer).toString('base64')
     const contentType = response.headers.get('content-type') || 'image/jpeg'
+    console.log(`[InvoiceDetect] Media fetched: ${contentType}, ${buffer.byteLength} bytes`)
 
     // Build content block based on media type (image or PDF document)
     let mediaContent
@@ -215,7 +220,6 @@ async function isInvoiceImage(anthropic, mediaUrl) {
         source: { type: 'base64', media_type: 'application/pdf', data: base64 },
       }
     } else {
-      // Unsupported content type
       console.log(`[InvoiceDetect] Unsupported content type: ${contentType}`)
       return false
     }
@@ -235,10 +239,10 @@ async function isInvoiceImage(anthropic, mediaUrl) {
       }],
     })
     const answer = result.content?.[0]?.text?.trim().toUpperCase() || ''
-    console.log(`[InvoiceDetect] Vision result: ${answer}`)
+    console.log(`[InvoiceDetect] Vision result: "${answer}"`)
     return answer.startsWith('YES')
   } catch (err) {
-    console.error('[InvoiceDetect] Detection error:', err.message)
+    console.error(`[InvoiceDetect] Detection error: ${err.message}`)
     return false
   }
 }
@@ -370,10 +374,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     .join(' ')
 
   // Extract media URL (first image message with a mediaUrl)
-  const imageMediaUrl = messages.find(m => m.messageType === 'image' && m.mediaUrl)?.mediaUrl || null
+  const imageMsg = messages.find(m => m.messageType === 'image')
+  const imageMediaUrl = imageMsg?.mediaUrl || null
+  const documentMsg = messages.find(m => m.messageType === 'document')
+  const documentMediaUrl = documentMsg?.mediaUrl || null
 
-  // Extract document media URL (for invoice/bill detection on documents sent as files)
-  const documentMediaUrl = messages.find(m => m.messageType === 'document' && m.mediaUrl)?.mediaUrl || null
+  // Log media detection for debugging
+  if (imageMsg || documentMsg) {
+    const mediaType = imageMsg ? 'image' : 'document'
+    const hasUrl = imageMsg ? !!imageMediaUrl : !!documentMediaUrl
+    console.log(`[BillDetect] ${whatsappNumber} — ${mediaType} message found, mediaUrl: ${hasUrl ? 'present' : 'MISSING'}, hasMedia: ${imageMsg?.hasMedia || documentMsg?.hasMedia}`)
+  }
 
   // Extract quoted message text (buyer replying to a previous message)
   const quotedText = messages.find(m => m.quotedText)?.quotedText || null
@@ -436,19 +447,25 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     // Invoice image detection (screenshot of purchase bill/tax invoice)
     // Also check documents sent as files (not just images)
     const invoiceMediaUrl = imageMediaUrl || documentMediaUrl
-    if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
-      const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-      await sendReplyViaWwbun(whatsappNumber, mediaReply)
-      await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
-        status: 'REPLIED',
-        aiReply: mediaReply,
-        deferReason: 'bill_document',
-        processingMs: Date.now() - startTime,
-        isMedia: true,
-        sentViaWwbun: true,
-      })
-      console.log(`[Partial AI] ${whatsappNumber} — invoice image detected, replied with dispatch confirmation`)
-      return
+    if (invoiceMediaUrl) {
+      const isInvoice = await isInvoiceImage(anthropic, invoiceMediaUrl)
+      if (isInvoice) {
+        const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
+        await sendReplyViaWwbun(whatsappNumber, mediaReply)
+        await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
+          status: 'REPLIED',
+          aiReply: mediaReply,
+          deferReason: 'bill_document',
+          processingMs: Date.now() - startTime,
+          isMedia: true,
+          sentViaWwbun: true,
+        })
+        console.log(`[Partial AI] ${whatsappNumber} — invoice image detected, replied with dispatch confirmation`)
+        return
+      }
+      console.log(`[Partial AI] ${whatsappNumber} — invoice image check returned false, continuing`)
+    } else if (imageMsg || documentMsg) {
+      console.log(`[Partial AI] ${whatsappNumber} — ${imageMsg ? 'image' : 'document'} message has NO mediaUrl, cannot check for invoice`)
     }
 
     const trimmedText = mergedText?.trim() || ''
@@ -615,20 +632,28 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   // --- Check: Invoice image (screenshot of purchase bill/tax invoice) ---
   // Also check documents sent as files (not just images)
-  const invoiceMediaUrl = imageMediaUrl || documentMediaUrl
-  if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
-    const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-    await sendReplyViaWwbun(whatsappNumber, mediaReply)
-    await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
-      status: 'REPLIED',
-      aiReply: mediaReply,
-      deferReason: 'bill_document',
-      processingMs: Date.now() - startTime,
-      isMedia: true,
-      sentViaWwbun: true,
-    })
-    console.log(`[Full AI] ${whatsappNumber} — invoice image detected, replied with dispatch confirmation`)
-    return
+  {
+    const invoiceMediaUrl = imageMediaUrl || documentMediaUrl
+    if (invoiceMediaUrl) {
+      const isInvoice = await isInvoiceImage(anthropic, invoiceMediaUrl)
+      if (isInvoice) {
+        const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
+        await sendReplyViaWwbun(whatsappNumber, mediaReply)
+        await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
+          status: 'REPLIED',
+          aiReply: mediaReply,
+          deferReason: 'bill_document',
+          processingMs: Date.now() - startTime,
+          isMedia: true,
+          sentViaWwbun: true,
+        })
+        console.log(`[Full AI] ${whatsappNumber} — invoice image detected, replied with dispatch confirmation`)
+        return
+      }
+      console.log(`[Full AI] ${whatsappNumber} — invoice image check returned false, continuing`)
+    } else if (imageMsg || documentMsg) {
+      console.log(`[Full AI] ${whatsappNumber} — ${imageMsg ? 'image' : 'document'} message has NO mediaUrl, cannot check for invoice`)
+    }
   }
 
   // --- Check: Media-only message (actual image/audio/video/document) ---

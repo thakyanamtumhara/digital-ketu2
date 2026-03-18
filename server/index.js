@@ -109,6 +109,12 @@ app.post('/api/incoming', async (c) => {
     messageBuffer.set(bufferKey, { messages: [], timer: null })
   }
   const buffer = messageBuffer.get(bufferKey)
+
+  // Log media messages for debugging bill detection
+  if (messageType === 'image' || messageType === 'document') {
+    console.log(`[Incoming] ${whatsappNumber} — ${messageType} message, mediaUrl: ${mediaUrl ? 'present' : 'MISSING'}, hasMedia: ${hasMedia}`)
+  }
+
   buffer.messages.push({
     messageText: messageText || '',
     messageId,
