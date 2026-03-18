@@ -106,17 +106,33 @@ const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 async function isInvoiceImage(anthropic, mediaUrl) {
   if (!mediaUrl) return false
   try {
-    // Fetch the image from wwbun storage
+    // Fetch the image/document from wwbun storage
     const response = await fetch(mediaUrl)
     if (!response.ok) {
-      console.log('[InvoiceDetect] Failed to fetch image:', response.status)
+      console.log('[InvoiceDetect] Failed to fetch media:', response.status)
       return false
     }
     const buffer = await response.arrayBuffer()
     const base64 = Buffer.from(buffer).toString('base64')
     const contentType = response.headers.get('content-type') || 'image/jpeg'
-    // Only process image types
-    if (!contentType.startsWith('image/')) return false
+
+    // Build content block based on media type (image or PDF document)
+    let mediaContent
+    if (contentType.startsWith('image/')) {
+      mediaContent = {
+        type: 'image',
+        source: { type: 'base64', media_type: contentType, data: base64 },
+      }
+    } else if (contentType === 'application/pdf') {
+      mediaContent = {
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: base64 },
+      }
+    } else {
+      // Unsupported content type
+      console.log(`[InvoiceDetect] Unsupported content type: ${contentType}`)
+      return false
+    }
 
     const result = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -124,10 +140,7 @@ async function isInvoiceImage(anthropic, mediaUrl) {
       messages: [{
         role: 'user',
         content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: contentType, data: base64 },
-          },
+          mediaContent,
           {
             type: 'text',
             text: 'Is this a purchase bill, tax invoice, or order receipt? Reply only YES or NO.',
@@ -272,6 +285,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // Extract media URL (first image message with a mediaUrl)
   const imageMediaUrl = messages.find(m => m.messageType === 'image' && m.mediaUrl)?.mediaUrl || null
 
+  // Extract document media URL (for invoice/bill detection on documents sent as files)
+  const documentMediaUrl = messages.find(m => m.messageType === 'document' && m.mediaUrl)?.mediaUrl || null
+
   // Extract quoted message text (buyer replying to a previous message)
   const quotedText = messages.find(m => m.quotedText)?.quotedText || null
 
@@ -313,7 +329,8 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
 
     // Bill/order detection in Partial AI — same as Full AI
-    const isBillDoc = mergedText?.match(/\[Document:.*BillNo.*\.pdf\]/i)
+    // Match common bill/invoice document patterns (Bill, Invoice, Tax, Receipt, GST, etc.)
+    const isBillDoc = mergedText?.match(/\[Document:.*(?:bill|invoice|tax|receipt|gst|challan|voucher|order).*\.pdf\]/i)
     if (isBillDoc) {
       const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
       await sendReplyViaWwbun(whatsappNumber, mediaReply)
@@ -330,7 +347,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
 
     // Invoice image detection (screenshot of purchase bill/tax invoice)
-    if (imageMediaUrl && await isInvoiceImage(anthropic, imageMediaUrl)) {
+    // Also check documents sent as files (not just images)
+    const invoiceMediaUrl = imageMediaUrl || documentMediaUrl
+    if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
       const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
       await sendReplyViaWwbun(whatsappNumber, mediaReply)
       await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
@@ -492,7 +511,8 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   // --- Check: Bill/invoice PDF (can have text caption) ---
-  const isBillDocument = mergedText.match(/\[Document:.*BillNo.*\.pdf\]/i)
+  // Match common bill/invoice document patterns (Bill, Invoice, Tax, Receipt, GST, etc.)
+  const isBillDocument = mergedText.match(/\[Document:.*(?:bill|invoice|tax|receipt|gst|challan|voucher|order).*\.pdf\]/i)
   if (isBillDocument) {
     const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
     await sendReplyViaWwbun(whatsappNumber, mediaReply)
@@ -508,7 +528,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   // --- Check: Invoice image (screenshot of purchase bill/tax invoice) ---
-  if (imageMediaUrl && await isInvoiceImage(anthropic, imageMediaUrl)) {
+  // Also check documents sent as files (not just images)
+  const invoiceMediaUrl = imageMediaUrl || documentMediaUrl
+  if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
     const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
     await sendReplyViaWwbun(whatsappNumber, mediaReply)
     await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
