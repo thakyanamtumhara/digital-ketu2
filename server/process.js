@@ -13,8 +13,94 @@ import { vectorSearch } from './embeddings.js'
 // Welcome Follow-Up Constants & State
 // ===========================================
 const THREE_MINUTES_MS = 3 * 60 * 1000
+const DEFER_DELAY_MS = 30 * 1000 // 30 seconds — batch defers before sending
 const WELCOME_FOLLOWUP_GENERIC = 'Ask me if any questions sir?'
 export const pendingWelcomeFollowups = new Map() // keyed by whatsappNumber
+export const pendingDefers = new Map() // keyed by whatsappNumber
+
+// ===========================================
+// Defer Batching: Wait 30s, batch multiple defers into one message
+// ===========================================
+function scheduleDeferReply({ whatsappNumber, deferMessage, conversationId, mergedText, messageIds, logData, db }) {
+  const existing = pendingDefers.get(whatsappNumber)
+  const messageEntry = { conversationId, mergedText, messageIds, logData }
+
+  if (existing) {
+    clearTimeout(existing.timer)
+    existing.messages.push(messageEntry)
+  } else {
+    pendingDefers.set(whatsappNumber, {
+      messages: [messageEntry],
+      deferMessage,
+      db,
+    })
+  }
+
+  const entry = pendingDefers.get(whatsappNumber)
+  entry.timer = setTimeout(createDeferTimerCallback(whatsappNumber), DEFER_DELAY_MS)
+
+  console.log(`[DeferBatch] ${whatsappNumber} — scheduled defer in 30s (${entry.messages.length} message(s) batched)`)
+}
+
+function createDeferTimerCallback(whatsappNumber) {
+  return async () => {
+    const entry = pendingDefers.get(whatsappNumber)
+    if (!entry) return
+    pendingDefers.delete(whatsappNumber)
+
+    try {
+      // Re-check cooldown before sending
+      const freshConvo = await entry.db.buyerConversation.findUnique({
+        where: { whatsappNumber },
+        select: { cooldownUntil: true },
+      })
+      if (freshConvo?.cooldownUntil && new Date() < new Date(freshConvo.cooldownUntil)) {
+        console.log(`[DeferBatch] ${whatsappNumber} — skipped: cooldown active`)
+        for (const msg of entry.messages) {
+          await createLog(entry.db, msg.conversationId, msg.mergedText, msg.messageIds, {
+            status: 'COOLDOWN',
+            deferReason: 'cooldown',
+            processingMs: 0,
+          })
+        }
+        return
+      }
+
+      // Send ONE defer message for all batched messages
+      await sendReplyViaWwbun(whatsappNumber, entry.deferMessage)
+
+      // Log each accumulated message
+      for (const msg of entry.messages) {
+        await createLog(entry.db, msg.conversationId, msg.mergedText, msg.messageIds, {
+          ...msg.logData,
+          aiReply: entry.deferMessage,
+          sentViaWwbun: true,
+        })
+      }
+
+      console.log(`[DeferBatch] ${whatsappNumber} — sent ONE defer for ${entry.messages.length} message(s)`)
+    } catch (err) {
+      console.error(`[DeferBatch Error] ${whatsappNumber}:`, err.message)
+    }
+  }
+}
+
+function cancelPendingDefer(whatsappNumber) {
+  const pending = pendingDefers.get(whatsappNumber)
+  if (pending) {
+    clearTimeout(pending.timer)
+    pendingDefers.delete(whatsappNumber)
+    console.log(`[DeferBatch] ${whatsappNumber} — cancelled pending defer (AI replied)`)
+  }
+}
+
+function restartDeferTimer(whatsappNumber) {
+  const entry = pendingDefers.get(whatsappNumber)
+  if (entry && !entry.timer) {
+    entry.timer = setTimeout(createDeferTimerCallback(whatsappNumber), DEFER_DELAY_MS)
+    console.log(`[DeferBatch] ${whatsappNumber} — restarted defer timer`)
+  }
+}
 
 // ===========================================
 // Dynamic Pre-AI Filter Cache
@@ -106,17 +192,33 @@ const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 async function isInvoiceImage(anthropic, mediaUrl) {
   if (!mediaUrl) return false
   try {
-    // Fetch the image from wwbun storage
+    // Fetch the image/document from wwbun storage
     const response = await fetch(mediaUrl)
     if (!response.ok) {
-      console.log('[InvoiceDetect] Failed to fetch image:', response.status)
+      console.log('[InvoiceDetect] Failed to fetch media:', response.status)
       return false
     }
     const buffer = await response.arrayBuffer()
     const base64 = Buffer.from(buffer).toString('base64')
     const contentType = response.headers.get('content-type') || 'image/jpeg'
-    // Only process image types
-    if (!contentType.startsWith('image/')) return false
+
+    // Build content block based on media type (image or PDF document)
+    let mediaContent
+    if (contentType.startsWith('image/')) {
+      mediaContent = {
+        type: 'image',
+        source: { type: 'base64', media_type: contentType, data: base64 },
+      }
+    } else if (contentType === 'application/pdf') {
+      mediaContent = {
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: base64 },
+      }
+    } else {
+      // Unsupported content type
+      console.log(`[InvoiceDetect] Unsupported content type: ${contentType}`)
+      return false
+    }
 
     const result = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -124,10 +226,7 @@ async function isInvoiceImage(anthropic, mediaUrl) {
       messages: [{
         role: 'user',
         content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: contentType, data: base64 },
-          },
+          mediaContent,
           {
             type: 'text',
             text: 'Is this a purchase bill, tax invoice, or order receipt? Reply only YES or NO.',
@@ -237,6 +336,7 @@ const USD_TO_INR = 85
 export async function processIncomingMessage({ whatsappNumber, messages, db, anthropic, settings }) {
   const startTime = Date.now()
 
+  try {
   // Check existing conversation BEFORE updating lastMessageAt (needed for welcome bypass)
   const existingConversation = await db.buyerConversation.findUnique({
     where: { whatsappNumber },
@@ -271,6 +371,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   // Extract media URL (first image message with a mediaUrl)
   const imageMediaUrl = messages.find(m => m.messageType === 'image' && m.mediaUrl)?.mediaUrl || null
+
+  // Extract document media URL (for invoice/bill detection on documents sent as files)
+  const documentMediaUrl = messages.find(m => m.messageType === 'document' && m.mediaUrl)?.mediaUrl || null
 
   // Extract quoted message text (buyer replying to a previous message)
   const quotedText = messages.find(m => m.quotedText)?.quotedText || null
@@ -313,7 +416,8 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
 
     // Bill/order detection in Partial AI — same as Full AI
-    const isBillDoc = mergedText?.match(/\[Document:.*BillNo.*\.pdf\]/i)
+    // Match common bill/invoice document patterns (Bill, Invoice, Tax, Receipt, GST, etc.)
+    const isBillDoc = mergedText?.match(/\[Document:.*(?:bill|invoice|tax|receipt|gst|challan|voucher|order).*\.pdf\]/i)
     if (isBillDoc) {
       const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
       await sendReplyViaWwbun(whatsappNumber, mediaReply)
@@ -330,7 +434,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
 
     // Invoice image detection (screenshot of purchase bill/tax invoice)
-    if (imageMediaUrl && await isInvoiceImage(anthropic, imageMediaUrl)) {
+    // Also check documents sent as files (not just images)
+    const invoiceMediaUrl = imageMediaUrl || documentMediaUrl
+    if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
       const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
       await sendReplyViaWwbun(whatsappNumber, mediaReply)
       await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
@@ -348,15 +454,14 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     const trimmedText = mergedText?.trim() || ''
     const isOrderId = /^\d{10,}$/.test(trimmedText)
     if (isOrderId) {
-      await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
-      await createLog(db, conversation.id, mergedText, messageIds, {
-        status: 'DEFERRED',
-        deferReason: 'order_id_detected',
-        aiReply: settings.deferMessage,
-        processingMs: Date.now() - startTime,
-        sentViaWwbun: true,
+      scheduleDeferReply({
+        whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+        mergedText, messageIds, logData: {
+          status: 'DEFERRED', deferReason: 'order_id_detected',
+          processingMs: Date.now() - startTime,
+        }, db,
       })
-      console.log(`[Partial AI] ${whatsappNumber} — order ID detected, deferred to Ketu`)
+      console.log(`[Partial AI] ${whatsappNumber} — order ID detected, scheduled defer to Ketu`)
       return
     }
     if (isWelcomeEligible) {
@@ -492,7 +597,8 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   // --- Check: Bill/invoice PDF (can have text caption) ---
-  const isBillDocument = mergedText.match(/\[Document:.*BillNo.*\.pdf\]/i)
+  // Match common bill/invoice document patterns (Bill, Invoice, Tax, Receipt, GST, etc.)
+  const isBillDocument = mergedText.match(/\[Document:.*(?:bill|invoice|tax|receipt|gst|challan|voucher|order).*\.pdf\]/i)
   if (isBillDocument) {
     const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
     await sendReplyViaWwbun(whatsappNumber, mediaReply)
@@ -508,7 +614,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   // --- Check: Invoice image (screenshot of purchase bill/tax invoice) ---
-  if (imageMediaUrl && await isInvoiceImage(anthropic, imageMediaUrl)) {
+  // Also check documents sent as files (not just images)
+  const invoiceMediaUrl = imageMediaUrl || documentMediaUrl
+  if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
     const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
     await sendReplyViaWwbun(whatsappNumber, mediaReply)
     await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
@@ -609,15 +717,14 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       }
 
       if (filter.action === 'defer') {
-        await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
-        await createLog(db, conversation.id, mergedText, messageIds, {
-          status: 'DEFERRED',
-          deferReason: filter.name,
-          aiReply: settings.deferMessage,
-          processingMs: Date.now() - startTime,
-          sentViaWwbun: true,
+        scheduleDeferReply({
+          whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+          mergedText, messageIds, logData: {
+            status: 'DEFERRED', deferReason: filter.name,
+            processingMs: Date.now() - startTime,
+          }, db,
         })
-        console.log(`[${filter.displayName}] ${whatsappNumber} — deferred to Ketu`)
+        console.log(`[${filter.displayName}] ${whatsappNumber} — scheduled defer to Ketu`)
         return
       }
 
@@ -767,20 +874,25 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const trimmedText = mergedText.trim()
   const isOrderId = /^\d{10,}$/.test(trimmedText)
   if (isOrderId) {
-    await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
-    await createLog(db, conversation.id, mergedText, messageIds, {
-      status: 'DEFERRED',
-      deferReason: 'order_id_detected',
-      aiReply: settings.deferMessage,
-      processingMs: Date.now() - startTime,
-      sentViaWwbun: true,
+    scheduleDeferReply({
+      whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+      mergedText, messageIds, logData: {
+        status: 'DEFERRED', deferReason: 'order_id_detected',
+        processingMs: Date.now() - startTime,
+      }, db,
     })
-    console.log(`[OrderID] ${whatsappNumber} — detected order/tracking ID, deferred to Ketu`)
+    console.log(`[OrderID] ${whatsappNumber} — detected order/tracking ID, scheduled defer to Ketu`)
     return
   }
 
   // --- Run AI flow (vector search → Claude → reply) ---
   await runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId: conversation.id, normalizedText, db, anthropic, settings, startTime, messageIds })
+
+  } finally {
+    // If there's a pending defer with no active timer (paused by new message arrival),
+    // and this processing didn't reschedule or cancel it, restart the timer
+    restartDeferTimer(whatsappNumber)
+  }
 }
 
 // ===========================================
@@ -887,20 +999,21 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
 
   // --- Check if Claude deferred ---
   if (aiReply.includes('[DEFER]')) {
-    await sendReplyViaWwbun(whatsappNumber, settings.deferMessage)
-    await createLog(db, conversationId, mergedText, messageIds, {
-      status: 'DEFERRED',
-      deferReason: 'claude_deferred',
-      aiReply: settings.deferMessage,
-      promptTokens, completionTokens, totalTokens, costUsd,
-      processingMs: Date.now() - startTime,
-      sentViaWwbun: true,
+    scheduleDeferReply({
+      whatsappNumber, deferMessage: settings.deferMessage, conversationId,
+      mergedText, messageIds, logData: {
+        status: 'DEFERRED', deferReason: 'claude_deferred',
+        promptTokens, completionTokens, totalTokens, costUsd,
+        processingMs: Date.now() - startTime,
+      }, db,
     })
     await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
     return
   }
 
   // --- Send reply via wwbun ---
+  // Cancel any pending defer — AI is engaging with the buyer
+  cancelPendingDefer(whatsappNumber)
   const sendResult = await sendReplyViaWwbun(whatsappNumber, aiReply)
 
   // --- Update daily spend ---
