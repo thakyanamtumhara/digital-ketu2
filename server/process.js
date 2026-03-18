@@ -464,6 +464,26 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       console.log(`[Partial AI] ${whatsappNumber} — order ID detected, scheduled defer to Ketu`)
       return
     }
+
+    // New/returning buyer sent media (image/document) — likely a bill
+    // Bill detection (regex + Vision) already ran above; this catches remaining media
+    // that wasn't detected as a bill but shouldn't get the "Ask me if any question" nudge
+    const hasMediaMessage = messages.some(m => ['image', 'document'].includes(m.messageType))
+    if (isWelcomeEligible && hasMediaMessage) {
+      const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
+      await sendReplyViaWwbun(whatsappNumber, mediaReply)
+      await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
+        status: 'REPLIED',
+        aiReply: mediaReply,
+        deferReason: 'bill_document_welcome',
+        processingMs: Date.now() - startTime,
+        isMedia: true,
+        sentViaWwbun: true,
+      })
+      console.log(`[Partial AI] ${whatsappNumber} — new/returning buyer sent media, replied with dispatch confirmation`)
+      return
+    }
+
     if (isWelcomeEligible) {
       // Extra safety: check message logs for recent activity
       let skipFollowup = false
@@ -800,6 +820,25 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       shouldFollowUp = false
       console.log(`[Followup] ${whatsappNumber} — skipped: recent message log found despite old lastMessageAt`)
     }
+  }
+
+  // New/returning buyer sent media (image/document) — likely a bill
+  // Bill detection (regex + Vision) already ran above; this catches remaining media
+  // that wasn't detected as a bill but shouldn't get the "Ask me if any question" nudge
+  const hasMediaMessageFull = messages.some(m => ['image', 'document'].includes(m.messageType))
+  if (shouldFollowUp && hasMediaMessageFull) {
+    const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
+    await sendReplyViaWwbun(whatsappNumber, mediaReply)
+    await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
+      status: 'REPLIED',
+      aiReply: mediaReply,
+      deferReason: 'bill_document_welcome',
+      processingMs: Date.now() - startTime,
+      isMedia: true,
+      sentViaWwbun: true,
+    })
+    console.log(`[Full AI] ${whatsappNumber} — new/returning buyer sent media, replied with dispatch confirmation`)
+    return
   }
 
   if (shouldFollowUp) {
