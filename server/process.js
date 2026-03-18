@@ -465,26 +465,22 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       return
     }
 
-    // New/returning buyer sent media (image/document) — likely a bill
-    // Bill detection (regex + Vision) already ran above; this catches remaining media
-    // that wasn't detected as a bill but shouldn't get the "Ask me if any question" nudge
-    const hasMediaMessage = messages.some(m => ['image', 'document'].includes(m.messageType))
-    if (isWelcomeEligible && hasMediaMessage) {
-      const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-      await sendReplyViaWwbun(whatsappNumber, mediaReply)
-      await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
-        status: 'REPLIED',
-        aiReply: mediaReply,
-        deferReason: 'bill_document_welcome',
-        processingMs: Date.now() - startTime,
-        isMedia: true,
-        sentViaWwbun: true,
-      })
-      console.log(`[Partial AI] ${whatsappNumber} — new/returning buyer sent media, replied with dispatch confirmation`)
-      return
-    }
-
     if (isWelcomeEligible) {
+      // Skip the "Ask me if any question" nudge for media messages (images/documents)
+      // Bill detection (regex + Vision) already ran above — if it was a bill, we already replied.
+      // For non-bill media (product photos, samples, etc.), don't send the nudge —
+      // the welcome message from wwbun is sufficient. The nudge is only for text messages.
+      const hasMediaMessage = messages.some(m => ['image', 'document'].includes(m.messageType))
+      if (hasMediaMessage) {
+        await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
+          status: 'SKIPPED',
+          deferReason: 'welcome_media_no_nudge',
+          processingMs: Date.now() - startTime,
+          isMedia: true,
+        })
+        console.log(`[Partial AI] ${whatsappNumber} — new/returning buyer sent media, skipping nudge (welcome already sent)`)
+        return
+      }
       // Extra safety: check message logs for recent activity
       let skipFollowup = false
       if (!isFirstTime) {
@@ -822,23 +818,14 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
   }
 
-  // New/returning buyer sent media (image/document) — likely a bill
-  // Bill detection (regex + Vision) already ran above; this catches remaining media
-  // that wasn't detected as a bill but shouldn't get the "Ask me if any question" nudge
+  // Skip the "Ask me if any question" nudge for media messages (images/documents)
+  // Bill detection (regex + Vision) already ran above — if it was a bill, we already replied.
+  // For non-bill media (product photos, samples, etc.), don't schedule the follow-up nudge —
+  // let the code continue to normal AI processing so Claude can respond about the product.
   const hasMediaMessageFull = messages.some(m => ['image', 'document'].includes(m.messageType))
   if (shouldFollowUp && hasMediaMessageFull) {
-    const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-    await sendReplyViaWwbun(whatsappNumber, mediaReply)
-    await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
-      status: 'REPLIED',
-      aiReply: mediaReply,
-      deferReason: 'bill_document_welcome',
-      processingMs: Date.now() - startTime,
-      isMedia: true,
-      sentViaWwbun: true,
-    })
-    console.log(`[Full AI] ${whatsappNumber} — new/returning buyer sent media, replied with dispatch confirmation`)
-    return
+    shouldFollowUp = false
+    console.log(`[Followup] ${whatsappNumber} — new/returning buyer sent media, skipping nudge (continuing to AI)`)
   }
 
   if (shouldFollowUp) {
