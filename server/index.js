@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups } from './process.js'
+import { processIncomingMessage, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers } from './process.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, getVoyageBatch, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
 import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
@@ -92,6 +92,15 @@ app.post('/api/incoming', async (c) => {
     clearTimeout(pendingWelcomeFollowups.get(whatsappNumber).timer)
     pendingWelcomeFollowups.delete(whatsappNumber)
     console.log(`[Welcome] ${whatsappNumber} — cancelled pending followup (new message received)`)
+  }
+
+  // Pause pending defer timer — new message arrived, let it process first
+  // The defer will be restarted/batched/cancelled by processIncomingMessage
+  if (pendingDefers.has(whatsappNumber)) {
+    const pending = pendingDefers.get(whatsappNumber)
+    clearTimeout(pending.timer)
+    pending.timer = null
+    console.log(`[DeferBatch] ${whatsappNumber} — paused defer timer (new message received)`)
   }
 
   // Add to merge buffer
