@@ -465,9 +465,16 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       return
     }
 
-    // --- Acid wash catalog auto-reply ---
-    const lowerTextPartial = mergedText?.toLowerCase() || ''
-    if (lowerTextPartial.includes('acid wash') || lowerTextPartial.includes('acidwash')) {
+    // --- Acid wash catalog auto-reply (exact match only) ---
+    const acidWashNormalized = (mergedText?.trim() || '').toLowerCase()
+      .replace(/[.!?,।]+$/g, '').trim()
+      .replace(/\s+(sir|ji|bhai|bhaiya|boss|bro|sahab|saheb|g)$/i, '').trim()
+    if (acidWashNormalized === 'i want to know about acid wash t-shirts'
+      || acidWashNormalized === 'i want to know about acid wash tshirts'
+      || acidWashNormalized === 'i want to know about acid wash t shirts'
+      || acidWashNormalized === 'i want to know about acidwash t-shirts'
+      || acidWashNormalized === 'i want to know about acidwash tshirts'
+      || acidWashNormalized === 'i want to know about acidwash t shirts') {
       const acidWashReply = 'https://www.sale91.com/catalog/p/acidwash-oversize/\n\nAcidWash Cataloge👆'
       await sendReplyViaWwbun(whatsappNumber, acidWashReply)
       await createLog(db, conversation.id, mergedText, messageIds, {
@@ -723,9 +730,13 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     .replace(/[.!?,।🙏👋]+/g, '')
     .trim()
 
-  // --- Acid wash catalog auto-reply ---
-  const lowerTextFull = mergedText.trim().toLowerCase()
-  if (lowerTextFull.includes('acid wash') || lowerTextFull.includes('acidwash')) {
+  // --- Acid wash catalog auto-reply (exact match only) ---
+  if (normalizedText === 'i want to know about acid wash t-shirts'
+    || normalizedText === 'i want to know about acid wash tshirts'
+    || normalizedText === 'i want to know about acid wash t shirts'
+    || normalizedText === 'i want to know about acidwash t-shirts'
+    || normalizedText === 'i want to know about acidwash tshirts'
+    || normalizedText === 'i want to know about acidwash t shirts') {
     const acidWashReply = 'https://www.sale91.com/catalog/p/acidwash-oversize/\n\nAcidWash Cataloge👆'
     await sendReplyViaWwbun(whatsappNumber, acidWashReply)
     await createLog(db, conversation.id, mergedText, messageIds, {
