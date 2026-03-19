@@ -465,6 +465,23 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       return
     }
 
+    // --- Acid wash catalog auto-reply ---
+    const lowerTextPartial = mergedText?.toLowerCase() || ''
+    if (lowerTextPartial.includes('acid wash') || lowerTextPartial.includes('acidwash')) {
+      const acidWashReply = 'https://www.sale91.com/catalog/p/acidwash-oversize/\n\nAcidWash Cataloge👆'
+      await sendReplyViaWwbun(whatsappNumber, acidWashReply)
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'REPLIED',
+        aiReply: acidWashReply,
+        deferReason: 'acid_wash_catalog',
+        processingMs: Date.now() - startTime,
+        sentViaWwbun: true,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+      })
+      console.log(`[Partial AI] ${whatsappNumber} — acid wash query, sent catalog link`)
+      return
+    }
+
     if (isWelcomeEligible) {
       // Skip the "Ask me if any question" nudge for media messages (images/documents)
       // Bill detection (regex + Vision) already ran above — if it was a bill, we already replied.
@@ -705,6 +722,23 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const normalizedForGreeting = mergedText.trim().toLowerCase()
     .replace(/[.!?,।🙏👋]+/g, '')
     .trim()
+
+  // --- Acid wash catalog auto-reply ---
+  const lowerTextFull = mergedText.trim().toLowerCase()
+  if (lowerTextFull.includes('acid wash') || lowerTextFull.includes('acidwash')) {
+    const acidWashReply = 'https://www.sale91.com/catalog/p/acidwash-oversize/\n\nAcidWash Cataloge👆'
+    await sendReplyViaWwbun(whatsappNumber, acidWashReply)
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'REPLIED',
+      aiReply: acidWashReply,
+      deferReason: 'acid_wash_catalog',
+      processingMs: Date.now() - startTime,
+      sentViaWwbun: true,
+      promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+    })
+    console.log(`[Full AI] ${whatsappNumber} — acid wash query, sent catalog link`)
+    return
+  }
 
   // --- Dynamic Pre-AI Keyword Filters ---
   // Load from DB (cached 5 min). Falls back to hardcoded if DB not ready.
