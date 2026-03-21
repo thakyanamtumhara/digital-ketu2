@@ -489,31 +489,43 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       return
     }
 
-    // --- Order dispatch text auto-reply ---
-    const orderDispatchText = (mergedText?.trim() || '').toLowerCase()
-    const hasOrderWord = /\b(order|odor)\b/.test(orderDispatchText)
-    const hasPlaceWord = /\b(place|plac)\b/.test(orderDispatchText)
-    const hasDispatchWord = /\b(dispatch|dispatc|dispach)\b/.test(orderDispatchText)
-    const hasPorterWord = /\b(porter|portar)\b/.test(orderDispatchText)
-    const hasDoneWord = /\b(ho\s*gaya|hogaya|ho\s*gya|hogya|kar\s*diya|kardiya|kr\s*diya|krdiya|done|kiya|kia|kya\s*h|kiya\s*h|kiya\s*hai|kia\s*hai)\b/.test(orderDispatchText)
-    const hasSendWord = /\b(bhej|bhejo|bhejdo|bhej\s*do|krwado|krwa\s*do|karwado|karwa\s*do|kardo|kar\s*do|kr\s*do|krdo)\b/.test(orderDispatchText)
-    const isOrderDispatch = hasOrderWord && (hasPlaceWord || hasDoneWord) && (hasDispatchWord || hasPorterWord || hasSendWord)
-      || hasOrderWord && (hasDispatchWord || hasPorterWord) && (hasSendWord || hasDoneWord || hasPlaceWord)
-      || /\b(dispatch|dispatc|dispach)\s*(kardo|kar\s*do|kr\s*do|krdo|kro)\b/.test(orderDispatchText)
-      || /\b(porter)\s*(krwado|krwa\s*do|karwado|karwa\s*do|lagwado|lagwa\s*do|bhejdo|bhej\s*do)\b/.test(orderDispatchText)
-    if (isOrderDispatch) {
-      const dispatchReply = 'Ok sir, dispatching ASAP 🚚'
-      await sendReplyViaWwbun(whatsappNumber, dispatchReply)
-      await createLog(db, conversation.id, mergedText, messageIds, {
-        status: 'REPLIED',
-        aiReply: dispatchReply,
-        deferReason: 'order_dispatch_text',
-        processingMs: Date.now() - startTime,
-        sentViaWwbun: true,
-        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
-      })
-      console.log(`[Partial AI] ${whatsappNumber} — order dispatch text detected, replied with dispatch confirmation`)
-      return
+    // --- Order dispatch text auto-reply (AI-based detection) ---
+    if (mergedText?.trim()) {
+      try {
+        const detectResult = await anthropic.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 10,
+          messages: [{
+            role: 'user',
+            content: `Is this WhatsApp message an ORDER CONFIRMATION or DISPATCH REQUEST? The buyer is telling the seller that they placed an order and want it dispatched/shipped via porter or courier.\n\nExamples that are YES:\n- "bhaiya order place kiya h porter krwado"\n- "order ho gaya hai dispatch kardo"\n- "sir order place kiya dispatch kro urgent"\n- "payment done dispatch kardo"\n- "order kar diya bhej do"\n\nExamples that are NO:\n- "what is the price of oversize tshirt"\n- "acid wash available hai?"\n- "hi" / "hello"\n- "order cancel kardo" (this is cancellation, not confirmation)\n- "order ka status kya hai" (this is status inquiry)\n- "kahan tak aaya" (delivery tracking)\n\nBuyer message: "${mergedText.trim()}"\n\nReply only YES or NO.`,
+          }],
+        })
+        const detectAnswer = detectResult.content?.[0]?.text?.trim().toUpperCase() || ''
+        const detectTokens = {
+          promptTokens: detectResult.usage?.input_tokens || 0,
+          completionTokens: detectResult.usage?.output_tokens || 0,
+          totalTokens: (detectResult.usage?.input_tokens || 0) + (detectResult.usage?.output_tokens || 0),
+          costUsd: ((detectResult.usage?.input_tokens || 0) * PRICE_PER_INPUT_TOKEN) +
+                   ((detectResult.usage?.output_tokens || 0) * PRICE_PER_OUTPUT_TOKEN),
+        }
+        console.log(`[Partial AI] ${whatsappNumber} — order dispatch AI detection: ${detectAnswer}`)
+        if (detectAnswer.startsWith('YES')) {
+          const dispatchReply = 'Ok sir, dispatching ASAP 🚚'
+          await sendReplyViaWwbun(whatsappNumber, dispatchReply)
+          await createLog(db, conversation.id, mergedText, messageIds, {
+            status: 'REPLIED',
+            aiReply: dispatchReply,
+            deferReason: 'order_dispatch_text',
+            processingMs: Date.now() - startTime,
+            sentViaWwbun: true,
+            ...detectTokens,
+          })
+          console.log(`[Partial AI] ${whatsappNumber} — order dispatch detected by AI, replied with dispatch confirmation`)
+          return
+        }
+      } catch (err) {
+        console.error(`[Partial AI] ${whatsappNumber} — order dispatch detection error:`, err.message)
+      }
     }
 
     if (isWelcomeEligible) {
