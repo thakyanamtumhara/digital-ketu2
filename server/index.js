@@ -73,6 +73,7 @@ app.post('/api/incoming', async (c) => {
     senderName,
     quotedText,   // text of the message buyer is replying to (if any)
     mediaUrl,     // URL of downloaded media (image/doc) from wwbun storage
+    wwbunMessageId, // wwbun DB message ID (for on-demand media download)
   } = body
 
   if (!whatsappNumber || !messageId) {
@@ -118,6 +119,7 @@ app.post('/api/incoming', async (c) => {
     senderName,
     quotedText: quotedText || null,
     mediaUrl: mediaUrl || null,
+    wwbunMessageId: wwbunMessageId || null,
   })
 
   // Clear existing timer and set new one (merge window)

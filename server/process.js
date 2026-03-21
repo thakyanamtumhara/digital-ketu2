@@ -187,6 +187,25 @@ const WWBUN_API_URL = process.env.WWBUN_API_URL
 const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 
 // ===========================================
+// On-demand media download from wwbun
+// ===========================================
+async function downloadMediaFromWwbun(wwbunMessageId) {
+  if (!wwbunMessageId || !WWBUN_API_URL) return null
+  try {
+    const res = await fetch(`${WWBUN_API_URL}/api/messages/${wwbunMessageId}/download-media`)
+    if (!res.ok) {
+      console.log(`[MediaDownload] Failed for message ${wwbunMessageId}: ${res.status}`)
+      return null
+    }
+    const data = await res.json()
+    return data.mediaUrl || null
+  } catch (err) {
+    console.error(`[MediaDownload] Error for message ${wwbunMessageId}:`, err.message)
+    return null
+  }
+}
+
+// ===========================================
 // Invoice/Bill Image Detection (Claude Vision)
 // ===========================================
 async function isInvoiceImage(anthropic, mediaUrl) {
@@ -435,7 +454,15 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
     // Invoice image detection (screenshot of purchase bill/tax invoice)
     // Also check documents sent as files (not just images)
-    const invoiceMediaUrl = imageMediaUrl || documentMediaUrl
+    // If mediaUrl is null (batch media wasn't auto-downloaded), try on-demand download
+    let invoiceMediaUrl = imageMediaUrl || documentMediaUrl
+    if (!invoiceMediaUrl) {
+      const mediaMsg = messages.find(m => (m.messageType === 'image' || m.messageType === 'document') && m.wwbunMessageId)
+      if (mediaMsg) {
+        console.log(`[Partial AI] ${whatsappNumber} — no mediaUrl, attempting on-demand download for message ${mediaMsg.wwbunMessageId}`)
+        invoiceMediaUrl = await downloadMediaFromWwbun(mediaMsg.wwbunMessageId)
+      }
+    }
     if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
       const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
       await sendReplyViaWwbun(whatsappNumber, mediaReply)
@@ -694,7 +721,15 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   // --- Check: Invoice image (screenshot of purchase bill/tax invoice) ---
   // Also check documents sent as files (not just images)
-  const invoiceMediaUrl = imageMediaUrl || documentMediaUrl
+  // If mediaUrl is null (batch media wasn't auto-downloaded), try on-demand download
+  let invoiceMediaUrl = imageMediaUrl || documentMediaUrl
+  if (!invoiceMediaUrl) {
+    const mediaMsg = messages.find(m => (m.messageType === 'image' || m.messageType === 'document') && m.wwbunMessageId)
+    if (mediaMsg) {
+      console.log(`[Full AI] ${whatsappNumber} — no mediaUrl, attempting on-demand download for message ${mediaMsg.wwbunMessageId}`)
+      invoiceMediaUrl = await downloadMediaFromWwbun(mediaMsg.wwbunMessageId)
+    }
+  }
   if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
     const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
     await sendReplyViaWwbun(whatsappNumber, mediaReply)
