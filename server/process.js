@@ -273,16 +273,13 @@ function isGenericMessage(text) {
     .replace(/\s+(sir|ji|bhai|bhaiya|boss|bro|sahab|saheb|g)$/i, '')
     .trim()
 
-  // Known greetings + no-content acknowledgements
+  // Known greetings
   const greetingPatterns = [
     'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
-    'helo', 'hlo', 'hllo', 'helloo', 'hellooo',
+    'helo', 'hllo', 'helloo', 'hellooo',
     'namaste', 'namaskar', 'namaskaar',
     'good morning', 'good afternoon', 'good evening',
     'gm', 'morning', 'evening', 'hy', 'hye', 'hola', 'yo',
-    'ok', 'okk', 'okkk', 'okay', 'k',
-    'yaa', 'yah', 'ya', 'yes', 'haan', 'haa', 'ha',
-    'hmm', 'hmmm', 'accha', 'acha', 'thik hai', 'theek hai', 'sahi',
   ]
   if (greetingPatterns.includes(normalized)) return true
 
@@ -519,19 +516,56 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       return
     }
 
-    // --- Generic/greeting message auto-reply (hi, hello, okk, etc.) ---
-    // Check BEFORE Haiku call to save API tokens — no need to ask AI about "hi"/"hello"
-    if (isGenericMessage(mergedText)) {
+    // --- Acknowledgement & greeting detection (same logic as Full AI) ---
+    // Normalize text the same way Full AI does
+    const partialNormalized = (mergedText || '').trim().toLowerCase()
+      .replace(/[.!?,।]+$/g, '')
+      .trim()
+      .replace(/\s+(sir|ji|bhai|bhaiya|boss|bro|sahab|saheb|g)$/i, '')
+      .trim()
+    const partialNormalizedGreeting = (mergedText || '').trim().toLowerCase()
+      .replace(/[.!?,।🙏👋]+/g, '')
+      .trim()
+
+    // Acknowledgements ("ok", "hmm", "yaa") → SKIP, no reply (same as Full AI)
+    const partialAckPatterns = [
+      'ok', 'okay', 'fine', 'sure', 'thanks', 'thank you', 'alright',
+      'got it', 'noted', 'understood', 'no problem', 'np', 'cool',
+      'great', 'good', 'right', 'yes', 'yep', 'ya', 'yaa',
+      'theek hai', 'thik hai', 'accha', 'acha', 'sahi hai',
+      'ji', 'haan', 'ha', 'dhanyavaad', 'shukriya', 'bas',
+      'theek', 'thik', 'achchha', 'hmm', 'hm', 'k', 'kk',
+      'done', 'bilkul', 'zaroor', 'thx', 'ty',
+    ]
+    if (partialAckPatterns.includes(partialNormalized)) {
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'SKIPPED',
+        deferReason: 'partial_ai_acknowledgment',
+        processingMs: Date.now() - startTime,
+      })
+      console.log(`[Partial AI] ${whatsappNumber} — acknowledgement message, skipped (no reply needed)`)
+      return
+    }
+
+    // Greetings ("hi", "hello") → reply with nudge
+    const partialGreetingPatterns = [
+      'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
+      'helo', 'hlo', 'hllo', 'helloo', 'hellooo',
+      'namaste', 'namaskar', 'namaskaar',
+      'good morning', 'good afternoon', 'good evening',
+      'gm', 'morning', 'evening', 'hy', 'hye', 'hola', 'yo',
+    ]
+    if (partialGreetingPatterns.includes(partialNormalizedGreeting)) {
       await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
       await createLog(db, conversation.id, mergedText, messageIds, {
         status: 'REPLIED',
         aiReply: WELCOME_FOLLOWUP_GENERIC,
-        deferReason: 'partial_ai_generic_greeting',
+        deferReason: 'partial_ai_greeting',
         processingMs: Date.now() - startTime,
         sentViaWwbun: true,
         promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
       })
-      console.log(`[Partial AI] ${whatsappNumber} — generic/greeting message, replied with nudge`)
+      console.log(`[Partial AI] ${whatsappNumber} — greeting message, replied with nudge`)
       return
     }
 
