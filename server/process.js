@@ -273,13 +273,16 @@ function isGenericMessage(text) {
     .replace(/\s+(sir|ji|bhai|bhaiya|boss|bro|sahab|saheb|g)$/i, '')
     .trim()
 
-  // Known greetings
+  // Known greetings + no-content acknowledgements
   const greetingPatterns = [
     'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
-    'helo', 'hllo', 'helloo', 'hellooo',
+    'helo', 'hlo', 'hllo', 'helloo', 'hellooo',
     'namaste', 'namaskar', 'namaskaar',
     'good morning', 'good afternoon', 'good evening',
     'gm', 'morning', 'evening', 'hy', 'hye', 'hola', 'yo',
+    'ok', 'okk', 'okkk', 'okay', 'k',
+    'yaa', 'yah', 'ya', 'yes', 'haan', 'haa', 'ha',
+    'hmm', 'hmmm', 'accha', 'acha', 'thik hai', 'theek hai', 'sahi',
   ]
   if (greetingPatterns.includes(normalized)) return true
 
@@ -553,6 +556,21 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       } catch (err) {
         console.error(`[Partial AI] ${whatsappNumber} — order dispatch detection error:`, err.message)
       }
+    }
+
+    // --- Generic/greeting message auto-reply (hi, hello, okk, etc.) ---
+    if (isGenericMessage(mergedText)) {
+      await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'REPLIED',
+        aiReply: WELCOME_FOLLOWUP_GENERIC,
+        deferReason: 'partial_ai_generic_greeting',
+        processingMs: Date.now() - startTime,
+        sentViaWwbun: true,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+      })
+      console.log(`[Partial AI] ${whatsappNumber} — generic/greeting message, replied with nudge`)
+      return
     }
 
     if (isWelcomeEligible) {
