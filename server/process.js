@@ -519,6 +519,22 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       return
     }
 
+    // --- Generic/greeting message auto-reply (hi, hello, okk, etc.) ---
+    // Check BEFORE Haiku call to save API tokens — no need to ask AI about "hi"/"hello"
+    if (isGenericMessage(mergedText)) {
+      await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'REPLIED',
+        aiReply: WELCOME_FOLLOWUP_GENERIC,
+        deferReason: 'partial_ai_generic_greeting',
+        processingMs: Date.now() - startTime,
+        sentViaWwbun: true,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+      })
+      console.log(`[Partial AI] ${whatsappNumber} — generic/greeting message, replied with nudge`)
+      return
+    }
+
     // --- Order dispatch text auto-reply (AI-based detection) ---
     if (mergedText?.trim()) {
       try {
@@ -556,21 +572,6 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       } catch (err) {
         console.error(`[Partial AI] ${whatsappNumber} — order dispatch detection error:`, err.message)
       }
-    }
-
-    // --- Generic/greeting message auto-reply (hi, hello, okk, etc.) ---
-    if (isGenericMessage(mergedText)) {
-      await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
-      await createLog(db, conversation.id, mergedText, messageIds, {
-        status: 'REPLIED',
-        aiReply: WELCOME_FOLLOWUP_GENERIC,
-        deferReason: 'partial_ai_generic_greeting',
-        processingMs: Date.now() - startTime,
-        sentViaWwbun: true,
-        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
-      })
-      console.log(`[Partial AI] ${whatsappNumber} — generic/greeting message, replied with nudge`)
-      return
     }
 
     if (isWelcomeEligible) {
