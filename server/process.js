@@ -489,6 +489,33 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       return
     }
 
+    // --- Order dispatch text auto-reply ---
+    const orderDispatchText = (mergedText?.trim() || '').toLowerCase()
+    const hasOrderWord = /\b(order|odor)\b/.test(orderDispatchText)
+    const hasPlaceWord = /\b(place|plac)\b/.test(orderDispatchText)
+    const hasDispatchWord = /\b(dispatch|dispatc|dispach)\b/.test(orderDispatchText)
+    const hasPorterWord = /\b(porter|portar)\b/.test(orderDispatchText)
+    const hasDoneWord = /\b(ho\s*gaya|hogaya|ho\s*gya|hogya|kar\s*diya|kardiya|kr\s*diya|krdiya|done|kiya|kia|kya\s*h|kiya\s*h|kiya\s*hai|kia\s*hai)\b/.test(orderDispatchText)
+    const hasSendWord = /\b(bhej|bhejo|bhejdo|bhej\s*do|krwado|krwa\s*do|karwado|karwa\s*do|kardo|kar\s*do|kr\s*do|krdo)\b/.test(orderDispatchText)
+    const isOrderDispatch = hasOrderWord && (hasPlaceWord || hasDoneWord) && (hasDispatchWord || hasPorterWord || hasSendWord)
+      || hasOrderWord && (hasDispatchWord || hasPorterWord) && (hasSendWord || hasDoneWord || hasPlaceWord)
+      || /\b(dispatch|dispatc|dispach)\s*(kardo|kar\s*do|kr\s*do|krdo|kro)\b/.test(orderDispatchText)
+      || /\b(porter)\s*(krwado|krwa\s*do|karwado|karwa\s*do|lagwado|lagwa\s*do|bhejdo|bhej\s*do)\b/.test(orderDispatchText)
+    if (isOrderDispatch) {
+      const dispatchReply = 'Ok sir, dispatching ASAP 🚚'
+      await sendReplyViaWwbun(whatsappNumber, dispatchReply)
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'REPLIED',
+        aiReply: dispatchReply,
+        deferReason: 'order_dispatch_text',
+        processingMs: Date.now() - startTime,
+        sentViaWwbun: true,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+      })
+      console.log(`[Partial AI] ${whatsappNumber} — order dispatch text detected, replied with dispatch confirmation`)
+      return
+    }
+
     if (isWelcomeEligible) {
       // Skip the "Ask me if any question" nudge for media messages (images/documents)
       // Bill detection (regex + Vision) already ran above — if it was a bill, we already replied.
