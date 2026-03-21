@@ -187,6 +187,25 @@ const WWBUN_API_URL = process.env.WWBUN_API_URL
 const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 
 // ===========================================
+// On-demand media download from wwbun
+// ===========================================
+async function downloadMediaFromWwbun(wwbunMessageId) {
+  if (!wwbunMessageId || !WWBUN_API_URL) return null
+  try {
+    const res = await fetch(`${WWBUN_API_URL}/api/messages/${wwbunMessageId}/download-media`)
+    if (!res.ok) {
+      console.log(`[MediaDownload] Failed for message ${wwbunMessageId}: ${res.status}`)
+      return null
+    }
+    const data = await res.json()
+    return data.mediaUrl || null
+  } catch (err) {
+    console.error(`[MediaDownload] Error for message ${wwbunMessageId}:`, err.message)
+    return null
+  }
+}
+
+// ===========================================
 // Invoice/Bill Image Detection (Claude Vision)
 // ===========================================
 async function isInvoiceImage(anthropic, mediaUrl) {
@@ -435,7 +454,15 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
     // Invoice image detection (screenshot of purchase bill/tax invoice)
     // Also check documents sent as files (not just images)
-    const invoiceMediaUrl = imageMediaUrl || documentMediaUrl
+    // If mediaUrl is null (batch media wasn't auto-downloaded), try on-demand download
+    let invoiceMediaUrl = imageMediaUrl || documentMediaUrl
+    if (!invoiceMediaUrl) {
+      const mediaMsg = messages.find(m => (m.messageType === 'image' || m.messageType === 'document') && m.wwbunMessageId)
+      if (mediaMsg) {
+        console.log(`[Partial AI] ${whatsappNumber} — no mediaUrl, attempting on-demand download for message ${mediaMsg.wwbunMessageId}`)
+        invoiceMediaUrl = await downloadMediaFromWwbun(mediaMsg.wwbunMessageId)
+      }
+    }
     if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
       const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
       await sendReplyViaWwbun(whatsappNumber, mediaReply)
@@ -465,26 +492,138 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       return
     }
 
-    // New/returning buyer sent media (image/document) — likely a bill
-    // Bill detection (regex + Vision) already ran above; this catches remaining media
-    // that wasn't detected as a bill but shouldn't get the "Ask me if any question" nudge
-    const hasMediaMessage = messages.some(m => ['image', 'document'].includes(m.messageType))
-    if (isWelcomeEligible && hasMediaMessage) {
-      const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-      await sendReplyViaWwbun(whatsappNumber, mediaReply)
-      await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
+    // --- Acid wash catalog auto-reply (exact match only) ---
+    const acidWashNormalized = (mergedText?.trim() || '').toLowerCase()
+      .replace(/[.!?,।]+$/g, '').trim()
+      .replace(/\s+(sir|ji|bhai|bhaiya|boss|bro|sahab|saheb|g)$/i, '').trim()
+    if (acidWashNormalized === 'i want to know about acid wash t-shirts'
+      || acidWashNormalized === 'i want to know about acid wash tshirts'
+      || acidWashNormalized === 'i want to know about acid wash t shirts'
+      || acidWashNormalized === 'i want to know about acidwash t-shirts'
+      || acidWashNormalized === 'i want to know about acidwash tshirts'
+      || acidWashNormalized === 'i want to know about acidwash t shirts') {
+      const acidWashReply = 'https://www.sale91.com/catalog/p/acidwash-oversize/\n\nAcidWash Cataloge👆'
+      await sendReplyViaWwbun(whatsappNumber, acidWashReply)
+      await createLog(db, conversation.id, mergedText, messageIds, {
         status: 'REPLIED',
-        aiReply: mediaReply,
-        deferReason: 'bill_document_welcome',
+        aiReply: acidWashReply,
+        deferReason: 'acid_wash_catalog',
         processingMs: Date.now() - startTime,
-        isMedia: true,
         sentViaWwbun: true,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
       })
-      console.log(`[Partial AI] ${whatsappNumber} — new/returning buyer sent media, replied with dispatch confirmation`)
+      console.log(`[Partial AI] ${whatsappNumber} — acid wash query, sent catalog link`)
       return
     }
 
+    // --- Acknowledgement & greeting detection (same logic as Full AI) ---
+    // Normalize text the same way Full AI does
+    const partialNormalized = (mergedText || '').trim().toLowerCase()
+      .replace(/[.!?,।]+$/g, '')
+      .trim()
+      .replace(/\s+(sir|ji|bhai|bhaiya|boss|bro|sahab|saheb|g)$/i, '')
+      .trim()
+    const partialNormalizedGreeting = (mergedText || '').trim().toLowerCase()
+      .replace(/[.!?,।🙏👋]+/g, '')
+      .trim()
+
+    // Acknowledgements ("ok", "hmm", "yaa") → SKIP, no reply (same as Full AI)
+    const partialAckPatterns = [
+      'ok', 'okay', 'fine', 'sure', 'thanks', 'thank you', 'alright',
+      'got it', 'noted', 'understood', 'no problem', 'np', 'cool',
+      'great', 'good', 'right', 'yes', 'yep', 'ya', 'yaa',
+      'theek hai', 'thik hai', 'accha', 'acha', 'sahi hai',
+      'ji', 'haan', 'ha', 'dhanyavaad', 'shukriya', 'bas',
+      'theek', 'thik', 'achchha', 'hmm', 'hm', 'k', 'kk',
+      'done', 'bilkul', 'zaroor', 'thx', 'ty',
+    ]
+    if (partialAckPatterns.includes(partialNormalized)) {
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'SKIPPED',
+        deferReason: 'partial_ai_acknowledgment',
+        processingMs: Date.now() - startTime,
+      })
+      console.log(`[Partial AI] ${whatsappNumber} — acknowledgement message, skipped (no reply needed)`)
+      return
+    }
+
+    // Greetings ("hi", "hello") → reply with nudge
+    const partialGreetingPatterns = [
+      'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
+      'helo', 'hlo', 'hllo', 'helloo', 'hellooo',
+      'namaste', 'namaskar', 'namaskaar',
+      'good morning', 'good afternoon', 'good evening',
+      'gm', 'morning', 'evening', 'hy', 'hye', 'hola', 'yo',
+    ]
+    if (partialGreetingPatterns.includes(partialNormalizedGreeting)) {
+      await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'REPLIED',
+        aiReply: WELCOME_FOLLOWUP_GENERIC,
+        deferReason: 'partial_ai_greeting',
+        processingMs: Date.now() - startTime,
+        sentViaWwbun: true,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+      })
+      console.log(`[Partial AI] ${whatsappNumber} — greeting message, replied with nudge`)
+      return
+    }
+
+    // --- Order dispatch text auto-reply (AI-based detection) ---
+    if (mergedText?.trim()) {
+      try {
+        const detectResult = await anthropic.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 10,
+          messages: [{
+            role: 'user',
+            content: `Is this WhatsApp message an ORDER CONFIRMATION or DISPATCH REQUEST? The buyer is telling the seller that they placed an order and want it dispatched/shipped via porter or courier.\n\nExamples that are YES:\n- "bhaiya order place kiya h porter krwado"\n- "order ho gaya hai dispatch kardo"\n- "sir order place kiya dispatch kro urgent"\n- "payment done dispatch kardo"\n- "order kar diya bhej do"\n\nExamples that are NO:\n- "what is the price of oversize tshirt"\n- "acid wash available hai?"\n- "hi" / "hello"\n- "order cancel kardo" (this is cancellation, not confirmation)\n- "order ka status kya hai" (this is status inquiry)\n- "kahan tak aaya" (delivery tracking)\n\nBuyer message: "${mergedText.trim()}"\n\nReply only YES or NO.`,
+          }],
+        })
+        const detectAnswer = detectResult.content?.[0]?.text?.trim().toUpperCase() || ''
+        const detectTokens = {
+          promptTokens: detectResult.usage?.input_tokens || 0,
+          completionTokens: detectResult.usage?.output_tokens || 0,
+          totalTokens: (detectResult.usage?.input_tokens || 0) + (detectResult.usage?.output_tokens || 0),
+          costUsd: ((detectResult.usage?.input_tokens || 0) * PRICE_PER_INPUT_TOKEN) +
+                   ((detectResult.usage?.output_tokens || 0) * PRICE_PER_OUTPUT_TOKEN),
+        }
+        console.log(`[Partial AI] ${whatsappNumber} — order dispatch AI detection: ${detectAnswer}`)
+        if (detectAnswer.startsWith('YES')) {
+          const dispatchReply = 'Ok sir, dispatching ASAP 🚚'
+          await sendReplyViaWwbun(whatsappNumber, dispatchReply)
+          await createLog(db, conversation.id, mergedText, messageIds, {
+            status: 'REPLIED',
+            aiReply: dispatchReply,
+            deferReason: 'order_dispatch_text',
+            processingMs: Date.now() - startTime,
+            sentViaWwbun: true,
+            ...detectTokens,
+          })
+          console.log(`[Partial AI] ${whatsappNumber} — order dispatch detected by AI, replied with dispatch confirmation`)
+          return
+        }
+      } catch (err) {
+        console.error(`[Partial AI] ${whatsappNumber} — order dispatch detection error:`, err.message)
+      }
+    }
+
     if (isWelcomeEligible) {
+      // Skip the "Ask me if any question" nudge for media messages (images/documents)
+      // Bill detection (regex + Vision) already ran above — if it was a bill, we already replied.
+      // For non-bill media (product photos, samples, etc.), don't send the nudge —
+      // the welcome message from wwbun is sufficient. The nudge is only for text messages.
+      const hasMediaMessage = messages.some(m => ['image', 'document'].includes(m.messageType))
+      if (hasMediaMessage) {
+        await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
+          status: 'SKIPPED',
+          deferReason: 'welcome_media_no_nudge',
+          processingMs: Date.now() - startTime,
+          isMedia: true,
+        })
+        console.log(`[Partial AI] ${whatsappNumber} — new/returning buyer sent media, skipping nudge (welcome already sent)`)
+        return
+      }
       // Extra safety: check message logs for recent activity
       let skipFollowup = false
       if (!isFirstTime) {
@@ -635,7 +774,15 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   // --- Check: Invoice image (screenshot of purchase bill/tax invoice) ---
   // Also check documents sent as files (not just images)
-  const invoiceMediaUrl = imageMediaUrl || documentMediaUrl
+  // If mediaUrl is null (batch media wasn't auto-downloaded), try on-demand download
+  let invoiceMediaUrl = imageMediaUrl || documentMediaUrl
+  if (!invoiceMediaUrl) {
+    const mediaMsg = messages.find(m => (m.messageType === 'image' || m.messageType === 'document') && m.wwbunMessageId)
+    if (mediaMsg) {
+      console.log(`[Full AI] ${whatsappNumber} — no mediaUrl, attempting on-demand download for message ${mediaMsg.wwbunMessageId}`)
+      invoiceMediaUrl = await downloadMediaFromWwbun(mediaMsg.wwbunMessageId)
+    }
+  }
   if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
     const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
     await sendReplyViaWwbun(whatsappNumber, mediaReply)
@@ -709,6 +856,27 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const normalizedForGreeting = mergedText.trim().toLowerCase()
     .replace(/[.!?,।🙏👋]+/g, '')
     .trim()
+
+  // --- Acid wash catalog auto-reply (exact match only) ---
+  if (normalizedText === 'i want to know about acid wash t-shirts'
+    || normalizedText === 'i want to know about acid wash tshirts'
+    || normalizedText === 'i want to know about acid wash t shirts'
+    || normalizedText === 'i want to know about acidwash t-shirts'
+    || normalizedText === 'i want to know about acidwash tshirts'
+    || normalizedText === 'i want to know about acidwash t shirts') {
+    const acidWashReply = 'https://www.sale91.com/catalog/p/acidwash-oversize/\n\nAcidWash Cataloge👆'
+    await sendReplyViaWwbun(whatsappNumber, acidWashReply)
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'REPLIED',
+      aiReply: acidWashReply,
+      deferReason: 'acid_wash_catalog',
+      processingMs: Date.now() - startTime,
+      sentViaWwbun: true,
+      promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+    })
+    console.log(`[Full AI] ${whatsappNumber} — acid wash query, sent catalog link`)
+    return
+  }
 
   // --- Dynamic Pre-AI Keyword Filters ---
   // Load from DB (cached 5 min). Falls back to hardcoded if DB not ready.
@@ -822,23 +990,14 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
   }
 
-  // New/returning buyer sent media (image/document) — likely a bill
-  // Bill detection (regex + Vision) already ran above; this catches remaining media
-  // that wasn't detected as a bill but shouldn't get the "Ask me if any question" nudge
+  // Skip the "Ask me if any question" nudge for media messages (images/documents)
+  // Bill detection (regex + Vision) already ran above — if it was a bill, we already replied.
+  // For non-bill media (product photos, samples, etc.), don't schedule the follow-up nudge —
+  // let the code continue to normal AI processing so Claude can respond about the product.
   const hasMediaMessageFull = messages.some(m => ['image', 'document'].includes(m.messageType))
   if (shouldFollowUp && hasMediaMessageFull) {
-    const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-    await sendReplyViaWwbun(whatsappNumber, mediaReply)
-    await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
-      status: 'REPLIED',
-      aiReply: mediaReply,
-      deferReason: 'bill_document_welcome',
-      processingMs: Date.now() - startTime,
-      isMedia: true,
-      sentViaWwbun: true,
-    })
-    console.log(`[Full AI] ${whatsappNumber} — new/returning buyer sent media, replied with dispatch confirmation`)
-    return
+    shouldFollowUp = false
+    console.log(`[Followup] ${whatsappNumber} — new/returning buyer sent media, skipping nudge (continuing to AI)`)
   }
 
   if (shouldFollowUp) {
