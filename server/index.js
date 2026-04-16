@@ -9,7 +9,9 @@ import { getEmbedding, getVoyageBatch, reEmbedAllDeferItems, reEmbedAllChunks, i
 import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
 
 const app = new Hono()
-const db = new PrismaClient()
+const db = new PrismaClient({
+  log: ['error'],
+})
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 // --- Middleware ---
@@ -1228,16 +1230,17 @@ Reply as JSON array only: [{ "keyword": "...", "confidence": 0.95 }]`
 
 // Stats: how many chunks per source type
 app.get('/api/knowledge/stats', async (c) => {
-  const [bySource, totalWithEmbedding, totalWithoutEmbedding, deferCount] = await Promise.all([
+  const [bySource, embeddingCounts, deferCount] = await Promise.all([
     db.knowledgeChunk.groupBy({
       by: ['source'],
       _count: { id: true },
       orderBy: { _count: { id: 'desc' } },
     }),
-    db.knowledgeChunk.count({ where: { embedding: { not: null } } }),
-    db.knowledgeChunk.count({ where: { embedding: null } }),
+    db.$queryRaw`SELECT COUNT(*) FILTER (WHERE embedding IS NOT NULL) AS "withEmbedding", COUNT(*) FILTER (WHERE embedding IS NULL) AS "withoutEmbedding" FROM "KnowledgeChunk"`,
     db.deferToKetu.count(),
   ])
+  const totalWithEmbedding = Number(embeddingCounts[0]?.withEmbedding || 0)
+  const totalWithoutEmbedding = Number(embeddingCounts[0]?.withoutEmbedding || 0)
 
   const sources = {}
   for (const s of bySource) {
