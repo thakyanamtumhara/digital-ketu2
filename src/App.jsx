@@ -1084,11 +1084,13 @@ function PipelineGraph({ knowledgeStats, filterStats, settings }) {
           <div style={sourceBox('#a78bfa')}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ color: '#a78bfa', fontWeight: 700, fontSize: 14 }}>STYLE PAIRS</div>
-              <span style={{ background: '#a78bfa22', color: '#a78bfa', padding: '1px 8px', borderRadius: 10, fontSize: 11 }}>{sources.STYLE_PAIR || 0} pairs</span>
+              <span style={{ background: '#a78bfa22', color: '#a78bfa', padding: '1px 8px', borderRadius: 10, fontSize: 11 }}>{(sources.STYLE_PAIR || 0) + (sources.PREMIUM_PAIR || 0)} pairs</span>
             </div>
             <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 6 }}>Real Om-buyer conversations for matching</div>
             <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 4 }}>Example: Buyer: "black oversize rate?" → Om: "180/pc bulk, 222 sample sir"</div>
-            <div style={{ color: '#64748b', fontSize: 10, marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 6 }}>Source: wwbun chat history (337 quality pairs)</div>
+            <div style={{ color: '#64748b', fontSize: 10, marginTop: 6, borderTop: '1px solid #1e293b', paddingTop: 6 }}>
+              {sources.STYLE_PAIR || 0} permanent + {sources.PREMIUM_PAIR || 0} from training scans
+            </div>
           </div>
 
           <div style={sourceBox('#f59e0b')}>
