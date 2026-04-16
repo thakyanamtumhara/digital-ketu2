@@ -1228,29 +1228,34 @@ Reply as JSON array only: [{ "keyword": "...", "confidence": 0.95 }]`
 
 // Stats: how many chunks per source type
 app.get('/api/knowledge/stats', async (c) => {
-  const [bySource, totalWithEmbedding, totalWithoutEmbedding, deferCount] = await Promise.all([
-    db.knowledgeChunk.groupBy({
-      by: ['source'],
-      _count: { id: true },
-      orderBy: { _count: { id: 'desc' } },
-    }),
-    db.knowledgeChunk.count({ where: { embedding: { not: null } } }),
-    db.knowledgeChunk.count({ where: { embedding: null } }),
-    db.deferToKetu.count(),
-  ])
+  try {
+    const [bySource, embeddingCounts, deferCount] = await Promise.all([
+      db.knowledgeChunk.groupBy({
+        by: ['source'],
+        _count: { id: true },
+        orderBy: { _count: { id: 'desc' } },
+      }),
+      // Use raw SQL for embedding column (Unsupported type can't be filtered by Prisma)
+      db.$queryRaw`SELECT COUNT(*) FILTER (WHERE embedding IS NOT NULL) as "withEmbedding", COUNT(*) FILTER (WHERE embedding IS NULL) as "withoutEmbedding" FROM "KnowledgeChunk"`,
+      db.deferToKetu.count(),
+    ])
 
-  const sources = {}
-  for (const s of bySource) {
-    sources[s.source] = s._count.id
+    const sources = {}
+    for (const s of bySource) {
+      sources[s.source] = s._count.id
+    }
+
+    return c.json({
+      total: Object.values(sources).reduce((a, b) => a + b, 0),
+      withEmbedding: Number(embeddingCounts[0]?.withEmbedding || 0),
+      withoutEmbedding: Number(embeddingCounts[0]?.withoutEmbedding || 0),
+      deferToKetuItems: deferCount,
+      sources,
+    })
+  } catch (err) {
+    console.error('[Knowledge Stats] Error:', err.message)
+    return c.json({ error: err.message }, 500)
   }
-
-  return c.json({
-    total: Object.values(sources).reduce((a, b) => a + b, 0),
-    withEmbedding: totalWithEmbedding,
-    withoutEmbedding: totalWithoutEmbedding,
-    deferToKetuItems: deferCount,
-    sources,
-  })
 })
 
 // Browse chunks by source type (paginated)
