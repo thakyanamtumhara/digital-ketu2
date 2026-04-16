@@ -67,18 +67,19 @@ function createDeferTimerCallback(whatsappNumber) {
       }
 
       // Send ONE defer message for all batched messages
-      await sendReplyViaWwbun(whatsappNumber, entry.deferMessage)
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, entry.deferMessage)
 
       // Log each accumulated message
       for (const msg of entry.messages) {
         await createLog(entry.db, msg.conversationId, msg.mergedText, msg.messageIds, {
           ...msg.logData,
           aiReply: entry.deferMessage,
-          sentViaWwbun: true,
+          sentViaWwbun: !!sendResult,
+          wwbunMessageId: sendResult?.messageId || null,
         })
       }
 
-      console.log(`[DeferBatch] ${whatsappNumber} — sent ONE defer for ${entry.messages.length} message(s)`)
+      console.log(`[DeferBatch] ${whatsappNumber} — sent ONE defer for ${entry.messages.length} message(s)${sendResult ? '' : ' (SEND FAILED)'}`)
     } catch (err) {
       console.error(`[DeferBatch Error] ${whatsappNumber}:`, err.message)
     }
@@ -439,16 +440,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     const isBillDoc = mergedText?.match(/\[Document:.*(?:bill|invoice|tax|receipt|gst|challan|voucher|order).*\.pdf\]/i)
     if (isBillDoc) {
       const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-      await sendReplyViaWwbun(whatsappNumber, mediaReply)
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply)
       await createLog(db, conversation.id, mergedText, messageIds, {
         status: 'REPLIED',
         aiReply: mediaReply,
         deferReason: 'bill_document',
         processingMs: Date.now() - startTime,
         isMedia: true,
-        sentViaWwbun: true,
+        sentViaWwbun: !!sendResult,
+        wwbunMessageId: sendResult?.messageId || null,
       })
-      console.log(`[Partial AI] ${whatsappNumber} — bill document detected, replied with dispatch confirmation`)
+      console.log(`[Partial AI] ${whatsappNumber} — bill document detected, replied with dispatch confirmation${sendResult ? '' : ' (SEND FAILED)'}`)
       return
     }
 
@@ -465,16 +467,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
     if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
       const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-      await sendReplyViaWwbun(whatsappNumber, mediaReply)
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply)
       await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
         status: 'REPLIED',
         aiReply: mediaReply,
         deferReason: 'bill_document',
         processingMs: Date.now() - startTime,
         isMedia: true,
-        sentViaWwbun: true,
+        sentViaWwbun: !!sendResult,
+        wwbunMessageId: sendResult?.messageId || null,
       })
-      console.log(`[Partial AI] ${whatsappNumber} — invoice image detected, replied with dispatch confirmation`)
+      console.log(`[Partial AI] ${whatsappNumber} — invoice image detected, replied with dispatch confirmation${sendResult ? '' : ' (SEND FAILED)'}`)
       return
     }
 
@@ -503,16 +506,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       || acidWashNormalized === 'i want to know about acidwash tshirts'
       || acidWashNormalized === 'i want to know about acidwash t shirts') {
       const acidWashReply = 'https://www.sale91.com/catalog/p/acidwash-oversize/\n\nAcidWash Cataloge👆'
-      await sendReplyViaWwbun(whatsappNumber, acidWashReply)
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, acidWashReply)
       await createLog(db, conversation.id, mergedText, messageIds, {
         status: 'REPLIED',
         aiReply: acidWashReply,
         deferReason: 'acid_wash_catalog',
         processingMs: Date.now() - startTime,
-        sentViaWwbun: true,
+        sentViaWwbun: !!sendResult,
+        wwbunMessageId: sendResult?.messageId || null,
         promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
       })
-      console.log(`[Partial AI] ${whatsappNumber} — acid wash query, sent catalog link`)
+      console.log(`[Partial AI] ${whatsappNumber} — acid wash query, sent catalog link${sendResult ? '' : ' (SEND FAILED)'}`)
       return
     }
 
@@ -556,16 +560,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       'gm', 'morning', 'evening', 'hy', 'hye', 'hola', 'yo',
     ]
     if (partialGreetingPatterns.includes(partialNormalizedGreeting)) {
-      await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
       await createLog(db, conversation.id, mergedText, messageIds, {
         status: 'REPLIED',
         aiReply: WELCOME_FOLLOWUP_GENERIC,
         deferReason: 'partial_ai_greeting',
         processingMs: Date.now() - startTime,
-        sentViaWwbun: true,
+        sentViaWwbun: !!sendResult,
+        wwbunMessageId: sendResult?.messageId || null,
         promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
       })
-      console.log(`[Partial AI] ${whatsappNumber} — greeting message, replied with nudge`)
+      console.log(`[Partial AI] ${whatsappNumber} — greeting message, replied with nudge${sendResult ? '' : ' (SEND FAILED)'}`)
       return
     }
 
@@ -591,16 +596,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         console.log(`[Partial AI] ${whatsappNumber} — order dispatch AI detection: ${detectAnswer}`)
         if (detectAnswer.startsWith('YES')) {
           const dispatchReply = 'Ok sir, dispatching ASAP 🚚'
-          await sendReplyViaWwbun(whatsappNumber, dispatchReply)
+          const sendResult = await sendReplyViaWwbun(whatsappNumber, dispatchReply)
           await createLog(db, conversation.id, mergedText, messageIds, {
             status: 'REPLIED',
             aiReply: dispatchReply,
             deferReason: 'order_dispatch_text',
             processingMs: Date.now() - startTime,
-            sentViaWwbun: true,
+            sentViaWwbun: !!sendResult,
+            wwbunMessageId: sendResult?.messageId || null,
             ...detectTokens,
           })
-          console.log(`[Partial AI] ${whatsappNumber} — order dispatch detected by AI, replied with dispatch confirmation`)
+          console.log(`[Partial AI] ${whatsappNumber} — order dispatch detected by AI, replied with dispatch confirmation${sendResult ? '' : ' (SEND FAILED)'}`)
           return
         }
       } catch (err) {
@@ -654,15 +660,16 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
             if (isGenericMessage(mergedText)) {
               // Short/generic message (hi, hello, etc.) → send nudge
-              await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+              const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
               await createLog(db, conversation.id, mergedText, [], {
                 status: 'REPLIED',
                 aiReply: WELCOME_FOLLOWUP_GENERIC,
                 deferReason: 'partial_ai_followup_generic',
                 processingMs: 0,
-                sentViaWwbun: true,
+                sentViaWwbun: !!sendResult,
+                wwbunMessageId: sendResult?.messageId || null,
               })
-              console.log(`[Partial AI Followup] ${whatsappNumber} — generic msg, sent nudge`)
+              console.log(`[Partial AI Followup] ${whatsappNumber} — generic msg, sent nudge${sendResult ? '' : ' (SEND FAILED)'}`)
             } else {
               // Real question (4+ words) — don't send "ask me any questions" nudge
               // It would be weird to say "ask me questions" when they already asked one
@@ -760,14 +767,15 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const isBillDocument = mergedText.match(/\[Document:.*(?:bill|invoice|tax|receipt|gst|challan|voucher|order).*\.pdf\]/i)
   if (isBillDocument) {
     const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-    await sendReplyViaWwbun(whatsappNumber, mediaReply)
+    const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply)
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'REPLIED',
       aiReply: mediaReply,
       deferReason: 'bill_document',
       processingMs: Date.now() - startTime,
       isMedia: true,
-      sentViaWwbun: true,
+      sentViaWwbun: !!sendResult,
+      wwbunMessageId: sendResult?.messageId || null,
     })
     return
   }
@@ -785,29 +793,31 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
   if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
     const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-    await sendReplyViaWwbun(whatsappNumber, mediaReply)
+    const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply)
     await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
       status: 'REPLIED',
       aiReply: mediaReply,
       deferReason: 'bill_document',
       processingMs: Date.now() - startTime,
       isMedia: true,
-      sentViaWwbun: true,
+      sentViaWwbun: !!sendResult,
+      wwbunMessageId: sendResult?.messageId || null,
     })
-    console.log(`[Full AI] ${whatsappNumber} — invoice image detected, replied with dispatch confirmation`)
+    console.log(`[Full AI] ${whatsappNumber} — invoice image detected, replied with dispatch confirmation${sendResult ? '' : ' (SEND FAILED)'}`)
     return
   }
 
   // --- Check: Media-only message (actual image/audio/video/document) ---
   if (hasMediaOnly) {
-    await sendReplyViaWwbun(whatsappNumber, settings.mediaMessage)
+    const sendResult = await sendReplyViaWwbun(whatsappNumber, settings.mediaMessage)
     await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
       status: 'REPLIED',
       aiReply: settings.mediaMessage,
       deferReason: 'media_only',
       processingMs: Date.now() - startTime,
       isMedia: true,
-      sentViaWwbun: true,
+      sentViaWwbun: !!sendResult,
+      wwbunMessageId: sendResult?.messageId || null,
     })
     return
   }
@@ -865,16 +875,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     || normalizedText === 'i want to know about acidwash tshirts'
     || normalizedText === 'i want to know about acidwash t shirts') {
     const acidWashReply = 'https://www.sale91.com/catalog/p/acidwash-oversize/\n\nAcidWash Cataloge👆'
-    await sendReplyViaWwbun(whatsappNumber, acidWashReply)
+    const sendResult = await sendReplyViaWwbun(whatsappNumber, acidWashReply)
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'REPLIED',
       aiReply: acidWashReply,
       deferReason: 'acid_wash_catalog',
       processingMs: Date.now() - startTime,
-      sentViaWwbun: true,
+      sentViaWwbun: !!sendResult,
+      wwbunMessageId: sendResult?.messageId || null,
       promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
     })
-    console.log(`[Full AI] ${whatsappNumber} — acid wash query, sent catalog link`)
+    console.log(`[Full AI] ${whatsappNumber} — acid wash query, sent catalog link${sendResult ? '' : ' (SEND FAILED)'}`)
     return
   }
 
@@ -918,19 +929,20 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
       if (filter.action === 'auto_reply') {
         const replyText = filter.autoReplyText || 'Ok noted sir 👍'
-        await sendReplyViaWwbun(whatsappNumber, replyText)
+        const sendResult = await sendReplyViaWwbun(whatsappNumber, replyText)
         await createLog(db, conversation.id, mergedText, messageIds, {
           status: 'REPLIED',
           deferReason: filter.name,
           aiReply: replyText,
           processingMs: Date.now() - startTime,
-          sentViaWwbun: true,
+          sentViaWwbun: !!sendResult,
+          wwbunMessageId: sendResult?.messageId || null,
           promptTokens: 0,
           completionTokens: 0,
           totalTokens: 0,
           costUsd: 0,
         })
-        console.log(`[${filter.displayName}] ${whatsappNumber} — auto-replied, 0 tokens`)
+        console.log(`[${filter.displayName}] ${whatsappNumber} — auto-replied, 0 tokens${sendResult ? '' : ' (SEND FAILED)'}`)
         return
       }
 
@@ -1019,15 +1031,16 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
         if (isGenericMessage(mergedText)) {
           // Generic message → send nudge
-          await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+          const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
           await createLog(db, conversation.id, mergedText, [], {
             status: 'REPLIED',
             aiReply: WELCOME_FOLLOWUP_GENERIC,
             deferReason: 'welcome_followup_generic',
             processingMs: 0,
-            sentViaWwbun: true,
+            sentViaWwbun: !!sendResult,
+            wwbunMessageId: sendResult?.messageId || null,
           })
-          console.log(`[Followup] ${whatsappNumber} — generic msg, sent nudge`)
+          console.log(`[Followup] ${whatsappNumber} — generic msg, sent nudge${sendResult ? '' : ' (SEND FAILED)'}`)
         } else {
           // Real question → run AI
           const currentSettings = await db.settings.findUnique({ where: { id: 'default' } })
@@ -1314,35 +1327,50 @@ function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conve
 
 async function sendReplyViaWwbun(whatsappNumber, message) {
   if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) {
-    console.warn('[Send] WWBUN_API_URL or DIGITAL_KETU_SECRET not configured, skipping send')
+    console.error('[Send] WWBUN_API_URL or DIGITAL_KETU_SECRET not configured — message NOT sent to', whatsappNumber)
     return null
   }
 
-  try {
-    const response = await fetch(`${WWBUN_API_URL}/api/messages/send-ai-reply`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET,
-      },
-      body: JSON.stringify({
-        whatsappNumber,
-        message,
-        isAiGenerated: true,
-      }),
-    })
+  const MAX_RETRIES = 2
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(`${WWBUN_API_URL}/api/messages/send-ai-reply`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET,
+        },
+        body: JSON.stringify({
+          whatsappNumber,
+          message,
+          isAiGenerated: true,
+        }),
+      })
 
-    if (!response.ok) {
-      console.error(`[Send] wwbun API error: ${response.status} ${response.statusText}`)
+      if (!response.ok) {
+        let errorBody = ''
+        try { errorBody = await response.text() } catch (_) {}
+        console.error(`[Send] wwbun API error (attempt ${attempt}/${MAX_RETRIES}): ${response.status} ${response.statusText} — ${whatsappNumber} — body: ${errorBody}`)
+        if (attempt < MAX_RETRIES && response.status >= 500) {
+          await new Promise(r => setTimeout(r, 1000 * attempt))
+          continue
+        }
+        return null
+      }
+
+      const result = await response.json()
+      if (attempt > 1) console.log(`[Send] ${whatsappNumber} — succeeded on retry attempt ${attempt}`)
+      return result
+    } catch (err) {
+      console.error(`[Send] Failed to send via wwbun (attempt ${attempt}/${MAX_RETRIES}): ${whatsappNumber} — ${err.message}`)
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, 1000 * attempt))
+        continue
+      }
       return null
     }
-
-    const result = await response.json()
-    return result
-  } catch (err) {
-    console.error(`[Send] Failed to send via wwbun:`, err.message)
-    return null
   }
+  return null
 }
 
 // ===========================================
