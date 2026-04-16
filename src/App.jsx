@@ -2044,6 +2044,28 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
   const [showSection, setShowSection] = useState({ rules: false, catalog: false, replies: false, stylePairs: false, syncHistory: false, premiumInfo: false })
   const toggle = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
   const [replyTemplates, setReplyTemplates] = useState(REPLY_TEMPLATES)
+
+  // Voyage AI embedding status
+  const [embeddingStatus, setEmbeddingStatus] = useState(null)
+  const [reEmbedding, setReEmbedding] = useState(false)
+  const [reEmbedResult, setReEmbedResult] = useState(null)
+  useEffect(() => {
+    fetch(`${API}/embeddings/status`).then(r => r.ok ? r.json() : null).then(d => setEmbeddingStatus(d)).catch(() => {})
+  }, [])
+  const triggerReEmbed = async () => {
+    setReEmbedding(true)
+    setReEmbedResult(null)
+    try {
+      const res = await fetch(`${API}/embeddings/re-embed`, { method: 'POST' })
+      const data = await res.json()
+      setReEmbedResult(data)
+      // Refresh status
+      const sRes = await fetch(`${API}/embeddings/status`)
+      if (sRes.ok) setEmbeddingStatus(await sRes.json())
+    } catch (err) { setReEmbedResult({ error: err.message }) }
+    setReEmbedding(false)
+  }
+
   const deleteReplyTemplate = async (index) => {
     const t = replyTemplates[index]
     if (!confirm(`Delete "/${t.shortcut}" template?`)) return
@@ -2161,6 +2183,41 @@ function SyncPanel({ logs, settings, updateSetting, onSync, syncing, knowledge }
           </button>
         </div>
       </div>
+
+      {/* Voyage AI Embedding Status */}
+      {embeddingStatus && (
+        <div style={{ ...styles.syncInfo, marginTop: '12px', borderLeft: embeddingStatus.voyageConfigured ? '3px solid #22c55e' : '3px solid #ef4444' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <div>
+              <p style={{ margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <strong>Embedding Model:</strong>
+                <span style={{
+                  padding: '2px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 600,
+                  background: embeddingStatus.voyageConfigured ? '#052e16' : '#450a0a',
+                  color: embeddingStatus.voyageConfigured ? '#22c55e' : '#ef4444',
+                }}>{embeddingStatus.embeddingModel}</span>
+              </p>
+              <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>
+                {embeddingStatus.knowledgeChunks} chunks | {embeddingStatus.deferItems} corrections
+                {!embeddingStatus.voyageConfigured && ' — Add VOYAGE_API_KEY for accurate search'}
+              </p>
+            </div>
+            {embeddingStatus.voyageConfigured && (
+              <button style={{ ...styles.btnPrimary, background: '#1e3a5f', fontSize: '12px', padding: '6px 12px' }}
+                onClick={triggerReEmbed} disabled={reEmbedding}>
+                {reEmbedding ? 'Re-embedding...' : 'Re-embed All'}
+              </button>
+            )}
+          </div>
+          {reEmbedResult && (
+            <p style={{ margin: '8px 0 0', fontSize: '12px', color: reEmbedResult.error ? '#ef4444' : '#22c55e' }}>
+              {reEmbedResult.error
+                ? `Error: ${reEmbedResult.error}`
+                : `Done! Chunks: ${reEmbedResult.knowledgeChunks?.updated}/${reEmbedResult.knowledgeChunks?.total}, Corrections: ${reEmbedResult.deferItems?.updated}/${reEmbedResult.deferItems?.total}`}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* AI System Prompt */}
       <div style={styles.kbSection}>
