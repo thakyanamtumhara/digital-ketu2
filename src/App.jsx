@@ -369,10 +369,12 @@ function LiveMonitor({ logs, expandedLog, setExpandedLog }) {
       <h2 style={styles.sectionTitle}>Live Message Log</h2>
       {logs.length === 0 && <p style={styles.empty}>No messages yet</p>}
       {logs.map(log => (
-        <div key={log.id} style={{ ...styles.logCard, borderLeft: `4px solid ${statusColor(log.status)}` }}>
+        <div key={log.id} style={{ ...styles.logCard, borderLeft: `4px solid ${log.status === 'REPLIED' && log.sentViaWwbun === false ? '#ef4444' : statusColor(log.status)}` }}>
           <div style={styles.logHeader} onClick={() => setExpandedLog(expandedLog === log.id ? null : log.id)}>
             <div>
-              <span style={{ ...styles.statusBadge, background: statusColor(log.status) }}>{log.status}</span>
+              <span style={{ ...styles.statusBadge, background: log.status === 'REPLIED' && log.sentViaWwbun === false ? '#ef4444' : statusColor(log.status) }}>
+                {log.status === 'REPLIED' && log.sentViaWwbun === false ? 'SEND FAILED' : log.status}
+              </span>
               <span style={styles.logPhone}>{log.conversation?.whatsappNumber || '—'}</span>
               {log.deferReason && <span style={styles.logReason}>({log.deferReason})</span>}
             </div>
