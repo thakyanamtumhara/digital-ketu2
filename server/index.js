@@ -22,7 +22,17 @@ app.use('*', cors({
 app.get('/api/health', (c) => c.json({ status: 'ok', service: 'digital-ketu2' }))
 
 // --- Settings ---
+// 60-second TTL cache. Cost increments elsewhere use Prisma's atomic
+// { increment: ... } operator, so stale reads can't corrupt totals.
+let cachedSettings = null
+let settingsCacheExpiry = 0
+const SETTINGS_CACHE_TTL_MS = 60 * 1000
+
 async function getSettings() {
+  const tsNow = Date.now()
+  if (cachedSettings && tsNow < settingsCacheExpiry) {
+    return cachedSettings
+  }
   let settings = await db.settings.findUnique({ where: { id: 'default' } })
   if (!settings) {
     settings = await db.settings.create({ data: { id: 'default' } })
@@ -36,6 +46,8 @@ async function getSettings() {
       data: { dailySpentUsd: 0, dailySpentResetAt: now }
     })
   }
+  cachedSettings = settings
+  settingsCacheExpiry = tsNow + SETTINGS_CACHE_TTL_MS
   return settings
 }
 
@@ -1522,8 +1534,8 @@ async function runScheduledSync() {
   }
 }
 
-// Check every hour if sync is due
-setInterval(runScheduledSync, 60 * 60 * 1000)
+// Check every 6 hours if sync is due (actual sync cadence is 3 days, stored in settings.nextSyncAt)
+setInterval(runScheduledSync, 6 * 60 * 60 * 1000)
 
 // ===========================================
 // Weekly Premium Export Scheduler
@@ -1684,8 +1696,8 @@ async function executePremiumExport(settings) {
   return { imported, total: mechanicalPairs.length, skipped: mechanicalPairs.length - kept.length, fromDate, toDate, wwbunFilterStats, wwbunDbDiagnostics, wwbunRejectedSamples }
 }
 
-// Check every hour if premium export is due
-setInterval(runScheduledPremiumExport, 60 * 60 * 1000)
+// Check every 6 hours if premium export is due (actual cadence is ~7 days, stored in settings.nextPremiumExportAt)
+setInterval(runScheduledPremiumExport, 6 * 60 * 60 * 1000)
 
 // Manual trigger endpoint — starts export in background to avoid Railway timeouts
 app.post('/api/premium-export/run', async (c) => {
