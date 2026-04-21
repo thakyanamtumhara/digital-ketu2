@@ -387,20 +387,35 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // If any message is audio, try to transcribe. On success, the message is rewritten as text
   // (messageType='text', messageText=transcript) so the downstream pipeline treats it normally.
   // On failure, the message remains audio and falls through to the existing media_only path.
+  //
+  // Note: wwbun sends messageText as "[Audio]" placeholder for audio messages, not empty.
+  // We ignore that placeholder and always try transcription for audio messages.
   if (isTranscriptionConfigured()) {
     for (const m of messages) {
       const type = (m.messageType || '').toLowerCase()
-      if (type === 'audio' && m.mediaUrl && !m.messageText?.trim()) {
-        const result = await transcribeAudio(m.mediaUrl)
-        if (result && result.text) {
-          console.log(`[Transcribe] ${whatsappNumber} — voice note → text: "${result.text.substring(0, 60)}…" (${getTranscriptionProvider()}, ${result.durationMs}ms)`)
-          m.messageText = result.text
-          m.messageType = 'text'
-          m.hasMedia = false
-          m.transcribedFrom = 'audio'
-        } else {
-          console.log(`[Transcribe] ${whatsappNumber} — voice note transcription failed, will use media_only reply`)
-        }
+      if (type !== 'audio') continue
+
+      let mediaUrl = m.mediaUrl
+      if (!mediaUrl && m.wwbunMessageId) {
+        console.log(`[Transcribe] ${whatsappNumber} — no mediaUrl, fetching for message ${m.wwbunMessageId}`)
+        mediaUrl = await downloadMediaFromWwbun(m.wwbunMessageId)
+      }
+      if (!mediaUrl) {
+        console.log(`[Transcribe] ${whatsappNumber} — audio message has no mediaUrl, will use media_only reply`)
+        continue
+      }
+
+      const result = await transcribeAudio(mediaUrl)
+      if (result && result.text) {
+        console.log(`[Transcribe] ${whatsappNumber} — voice note → text: "${result.text.substring(0, 60)}…" (${getTranscriptionProvider()}, ${result.durationMs}ms)`)
+        m.messageText = result.text
+        m.messageType = 'text'
+        m.hasMedia = false
+        m.transcribedFrom = 'audio'
+      } else {
+        console.log(`[Transcribe] ${whatsappNumber} — voice note transcription failed, will use media_only reply`)
+        // Clear "[Audio]" placeholder so downstream detects this as media-only and uses canned reply
+        m.messageText = ''
       }
     }
   }
