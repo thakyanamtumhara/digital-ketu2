@@ -673,26 +673,68 @@ Reply as JSON array only: [{ "keyword": "...", "category": "...", "confidence": 
 // Combined Review Job
 // ===========================
 
-export async function runReviewJob(db) {
-  const aiResult = await reviewAiReplies(db)
-  const manualResult = await reviewManualPairs(db)
+// Runs one or more batches of (AI review + manual pair review) then extracts keywords ONCE
+// at the end (keyword extraction is expensive — scans all reviewed pairs — so we amortize it
+// across the day's loop instead of re-running per batch).
+//
+// Options:
+//   maxBatches:   max batches to run in this invocation (default 1 — single-batch manual "Run Now")
+//   budgetCapUsd: stop the loop early if this job's cumulative spend exceeds this cap (default: no cap)
+//
+// The loop also breaks early when both queues (AI replies + manual pairs) return 0 reviewed,
+// so a mostly-empty queue doesn't waste API calls.
+export async function runReviewJob(db, { maxBatches = 1, budgetCapUsd = null } = {}) {
+  const aiTotal = { reviewed: 0, corrections: 0, flagged: 0, costUsd: 0 }
+  const manualTotal = { reviewed: 0, corrections: 0, costUsd: 0 }
+  let batchesRun = 0
 
-  let totalCost = aiResult.costUsd + manualResult.costUsd
+  for (let i = 0; i < maxBatches; i++) {
+    const aiResult = await reviewAiReplies(db)
+    const manualResult = await reviewManualPairs(db)
+    batchesRun++
 
-  // Extract keywords from reviewed pairs (same as history pull)
-  let keywordsDiscovered = { autoAdded: 0, pending: 0, total: 0 }
-  if (manualResult.reviewed > 0) {
-    try {
-      keywordsDiscovered = await extractKeywordsFromReviewedPairs(db)
-      console.log(`[RunNow] Keywords: ${keywordsDiscovered.total} discovered, ${keywordsDiscovered.autoAdded} auto-added, ${keywordsDiscovered.pending} pending`)
-    } catch (err) {
-      console.error(`[RunNow] Keyword extraction failed (non-fatal):`, err.message)
+    aiTotal.reviewed += aiResult.reviewed
+    aiTotal.corrections += aiResult.corrections
+    aiTotal.flagged += (aiResult.flagged || 0)
+    aiTotal.costUsd += aiResult.costUsd
+    manualTotal.reviewed += manualResult.reviewed
+    manualTotal.corrections += manualResult.corrections
+    manualTotal.costUsd += manualResult.costUsd
+
+    // Stop if both queues are empty — no point asking Opus about nothing
+    if (aiResult.reviewed === 0 && manualResult.reviewed === 0) {
+      console.log(`[RunJob] Queue empty after batch ${batchesRun}, stopping loop`)
+      break
+    }
+
+    // Stop if caller-provided budget cap hit
+    const spent = aiTotal.costUsd + manualTotal.costUsd
+    if (budgetCapUsd != null && spent >= budgetCapUsd) {
+      console.log(`[RunJob] Budget cap $${budgetCapUsd.toFixed(4)} reached after batch ${batchesRun} ($${spent.toFixed(4)} spent), stopping loop`)
+      break
     }
   }
 
+  const totalCost = aiTotal.costUsd + manualTotal.costUsd
+
+  // Extract keywords ONCE at the end (expensive: scans up to 2000 reviewed pairs).
+  // Only runs if we reviewed any new manual pairs this invocation.
+  let keywordsDiscovered = { autoAdded: 0, pending: 0, total: 0 }
+  if (manualTotal.reviewed > 0) {
+    try {
+      keywordsDiscovered = await extractKeywordsFromReviewedPairs(db)
+      console.log(`[RunJob] Keywords: ${keywordsDiscovered.total} discovered, ${keywordsDiscovered.autoAdded} auto-added, ${keywordsDiscovered.pending} pending`)
+    } catch (err) {
+      console.error(`[RunJob] Keyword extraction failed (non-fatal):`, err.message)
+    }
+  }
+
+  console.log(`[RunJob] Done — ${batchesRun} batches, ${aiTotal.reviewed} AI replies + ${manualTotal.reviewed} manual pairs reviewed, ${aiTotal.corrections + manualTotal.corrections} corrections, $${totalCost.toFixed(4)} spent`)
+
   return {
-    aiReplies: aiResult,
-    manualPairs: manualResult,
+    aiReplies: aiTotal,
+    manualPairs: manualTotal,
+    batchesRun,
     totalCostUsd: totalCost,
     keywordsDiscovered,
   }

@@ -1724,25 +1724,25 @@ app.get('/api/premium-export/status', (c) => {
 // Self-Learning Scheduler
 // ===========================================
 
+// Per daily run, loop up to this many 20-pair batches. Sized for ~400 pair/day capture
+// plus backlog burn-down within budget (~70% of learningDailyBudgetUsd).
+// Loop breaks early when queues empty or budget cap hit.
+const SCHEDULED_REVIEW_MAX_BATCHES = 30
+const SCHEDULED_REVIEW_BUDGET_FRACTION = 0.70
+
 async function runScheduledReview() {
   try {
     const settings = await getSettings()
     if (!settings.learningEnabled) return
 
-    // Check if enough time has passed since last review
+    // Check if enough time has passed since last review (cadence lives in learningIntervalHours)
     if (settings.lastReviewAt) {
       const hoursSince = (Date.now() - new Date(settings.lastReviewAt).getTime()) / (1000 * 60 * 60)
       if (hoursSince < settings.learningIntervalHours) return
     }
 
-    // Reset daily spend counter at midnight
-    const today = new Date(new Date().setHours(0, 0, 0, 0))
-    if (!settings.learningSpentResetAt || new Date(settings.learningSpentResetAt) < today) {
-      await db.settings.update({
-        where: { id: 'default' },
-        data: { learningDailySpentUsd: 0, learningSpentResetAt: today },
-      })
-    }
+    // Daily-spend reset now happens in getSettings() — settings.learningDailySpentUsd
+    // is already current-day as of this fetch.
 
     // Check daily budget
     if (settings.learningDailySpentUsd >= settings.learningDailyBudgetUsd) {
@@ -1750,8 +1750,15 @@ async function runScheduledReview() {
       return
     }
 
-    console.log('[Learning] Running scheduled review...')
-    const result = await runReviewJob(db)
+    // Cap this run at 70% of remaining daily budget so ad-hoc "Run Now" clicks still have headroom
+    const remainingBudget = settings.learningDailyBudgetUsd - settings.learningDailySpentUsd
+    const budgetCapUsd = Math.max(remainingBudget * SCHEDULED_REVIEW_BUDGET_FRACTION, 0)
+
+    console.log(`[Learning] Running scheduled daily review (up to ${SCHEDULED_REVIEW_MAX_BATCHES} batches, $${budgetCapUsd.toFixed(4)} budget)...`)
+    const result = await runReviewJob(db, {
+      maxBatches: SCHEDULED_REVIEW_MAX_BATCHES,
+      budgetCapUsd,
+    })
 
     await db.settings.update({
       where: { id: 'default' },
@@ -1760,10 +1767,13 @@ async function runScheduledReview() {
         learningDailySpentUsd: { increment: result.totalCostUsd },
       },
     })
+    // Invalidate cache so the fresh spend counter is visible to next callers
+    cachedSettings = null
+    settingsCacheExpiry = 0
 
     const totalCorrections = result.aiReplies.corrections + result.manualPairs.corrections
     const totalReviewed = result.aiReplies.reviewed + result.manualPairs.reviewed
-    console.log(`[Learning] Review complete — ${totalReviewed} reviewed, ${totalCorrections} corrections, $${result.totalCostUsd.toFixed(4)} cost`)
+    console.log(`[Learning] Daily review complete — ${result.batchesRun} batches, ${totalReviewed} pairs reviewed, ${totalCorrections} corrections, $${result.totalCostUsd.toFixed(4)} cost`)
   } catch (err) {
     console.error('[Learning] Scheduled review failed:', err.message)
   }
