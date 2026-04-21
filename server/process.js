@@ -8,6 +8,7 @@
 // 4. Claude decides: reply, [DEFER] to Ketu, or [SKIP] conversation ender
 
 import { vectorSearch } from './embeddings.js'
+import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } from './transcribe.js'
 
 // ===========================================
 // Welcome Follow-Up Constants & State
@@ -381,6 +382,29 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   })
 
   const messageIds = messages.map(m => m.messageId)
+
+  // --- AUDIO TRANSCRIPTION ---
+  // If any message is audio, try to transcribe. On success, the message is rewritten as text
+  // (messageType='text', messageText=transcript) so the downstream pipeline treats it normally.
+  // On failure, the message remains audio and falls through to the existing media_only path.
+  if (isTranscriptionConfigured()) {
+    for (const m of messages) {
+      const type = (m.messageType || '').toLowerCase()
+      if (type === 'audio' && m.mediaUrl && !m.messageText?.trim()) {
+        const result = await transcribeAudio(m.mediaUrl)
+        if (result && result.text) {
+          console.log(`[Transcribe] ${whatsappNumber} — voice note → text: "${result.text.substring(0, 60)}…" (${getTranscriptionProvider()}, ${result.durationMs}ms)`)
+          m.messageText = result.text
+          m.messageType = 'text'
+          m.hasMedia = false
+          m.transcribedFrom = 'audio'
+        } else {
+          console.log(`[Transcribe] ${whatsappNumber} — voice note transcription failed, will use media_only reply`)
+        }
+      }
+    }
+  }
+
   const hasTextMessages = messages.some(m => m.messageType === 'text' && m.messageText?.trim())
   const hasAnyText = messages.some(m => m.messageText?.trim())
   const hasMediaOnly = !hasAnyText && messages.some(m => m.hasMedia || m.messageType !== 'text')

@@ -6,6 +6,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers } from './process.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
+import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } from './transcribe.js'
 import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
 
 const app = new Hono()
@@ -176,11 +177,30 @@ app.post('/api/incoming', async (c) => {
 // wwbun calls this when Om sends a manual message in a conversation
 
 app.post('/api/intervention', async (c) => {
-  const { whatsappNumber, ketuReply, messageType, buyerMessage, aiReply, aiRepliedAt } = await c.req.json()
+  const body = await c.req.json()
+  const { whatsappNumber, messageType, buyerMessage, aiReply, aiRepliedAt } = body
+  let { ketuReply } = body
+  const ketuMediaUrl = body.mediaUrl || body.ketuMediaUrl || null
   if (!whatsappNumber) return c.json({ error: 'Missing whatsappNumber' }, 400)
 
-  // Skip learning for non-text replies (audio, video, image, etc.) — only set cooldown
-  const isTextReply = !messageType || messageType === 'TEXT'
+  // --- AUDIO TRANSCRIPTION (Path B: Om's voice reply → learning) ---
+  // If the reply was audio and wwbun sent us the mediaUrl, transcribe to text so the pair
+  // becomes reusable learning signal instead of being silently dropped as non-text.
+  if ((messageType === 'AUDIO' || messageType === 'audio') && ketuMediaUrl && isTranscriptionConfigured()) {
+    const result = await transcribeAudio(ketuMediaUrl)
+    if (result && result.text) {
+      console.log(`[Transcribe] ${whatsappNumber} — Om's voice reply → text: "${result.text.substring(0, 60)}…" (${getTranscriptionProvider()})`)
+      ketuReply = result.text
+    } else {
+      console.log(`[Transcribe] ${whatsappNumber} — Om's voice reply transcription failed, will skip learning (cooldown only)`)
+    }
+  }
+
+  // Skip learning for non-text replies (audio, video, image, etc.) — only set cooldown.
+  // If audio was transcribed above, we treat it as text from here on.
+  const effectiveType = (ketuReply && !messageType) ? 'TEXT'
+    : ((messageType === 'AUDIO' || messageType === 'audio') && ketuReply ? 'TEXT' : messageType)
+  const isTextReply = !effectiveType || effectiveType === 'TEXT'
 
   // Quality filter: capture short-buyer-question + meaningful-Om-reply pairs like
   // "rate?" → "Catalog mein hai sir, 205 per pc". Previously both sides needed 4+ words
@@ -706,6 +726,14 @@ app.delete('/api/knowledge/reply-template/:shortcut', async (c) => {
 // ===========================================
 // Embedding Management
 // ===========================================
+
+// Check transcription status (audio → text via Groq/OpenAI/Sarvam)
+app.get('/api/transcription/status', (c) => {
+  return c.json({
+    configured: isTranscriptionConfigured(),
+    provider: getTranscriptionProvider(),
+  })
+})
 
 // Check embedding status
 app.get('/api/embeddings/status', async (c) => {
