@@ -198,7 +198,16 @@ function App() {
     fetchAnalytics()
     // Auto-refresh logs every 5 seconds
     const interval = setInterval(fetchLogs, 5000)
-    return () => clearInterval(interval)
+    // Auto-refresh settings every 15 seconds — keeps AI/Partial toggles in sync when
+    // the other dashboard (wwbun) changes them. Also refresh when tab becomes visible.
+    const settingsInterval = setInterval(fetchSettings, 15000)
+    const onVisible = () => { if (!document.hidden) fetchSettings() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(interval)
+      clearInterval(settingsInterval)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
 
   useEffect(() => { fetchAnalytics() }, [period])
