@@ -134,7 +134,7 @@ async function transcribeViaOpenAI(audioBuffer) {
 async function transcribeViaSarvam(audioBuffer) {
   const form = new FormData()
   form.append('file', new Blob([audioBuffer], { type: 'audio/ogg' }), 'audio.ogg')
-  form.append('model', 'saarika:v2')
+  form.append('model', 'saarika:v2.5')
   form.append('language_code', 'unknown') // auto-detect Hindi/English/Hinglish
 
   const res = await fetch('https://api.sarvam.ai/speech-to-text', {
