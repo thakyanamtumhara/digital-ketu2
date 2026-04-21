@@ -1112,6 +1112,10 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 // ===========================================
 async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId, normalizedText, db, anthropic, settings, startTime, messageIds }) {
   // --- VECTOR SEARCH: Single search across all 4 knowledge sources ---
+  // confidenceThreshold gates which chunks reach Claude. Fallback to deprecated deferThreshold for
+  // users who set the old field, then to a safe 0.55 default if neither is configured.
+  const confidenceThreshold = Number(settings.confidenceThreshold ?? settings.deferThreshold ?? 0.55)
+
   const allVectorResults = await vectorSearch(db, anthropic, mergedText, {
     limit: 10,  // fetch extra so corrections can be boosted into top 5
     minSimilarity: 0.0,
@@ -1122,14 +1126,19 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
     ? Math.max(...allVectorResults.map(r => Number(r.similarity)))
     : 0
 
-  // Boost CORRECTION results to the top — corrections are Om's manual fixes and should always take priority
+  // Boost CORRECTION results BEFORE applying threshold — corrections are Om's manual fixes
+  // and should be able to clear the bar even if their raw similarity was slightly below it.
   const boostedResults = allVectorResults.map(r => ({
     ...r,
     similarity: r.source === 'CORRECTION' ? Math.min(Number(r.similarity) + 0.15, 1.0) : Number(r.similarity),
     boosted: r.source === 'CORRECTION',
   }))
   boostedResults.sort((a, b) => b.similarity - a.similarity)
-  const knowledgeResults = boostedResults.slice(0, 5)
+  // Apply confidence threshold after boost; weak matches are dropped so Claude sees less noise.
+  const knowledgeResults = boostedResults.filter(r => r.similarity >= confidenceThreshold).slice(0, 5)
+  if (knowledgeResults.length === 0 && allVectorResults.length > 0) {
+    console.log(`[Vector] ${whatsappNumber} — best match ${(bestSimilarity * 100).toFixed(1)}% below threshold ${(confidenceThreshold * 100).toFixed(0)}%; Claude will likely defer`)
+  }
   // Personality DNA: find 3 similar real Om-buyer conversations to use as style examples
   const stylePairResults = await vectorSearch(db, anthropic, mergedText, {
     limit: 3,

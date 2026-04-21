@@ -129,7 +129,7 @@ model Settings {
   dailyBudgetInr      Float    @default(500)        // daily spend limit in INR
   dailySpentUsd       Float    @default(0)          // today's spend in USD
   dailySpentResetAt   DateTime @default(now())      // when daily counter was last reset
-  deferMessage        String   @default("Ketu will get back to you shortly on this.")
+  deferMessage        String   @default("Ketu will reply shortly sir 🙏")
   mediaMessage        String   @default("Sir, Ketu is not available right now. I'm not able to see images or listen to audio at the moment — could you please write your query in text? I'll read and reply right away.")
   confidenceThreshold Float    @default(0.80)       // single threshold: ≥80% → Claude answers, <80% → defer to Ketu
   deferThreshold      Float    @default(0.80)       // deprecated — kept for DB compatibility, use confidenceThreshold instead
@@ -145,7 +145,7 @@ model Settings {
   nextSyncAt          DateTime?
   // Self-learning settings
   learningEnabled     Boolean  @default(true)        // toggle learning on/off
-  learningIntervalHours Int    @default(2)            // run review every N hours (aggressive for first weeks)
+  learningIntervalHours Int    @default(24)           // run review every N hours (default daily)
   lastReviewAt        DateTime?
   learningDailyBudgetUsd Float @default(0.59)         // max daily spend on review calls (~Rs 50) — enough for history pull + daily reviews
   learningDailySpentUsd  Float @default(0)            // today's spend on review

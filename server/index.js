@@ -5,7 +5,7 @@ import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers } from './process.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
-import { getEmbedding, getVoyageBatch, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
+import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
 import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
 
 const app = new Hono()
@@ -37,14 +37,22 @@ async function getSettings() {
   if (!settings) {
     settings = await db.settings.create({ data: { id: 'default' } })
   }
-  // Reset daily spend if it's a new day
+  // Reset daily spend counters if it's a new day (covers both main AI and learning)
+  // Learning reset used to live inside the scheduled reviewer, but that scheduler was
+  // disabled — without this, learningDailySpentUsd freezes at its last value forever.
   const now = new Date()
-  const resetAt = new Date(settings.dailySpentResetAt)
-  if (now.toDateString() !== resetAt.toDateString()) {
-    settings = await db.settings.update({
-      where: { id: 'default' },
-      data: { dailySpentUsd: 0, dailySpentResetAt: now }
-    })
+  const updates = {}
+  if (now.toDateString() !== new Date(settings.dailySpentResetAt).toDateString()) {
+    updates.dailySpentUsd = 0
+    updates.dailySpentResetAt = now
+  }
+  const learningResetAt = settings.learningSpentResetAt ? new Date(settings.learningSpentResetAt) : new Date(0)
+  if (now.toDateString() !== learningResetAt.toDateString()) {
+    updates.learningDailySpentUsd = 0
+    updates.learningSpentResetAt = now
+  }
+  if (Object.keys(updates).length > 0) {
+    settings = await db.settings.update({ where: { id: 'default' }, data: updates })
   }
   cachedSettings = settings
   settingsCacheExpiry = tsNow + SETTINGS_CACHE_TTL_MS
@@ -62,6 +70,9 @@ app.put('/api/settings', async (c) => {
     where: { id: 'default' },
     data: body,
   })
+  // Invalidate cache so the new value takes effect immediately, not up to 60s later
+  cachedSettings = null
+  settingsCacheExpiry = 0
   return c.json(settings)
 })
 
@@ -171,9 +182,11 @@ app.post('/api/intervention', async (c) => {
   // Skip learning for non-text replies (audio, video, image, etc.) — only set cooldown
   const isTextReply = !messageType || messageType === 'TEXT'
 
-  // Quality filter: both sides need 4+ words to be worth learning from
+  // Quality filter: capture short-buyer-question + meaningful-Om-reply pairs like
+  // "rate?" → "Catalog mein hai sir, 205 per pc". Previously both sides needed 4+ words
+  // which dropped ~180 useful pairs/day. Now buyer ≥2 words, Om ≥3 words.
   const wordCount = (s) => (s || '').split(/\s+/).filter(w => w.length > 0).length
-  const isQualityPair = isTextReply && wordCount(buyerMessage) >= 4 && wordCount(ketuReply) >= 4
+  const isQualityPair = isTextReply && wordCount(buyerMessage) >= 2 && wordCount(ketuReply) >= 3
 
   // 1. Set cooldown (existing behavior)
   const settings = await getSettings()
@@ -424,6 +437,7 @@ app.get('/api/learning/stats', async (c) => {
     avgRating,
     todayCorrections,
     recentLearnings,
+    recentPremiumPairs,
   ] = await Promise.all([
     db.deferToKetu.count(),
     db.deferToKetu.count({ where: { aiWrongReply: { not: '[AI would not know]' } } }),
@@ -442,6 +456,13 @@ app.get('/api/learning/stats', async (c) => {
       take: 20,
       select: { id: true, buyerQuestion: true, aiWrongReply: true, correctReply: true, createdAt: true },
     }),
+    // Recent premium pairs from weekly auto-export (last 14 days so users see the most recent run)
+    db.knowledgeChunk.findMany({
+      where: { source: 'PREMIUM_PAIR', createdAt: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+      select: { id: true, title: true, content: true, metadata: true, createdAt: true },
+    }),
   ])
 
   return c.json({
@@ -449,6 +470,12 @@ app.get('/api/learning/stats', async (c) => {
     intervalHours: settings.learningIntervalHours,
     lastReviewAt: settings.lastReviewAt,
     dailyCost: { spent: settings.learningDailySpentUsd, budget: settings.learningDailyBudgetUsd },
+    premiumExport: {
+      enabled: settings.premiumExportEnabled,
+      lastRunAt: settings.lastPremiumExportAt,
+      nextRunAt: settings.nextPremiumExportAt,
+      lastPairs: settings.lastPremiumExportPairs,
+    },
     stats: {
       totalCorrections,
       interventionCorrections,  // from Ketu intervening while AI ON
@@ -461,6 +488,7 @@ app.get('/api/learning/stats', async (c) => {
       todayCorrections,
     },
     recentLearnings,
+    recentPremiumPairs,
   })
 })
 
@@ -471,6 +499,8 @@ app.put('/api/learning/toggle', async (c) => {
     where: { id: 'default' },
     data: { learningEnabled: !!enabled },
   })
+  cachedSettings = null
+  settingsCacheExpiry = 0
   console.log(`[Learning] ${enabled ? 'Enabled' : 'Disabled'} by user`)
   return c.json({ learningEnabled: !!enabled })
 })
@@ -661,13 +691,16 @@ app.delete('/api/defer-list/:id', async (c) => {
 })
 
 // Delete a reply template from the knowledge base (by shortcut name)
+// Matches either sourceId=shortcut (legacy hardcoded import) OR metadata.shortcut=shortcut (wwbun sync)
 app.delete('/api/knowledge/reply-template/:shortcut', async (c) => {
   const { shortcut } = c.req.param()
-  const deleted = await db.knowledgeChunk.deleteMany({
-    where: { source: 'SAVED_REPLY', sourceId: shortcut },
-  })
-  console.log(`[Knowledge] Deleted reply template "/${shortcut}" — ${deleted.count} chunks removed`)
-  return c.json({ status: 'deleted', count: deleted.count })
+  const deleted = await db.$executeRaw`
+    DELETE FROM "KnowledgeChunk"
+    WHERE source = 'SAVED_REPLY'
+      AND ("sourceId" = ${shortcut} OR metadata->>'shortcut' = ${shortcut})
+  `
+  console.log(`[Knowledge] Deleted reply template "/${shortcut}" — ${deleted} chunks removed`)
+  return c.json({ status: 'deleted', count: Number(deleted) })
 })
 
 // ===========================================
@@ -1361,97 +1394,10 @@ app.post('/api/sync/catalog', async (c) => {
   }
 })
 
-// Bulk import reply templates directly (from frontend hardcoded data)
-app.post('/api/sync/import-reply-templates', async (c) => {
-  try {
-    const { templates } = await c.req.json()
-    if (!templates || !Array.isArray(templates) || templates.length === 0) {
-      return c.json({ error: 'Missing templates array' }, 400)
-    }
-
-    const existingCount = await db.knowledgeChunk.count({ where: { source: 'SAVED_REPLY' } })
-    await db.knowledgeChunk.deleteMany({ where: { source: 'SAVED_REPLY' } })
-    console.log(`[Import] Cleared ${existingCount} existing SAVED_REPLY chunks, importing ${templates.length} new ones...`)
-
-    const texts = templates.map(t => `/${t.shortcut}: ${t.content}`)
-    const embeddings = await getVoyageBatch(texts)
-
-    let inserted = 0
-    for (let i = 0; i < templates.length; i++) {
-      try {
-        await db.$executeRaw`
-          INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
-          VALUES (${crypto.randomUUID()}, 'SAVED_REPLY', ${templates[i].shortcut}, ${'/' + templates[i].shortcut}, ${texts[i]}, ${embeddings[i]}::vector, ${JSON.stringify({ category: templates[i].category, mediaType: templates[i].mediaType })}::jsonb, NOW(), NOW())
-        `
-        inserted++
-      } catch (err) {
-        console.error(`[Import] Failed to insert template ${i}:`, err.message)
-      }
-    }
-
-    console.log(`[Import] Reply templates: ${inserted}/${templates.length} imported with embeddings`)
-    return c.json({ status: 'success', imported: inserted, total: templates.length })
-  } catch (err) {
-    console.error('[Import] Reply templates failed:', err.message)
-    return c.json({ error: err.message }, 500)
-  }
-})
-
-// Bulk import style pairs directly (from frontend hardcoded data)
-app.post('/api/sync/import-style-pairs', async (c) => {
-  try {
-    const { pairs } = await c.req.json()
-    if (!pairs || !Array.isArray(pairs) || pairs.length === 0) {
-      return c.json({ error: 'Missing pairs array' }, 400)
-    }
-
-    // Check how many STYLE_PAIR chunks already exist (force re-import if metadata has "undefined" omReply)
-    const existingCount = await db.knowledgeChunk.count({ where: { source: 'STYLE_PAIR' } })
-    const forceReimport = await c.req.query('force') === 'true'
-    if (existingCount >= pairs.length && !forceReimport) {
-      // Check if existing data is valid (omReply should not be "undefined")
-      const sample = await db.knowledgeChunk.findFirst({ where: { source: 'STYLE_PAIR' }, select: { metadata: true } })
-      if (sample?.metadata?.omReply && sample.metadata.omReply !== 'undefined') {
-        return c.json({ status: 'already_imported', existing: existingCount, requested: pairs.length })
-      }
-      console.log('[Import] Existing style pairs have broken metadata, re-importing...')
-    }
-
-    // Delete existing style pair chunks (fresh import)
-    await db.knowledgeChunk.deleteMany({ where: { source: 'STYLE_PAIR' } })
-    console.log(`[Import] Cleared ${existingCount} existing STYLE_PAIR chunks, importing ${pairs.length} new ones...`)
-
-    // Prepare texts for batch embedding
-    const texts = pairs.map(p => `Buyer: "${p.buyer}"\nOm's reply: "${p.om || p.reply}"`)
-
-    // Batch embed (128 at a time via Voyage AI)
-    const embeddings = await getVoyageBatch(texts)
-
-    // Insert all chunks
-    let inserted = 0
-    for (let i = 0; i < pairs.length; i++) {
-      const sourceId = `style_${i}`
-      const content = texts[i]
-      const title = `Style: "${pairs[i].buyer.substring(0, 60)}"`
-      const omReply = pairs[i].om || pairs[i].reply || ''
-      try {
-        await db.$executeRaw`
-          INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
-          VALUES (${crypto.randomUUID()}, 'STYLE_PAIR', ${sourceId}, ${title}, ${content}, ${embeddings[i]}::vector, ${JSON.stringify({ buyerMessage: pairs[i].buyer, omReply })}::jsonb, NOW(), NOW())
-        `
-        inserted++
-      } catch (err) {
-        console.error(`[Import] Failed to insert pair ${i}:`, err.message)
-      }
-    }
-
-    console.log(`[Import] Style pairs: ${inserted}/${pairs.length} imported with embeddings`)
-    return c.json({ status: 'success', imported: inserted, total: pairs.length })
-  } catch (err) {
-    console.error('[Import] Style pairs failed:', err.message)
-    return c.json({ error: err.message }, 500)
-  }
-})
+// Note: /api/sync/import-reply-templates and /api/sync/import-style-pairs were removed.
+// Reply templates are synced from wwbun's DB via /api/sync/saved-replies.
+// Style pairs are populated by the weekly Premium Export (PREMIUM_PAIR source).
+// The 337 existing STYLE_PAIR chunks remain in the DB as a legacy baseline.
 
 app.post('/api/sync/style-pairs', async (c) => {
   try {
@@ -1795,8 +1741,8 @@ async function runScheduledReview() {
   }
 }
 
-// Auto-review disabled — Ketu reviews manually via "Run Now" button
-// setInterval(runScheduledReview, 60 * 60 * 1000)
+// Poll every 6h; runScheduledReview internally gates on learningIntervalHours (default weekly = 168h)
+setInterval(runScheduledReview, 6 * 60 * 60 * 1000)
 
 // ===========================================
 // Export Premium Pairs (Rules 1-4) — Claude AI Classification
