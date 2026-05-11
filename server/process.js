@@ -559,6 +559,51 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       return
     }
 
+    // --- Catalog request auto-reply (partial AI) ---
+    // Buyer explicitly asks for catalog → send link instantly, no AI involved.
+    // Includes 2-min dedupe: if wwbun just sent the welcome (which already contains
+    // the catalog link), skip to avoid sending the catalog twice in a row.
+    const catalogReqKeywords = [
+      'send catalog', 'share catalog', 'send the catalog', 'share the catalog',
+      'send your catalog', 'share your catalog', 'please share your catalog',
+      'please send catalog', 'send me catalog', 'send me the catalog',
+      'i need catalog', 'i need the catalog', 'need catalog', 'need the catalog',
+      'want catalog', 'want the catalog', 'show me catalog', 'show catalog',
+      'catalog please', 'catalog link', 'catalog do', 'catalog dijiye',
+      'catalog bhejo', 'catalog bhej', 'catalog send', 'catalog share',
+      'catalog chahiye', 'cataloge', 'kataloge', 'catelog', 'katlog',
+    ]
+    const catalogLowerMsg = (mergedText || '').trim().toLowerCase()
+    const matchedCatalogKw = catalogReqKeywords.find(kw => catalogLowerMsg.includes(kw))
+    if (matchedCatalogKw && catalogLowerMsg.length <= 80) {
+      // 2-min welcome dedupe — skip if welcome flow is still active
+      const justGotWelcome = isWelcomeEligible
+      const lastActivityMs = previousLastMessageAt ? (Date.now() - new Date(previousLastMessageAt).getTime()) : Infinity
+      const inWelcomeWindow = lastActivityMs < 2 * 60 * 1000 && (conversation.messageCount || 0) <= 2
+      if (justGotWelcome || inWelcomeWindow) {
+        await createLog(db, conversation.id, mergedText, messageIds, {
+          status: 'SKIPPED',
+          deferReason: 'catalog_request_welcome_recent',
+          processingMs: Date.now() - startTime,
+        })
+        console.log(`[Partial AI] ${whatsappNumber} — catalog request, but welcome just sent — skipping duplicate`)
+        return
+      }
+      const catalogReply = 'https://sale91.com/catalog\n\nCheck rates and color once sir 👆'
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, catalogReply)
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'REPLIED',
+        aiReply: catalogReply,
+        deferReason: 'catalog_request',
+        processingMs: Date.now() - startTime,
+        sentViaWwbun: !!sendResult,
+        wwbunMessageId: sendResult?.messageId || null,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+      })
+      console.log(`[Partial AI] ${whatsappNumber} — catalog request ("${matchedCatalogKw}"), sent catalog link${sendResult ? '' : ' (SEND FAILED)'}`)
+      return
+    }
+
     // --- Acknowledgement & greeting detection (same logic as Full AI) ---
     // Normalize text the same way Full AI does
     const partialNormalized = (mergedText || '').trim().toLowerCase()
