@@ -1736,9 +1736,12 @@ async function runScheduledReview() {
     if (!settings.learningEnabled) return
 
     // Check if enough time has passed since last review (cadence lives in learningIntervalHours)
+    // In Partial AI mode (AI off but partial on), run weekly (168h) to save Neon CU-hours;
+    // full AI on uses the configured learningIntervalHours (default 168h, but user-configurable).
+    const effectiveInterval = (!settings.isActive && settings.partialAiEnabled) ? 168 : settings.learningIntervalHours
     if (settings.lastReviewAt) {
       const hoursSince = (Date.now() - new Date(settings.lastReviewAt).getTime()) / (1000 * 60 * 60)
-      if (hoursSince < settings.learningIntervalHours) return
+      if (hoursSince < effectiveInterval) return
     }
 
     // Daily-spend reset now happens in getSettings() — settings.learningDailySpentUsd

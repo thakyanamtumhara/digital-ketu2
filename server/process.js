@@ -108,7 +108,7 @@ function restartDeferTimer(whatsappNumber) {
 // Dynamic Pre-AI Filter Cache
 // ===========================================
 let filterCache = { filters: null, loadedAt: 0 }
-const FILTER_CACHE_TTL = 5 * 60 * 1000 // 5 min
+const FILTER_CACHE_TTL = 30 * 60 * 1000 // 30 min
 
 async function loadKeywordFilters(db) {
   if (filterCache.filters && Date.now() - filterCache.loadedAt < FILTER_CACHE_TTL) {
