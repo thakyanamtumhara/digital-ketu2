@@ -20,7 +20,19 @@ app.use('*', cors({
 }))
 
 // --- Health Check ---
-app.get('/api/health', (c) => c.json({ status: 'ok', service: 'digital-ketu2' }))
+// /api/health does a real DB probe so external monitors (UptimeRobot) see RED when Neon is
+// down — the missing signal that let both outages run for days. Point UptimeRobot here.
+app.get('/api/health', async (c) => {
+  try {
+    await db.$queryRaw`SELECT 1`
+    return c.json({ status: 'ok', service: 'digital-ketu2', db: 'connected' })
+  } catch (err) {
+    return c.json({ status: 'degraded', service: 'digital-ketu2', db: 'disconnected', error: err.message }, 503)
+  }
+})
+// Liveness only (no DB). Use THIS as Railway's healthcheck path so a brief Neon cold-start
+// hiccup can't trigger a restart loop — it only fails if the process itself is hung.
+app.get('/api/health/live', (c) => c.json({ status: 'alive', service: 'digital-ketu2' }))
 
 // --- Settings ---
 // 60-second TTL cache. Cost increments elsewhere use Prisma's atomic
@@ -296,6 +308,40 @@ app.post('/api/correction', async (c) => {
 
   console.log(`[Correction] Added to knowledge base: "${buyerQuestion.substring(0, 50)}..."`)
   return c.json({ status: 'saved' })
+})
+
+// One-time (idempotent) backfill — copy reviewer-generated corrections from DeferToKetu
+// into KnowledgeChunk(CORRECTION), the table the live AI actually reads. The reviewer used
+// to write ONLY to DeferToKetu, so months of learned corrections were invisible to the clone.
+// Excludes context-dependent (empty) replies and rows already present (dedupe by sourceId).
+// Safe to run multiple times. Requires ?confirm=yes.
+app.post('/api/admin/backfill-corrections', async (c) => {
+  if (c.req.query('confirm') !== 'yes') {
+    return c.json({ error: 'Add ?confirm=yes to run. Copies reusable DeferToKetu corrections into KnowledgeChunk(CORRECTION).' }, 400)
+  }
+  try {
+    const before = await db.knowledgeChunk.count({ where: { source: 'CORRECTION' } })
+    const inserted = await db.$executeRaw`
+      INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
+      SELECT gen_random_uuid()::text, 'CORRECTION', d.id, LEFT(d."buyerQuestion", 80),
+             'Buyer: ' || d."buyerQuestion" || E'\nCorrect reply: ' || d."correctReply",
+             d.embedding,
+             jsonb_build_object('aiWrongReply', d."aiWrongReply", 'correctReply', d."correctReply", 'backfilled', true),
+             NOW(), NOW()
+      FROM "DeferToKetu" d
+      WHERE d."correctReply" IS NOT NULL AND d."correctReply" <> ''
+        AND d.embedding IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM "KnowledgeChunk" k WHERE k.source = 'CORRECTION' AND k."sourceId" = d.id
+        )
+    `
+    const after = await db.knowledgeChunk.count({ where: { source: 'CORRECTION' } })
+    console.log(`[Backfill] CORRECTION chunks: ${before} → ${after} (+${Number(inserted)})`)
+    return c.json({ status: 'done', correctionsBefore: before, correctionsAfter: after, inserted: Number(inserted) })
+  } catch (err) {
+    console.error('[Backfill] Error:', err.message)
+    return c.json({ error: err.message }, 500)
+  }
 })
 
 // ===========================================

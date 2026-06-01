@@ -131,7 +131,14 @@ export async function reviewAiReplies(db) {
   } catch (err) {
     console.error('[Reviewer] Failed to parse JSON response:', err.message)
     console.error('[Reviewer] Raw response:', response.content[0].text?.substring(0, 500))
-    return { reviewed: 0, corrections: 0, flagged: 0, costUsd }
+    // Mark this batch reviewed so a malformed response isn't re-fetched and re-billed to Opus forever
+    for (const msg of messages) {
+      await db.messageLog.update({
+        where: { id: msg.id },
+        data: { reviewedAt: new Date(), reviewNote: 'JSON parse error' },
+      }).catch(() => {})
+    }
+    return { reviewed: messages.length, corrections: 0, flagged: 0, costUsd }
   }
 
   let corrections = 0, flagged = 0
@@ -144,9 +151,17 @@ export async function reviewAiReplies(db) {
     if (result.rating <= 2 && result.suggestedReply && isQualityPair(msg.buyerMessage, result.suggestedReply)) {
       try {
         const embedding = await getEmbedding(null, msg.buyerMessage)
+        const deferId = crypto.randomUUID()
         await db.$executeRaw`
           INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")
-          VALUES (${crypto.randomUUID()}, ${msg.buyerMessage}, ${msg.aiReply}, ${result.suggestedReply}, ${embedding}::vector, 0, NOW(), NOW())
+          VALUES (${deferId}, ${msg.buyerMessage}, ${msg.aiReply}, ${result.suggestedReply}, ${embedding}::vector, 0, NOW(), NOW())
+        `
+        // Also write to KnowledgeChunk(CORRECTION) — the table the live AI actually reads.
+        // (DeferToKetu alone is never queried by the reply pipeline.)
+        const ccContent = `Buyer: ${msg.buyerMessage}\nCorrect reply: ${result.suggestedReply}`
+        await db.$executeRaw`
+          INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
+          VALUES (${crypto.randomUUID()}, 'CORRECTION', ${deferId}, ${msg.buyerMessage.substring(0, 80)}, ${ccContent}, ${embedding}::vector, ${JSON.stringify({ aiWrongReply: msg.aiReply || '', correctReply: result.suggestedReply, source: 'reviewer_ai' })}::jsonb, NOW(), NOW())
         `
         corrections++
       } catch (err) {
@@ -289,10 +304,20 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
         // Context-dependent replies → store with empty correctReply (triggers defer to Ketu)
         // Context-independent replies → store with actual reply (reusable answer)
         const correctReply = result.contextDependent ? '' : pair.ketuReply
+        const deferId = crypto.randomUUID()
         await db.$executeRaw`
           INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")
-          VALUES (${crypto.randomUUID()}, ${pair.buyerMessage}, ${'[AI would not know]'}, ${correctReply}, ${embedding}::vector, 0, NOW(), NOW())
+          VALUES (${deferId}, ${pair.buyerMessage}, ${'[AI would not know]'}, ${correctReply}, ${embedding}::vector, 0, NOW(), NOW())
         `
+        // Context-INDEPENDENT (reusable) → also write to KnowledgeChunk(CORRECTION), the table the live AI reads.
+        // Context-dependent rows keep an empty reply and stay defer-only — NOT injected (would reply blank).
+        if (correctReply) {
+          const ccContent = `Buyer: ${pair.buyerMessage}\nCorrect reply: ${correctReply}`
+          await db.$executeRaw`
+            INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
+            VALUES (${crypto.randomUUID()}, 'CORRECTION', ${deferId}, ${pair.buyerMessage.substring(0, 80)}, ${ccContent}, ${embedding}::vector, ${JSON.stringify({ aiWrongReply: '[AI would not know]', correctReply, source: 'reviewer_manual' })}::jsonb, NOW(), NOW())
+          `
+        }
         corrections++
       } catch (err) {
         console.error(`[Reviewer] Failed to add manual correction for ${pair.id}:`, err.message)
