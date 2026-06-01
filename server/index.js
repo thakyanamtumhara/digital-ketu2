@@ -162,6 +162,12 @@ app.post('/api/incoming', async (c) => {
   if (buffer.timer) clearTimeout(buffer.timer)
 
   const settings = await getSettings()
+  // (A) In Full AI mode, wait longer so a buyer firing several messages in a row gets ONE
+  // consolidated reply — like a human reading the whole thing — instead of a reply per message.
+  // Each new message resets this timer, so it only fires once the buyer pauses. Partial mode
+  // keeps its fast window unchanged.
+  const FULL_AI_SETTLE_MS = 15000
+  const windowMs = settings.isActive ? FULL_AI_SETTLE_MS : settings.mergeWindowMs
   buffer.timer = setTimeout(async () => {
     const merged = messageBuffer.get(bufferKey)
     messageBuffer.delete(bufferKey)
@@ -178,7 +184,7 @@ app.post('/api/incoming', async (c) => {
     } catch (err) {
       console.error(`[Process Error] ${whatsappNumber}:`, err.message)
     }
-  }, settings.mergeWindowMs)
+  }, windowMs)
 
   return c.json({ status: 'buffered', bufferSize: buffer.messages.length })
 })

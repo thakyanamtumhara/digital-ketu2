@@ -1195,6 +1195,68 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 // Reusable by both main pipeline and welcome follow-up
 // ===========================================
 async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId, normalizedText, db, anthropic, settings, startTime, messageIds }) {
+  // ============================================================
+  // REPLY RESTRAINT (Full AI only — runAiFlow is never called in partial mode)
+  // Goal: reply like Om — once, precisely, or not at all. No 20-replies-to-20-messages storms.
+  // ============================================================
+
+  // Safety backstop: hard cap on AI replies to one buyer per day (runaway-cost guard).
+  const REPLY_DAILY_CAP = 25
+  const dayStart = new Date(new Date().setHours(0, 0, 0, 0))
+  const repliesToday = await db.messageLog.count({
+    where: { conversationId, status: 'REPLIED', createdAt: { gte: dayStart }, totalTokens: { gt: 0 } },
+  })
+  if (repliesToday >= REPLY_DAILY_CAP) {
+    await createLog(db, conversationId, mergedText, messageIds, {
+      status: 'SKIPPED', deferReason: 'daily_reply_cap', processingMs: Date.now() - startTime,
+    })
+    console.log(`[Restraint] ${whatsappNumber} — daily reply cap (${REPLY_DAILY_CAP}) hit, staying silent`)
+    return
+  }
+
+  // (B + C) "Would Om reply to this, or stay silent?" — a cheap Haiku gate BEFORE the expensive
+  // RAG + reply. Skips acks/chatter/thinking-out-loud and avoids piling on right after a reply.
+  // This is what makes the clone reply once and precisely, and it saves cost on no-reply messages.
+  try {
+    const recentForGate = await db.messageLog.findMany({
+      where: { conversationId, status: { in: ['REPLIED', 'DEFERRED'] } },
+      orderBy: { createdAt: 'desc' }, take: 4,
+      select: { buyerMessage: true, aiReply: true },
+    })
+    const histText = recentForGate.slice().reverse()
+      .map(h => `Buyer: ${h.buyerMessage}\nOm: ${h.aiReply || '(no reply)'}`).join('\n')
+    const gate = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 5,
+      messages: [{ role: 'user', content: `You decide whether Om — a busy wholesale t-shirt seller — would REPLY to the buyer's latest WhatsApp message, or stay SILENT.
+
+REPLY when the buyer asks a real question or needs a response: rates, products, sizes, colours, MOQ, availability, how to order, location, payment, an issue/complaint, or anything that clearly expects an answer.
+
+Stay SILENT when the message is just: an acknowledgement ("ok", "thik hai", "thanks", "hmm", "👍"), thinking out loud, small talk, a reaction, something already answered, or chatter that needs no reply. Also stay SILENT if Om just replied moments ago and this new message adds no real new question (don't pile on).
+
+${histText ? `Recent conversation:\n${histText}\n\n` : ''}Buyer's latest message: "${mergedText}"
+
+Answer with ONLY one word: REPLY or SILENT.` }],
+    })
+    const verdict = (gate.content?.[0]?.text || '').trim().toUpperCase()
+    const gateCost = ((gate.usage?.input_tokens || 0) * PRICE_PER_INPUT_TOKEN) + ((gate.usage?.output_tokens || 0) * PRICE_PER_OUTPUT_TOKEN)
+    await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: gateCost } } }).catch(() => {})
+    if (verdict.startsWith('SILENT')) {
+      await createLog(db, conversationId, mergedText, messageIds, {
+        status: 'SKIPPED', deferReason: 'ai_chose_silence',
+        promptTokens: gate.usage?.input_tokens || 0, completionTokens: gate.usage?.output_tokens || 0,
+        totalTokens: (gate.usage?.input_tokens || 0) + (gate.usage?.output_tokens || 0), costUsd: gateCost,
+        processingMs: Date.now() - startTime,
+      })
+      console.log(`[Restraint] ${whatsappNumber} — gate: SILENT (Om wouldn't reply), $${gateCost.toFixed(6)}`)
+      return
+    }
+    console.log(`[Restraint] ${whatsappNumber} — gate: REPLY`)
+  } catch (err) {
+    // Gate failure must NEVER block a real reply — fall through to the normal flow on error.
+    console.error(`[Restraint] ${whatsappNumber} — gate error (replying anyway):`, err.message)
+  }
+
   // --- VECTOR SEARCH: Single search across all 4 knowledge sources ---
   // confidenceThreshold gates which chunks reach Claude. Fallback to deprecated deferThreshold for
   // users who set the old field, then to a safe 0.55 default if neither is configured.
