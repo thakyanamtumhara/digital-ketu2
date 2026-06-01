@@ -264,6 +264,36 @@ async function isInvoiceImage(anthropic, mediaUrl) {
   }
 }
 
+// Fetch a buyer's image and return a Claude vision content block (or null on any failure).
+// Used so the clone can SEE a product photo and reply about it, instead of deferring.
+async function fetchImageBlock(mediaUrl) {
+  if (!mediaUrl) return null
+  const SUPPORTED = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+  const MAX_BYTES = 5 * 1024 * 1024
+  try {
+    const response = await fetch(mediaUrl)
+    if (!response.ok) {
+      console.log('[Vision] image fetch failed:', response.status)
+      return null
+    }
+    let contentType = (response.headers.get('content-type') || 'image/jpeg').split(';')[0].trim().toLowerCase()
+    if (!SUPPORTED.includes(contentType)) {
+      console.log(`[Vision] unsupported image type: ${contentType}`)
+      return null
+    }
+    const buffer = await response.arrayBuffer()
+    if (buffer.byteLength > MAX_BYTES) {
+      console.log(`[Vision] image too large (${buffer.byteLength} bytes), skipping`)
+      return null
+    }
+    const base64 = Buffer.from(buffer).toString('base64')
+    return { type: 'image', source: { type: 'base64', media_type: contentType, data: base64 } }
+  } catch (err) {
+    console.error('[Vision] image fetch error:', err.message)
+    return null
+  }
+}
+
 // ===========================================
 // Message Classification (generic vs real question)
 // ===========================================
@@ -911,11 +941,21 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  // A non-invoice product photo the clone can SEE (vision). null if the media isn't an image.
+  const productImageUrl = messages.some(m => m.messageType === 'image') ? invoiceMediaUrl : null
+
   // --- Check: Media-only message (image/audio/video/document the AI can't process) ---
-  // The AI can't see images or hear audio it couldn't transcribe. Instead of an awkward
-  // "I can't see images/audio" reply (which breaks the clone illusion), DEFER to Ketu —
-  // he sees the media in wwbun and handles it personally.
+  // If it's a product PHOTO, let the AI see it (vision) and reply about it. Otherwise (video,
+  // un-transcribable audio, etc.) DEFER to Ketu — he sees the media in wwbun and handles it.
   if (hasMediaOnly) {
+    if (productImageUrl) {
+      console.log(`[Full AI] ${whatsappNumber} — product photo (no caption), running AI with vision`)
+      await runAiFlow({
+        whatsappNumber, mergedText: '', quotedText, conversationId: conversation.id,
+        normalizedText: '', db, anthropic, settings, startTime, messageIds, imageUrl: productImageUrl,
+      })
+      return
+    }
     scheduleDeferReply({
       whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
       mergedText: mergedText || '[media]', messageIds, logData: {
@@ -1204,7 +1244,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   // --- Run AI flow (vector search → Claude → reply) ---
-  await runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId: conversation.id, normalizedText, db, anthropic, settings, startTime, messageIds })
+  await runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId: conversation.id, normalizedText, db, anthropic, settings, startTime, messageIds, imageUrl: productImageUrl })
 
   } finally {
     // If there's a pending defer with no active timer (paused by new message arrival),
@@ -1217,7 +1257,25 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 // AI Flow: Vector Search → Claude → Reply
 // Reusable by both main pipeline and welcome follow-up
 // ===========================================
-async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId, normalizedText, db, anthropic, settings, startTime, messageIds }) {
+async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId, normalizedText, db, anthropic, settings, startTime, messageIds, imageUrl = null }) {
+  // --- Product-photo vision: load the image so Claude can SEE it (null if none/failed/unsupported) ---
+  const imageBlock = imageUrl ? await fetchImageBlock(imageUrl) : null
+  if (imageUrl && !imageBlock && !(mergedText && mergedText.trim())) {
+    // Image-only message but the photo couldn't be loaded → fall back to the old safe behaviour (defer).
+    scheduleDeferReply({
+      whatsappNumber, deferMessage: settings.deferMessage, conversationId,
+      mergedText: '[media]', messageIds, logData: {
+        status: 'DEFERRED', deferReason: 'media_deferred', processingMs: Date.now() - startTime, isMedia: true,
+      }, db,
+    })
+    console.log(`[Vision] ${whatsappNumber} — image-only but load failed, deferred to Ketu`)
+    return
+  }
+  // Photo loaded but no caption → give downstream (logs / gate) a sane label. Retrieval is
+  // skipped for these (the label carries no product signal — see knowledgeResults below).
+  const captionlessPhoto = !!(imageBlock && !(mergedText && mergedText.trim()))
+  if (captionlessPhoto) mergedText = '[product photo]'
+
   // ============================================================
   // REPLY RESTRAINT (Full AI only — runAiFlow is never called in partial mode)
   // Goal: reply like Om — once, precisely, or not at all. No 20-replies-to-20-messages storms.
@@ -1257,7 +1315,7 @@ REPLY when the buyer asks a real question or needs a response: rates, products, 
 
 Stay SILENT when the message is just: an acknowledgement ("ok", "thik hai", "thanks", "hmm", "👍"), thinking out loud, small talk, a reaction, something already answered, or chatter that needs no reply. Also stay SILENT if Om just replied moments ago and this new message adds no real new question (don't pile on).
 
-${histText ? `Recent conversation:\n${histText}\n\n` : ''}Buyer's latest message: "${mergedText}"
+${histText ? `Recent conversation:\n${histText}\n\n` : ''}Buyer's latest message: "${mergedText}"${imageBlock ? '\n(The buyer attached a PRODUCT PHOTO — Om would look at it and reply.)' : ''}
 
 Answer with ONLY one word: REPLY or SILENT.` }],
     })
@@ -1304,7 +1362,9 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   }))
   boostedResults.sort((a, b) => b.similarity - a.similarity)
   // Apply confidence threshold after boost; weak matches are dropped so Claude sees less noise.
-  const knowledgeResults = boostedResults.filter(r => r.similarity >= confidenceThreshold).slice(0, 5)
+  const knowledgeResults = captionlessPhoto
+    ? []  // caption-less photo: query is just '[product photo]', so injecting any CATALOG match would be a guess
+    : boostedResults.filter(r => r.similarity >= confidenceThreshold).slice(0, 5)
   if (knowledgeResults.length === 0 && allVectorResults.length > 0) {
     console.log(`[Vector] ${whatsappNumber} — best match ${(bestSimilarity * 100).toFixed(1)}% below threshold ${(confidenceThreshold * 100).toFixed(0)}%; Claude will likely defer`)
   }
@@ -1336,13 +1396,18 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   const styleGuide = styleGuideChunk?.content || null
 
   const systemPrompt = buildSystemPrompt({ settings, styleGuide, stylePairs: stylePairResults })
-  const userPrompt = buildUserPrompt({
+  let userPrompt = buildUserPrompt({
     mergedText,
     knowledgeResults,
     stylePairResults,
     conversationHistory,
     quotedText,
   })
+
+  // Vision: tell the model a real photo is attached and how to use it (no hallucinated prices/details).
+  if (imageBlock) {
+    userPrompt = `📷 The buyer attached a PHOTO (sent with this message). Look at the image carefully.\nFIRST: if the photo is clearly NOT apparel / a garment / a product we could sell (e.g. a selfie, a meme, a screenshot of text or chat, a document, or a random object), reply with EXACTLY [DEFER] and nothing else.\nOTHERWISE, identify which of our products it is (tshirt / oversized / polo / hoodie / sweatshirt / acid wash / drop shoulder / etc.) and reply about THAT product the way Om would: if it clearly matches something we make, say so briefly and send the catalog link https://sale91.com/catalog (use a specific product link only if one is given in the knowledge base above); if you can see it is apparel but cannot tell exactly which, ask which product they mean. NEVER invent a price, GSM, or detail that is not in the knowledge base, and never claim it is in/out of stock.\n\n${userPrompt}`
+  }
 
   // --- Call Claude API ---
   let aiReply
@@ -1353,7 +1418,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
       model: 'claude-sonnet-4-6',
       max_tokens: 500,
       system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
+      messages: [{ role: 'user', content: imageBlock ? [imageBlock, { type: 'text', text: userPrompt }] : userPrompt }],
     })
 
     aiReply = response.content[0].text
