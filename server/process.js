@@ -15,7 +15,7 @@ import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } 
 // ===========================================
 const THREE_MINUTES_MS = 3 * 60 * 1000
 const DEFER_DELAY_MS = 30 * 1000 // 30 seconds — batch defers before sending
-const WELCOME_FOLLOWUP_GENERIC = 'Ask me if any questions sir?'
+const WELCOME_FOLLOWUP_GENERIC = 'Catalog dekhiye sir 👉 https://sale91.com/catalog'
 export const pendingWelcomeFollowups = new Map() // keyed by whatsappNumber
 export const pendingDefers = new Map() // keyed by whatsappNumber
 
