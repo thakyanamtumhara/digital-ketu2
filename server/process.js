@@ -362,9 +362,12 @@ RULES:
 - WEBSITE / ORDER / TECHNICAL PROBLEM (buyer says "order nahi ho raha", website/page not opening, "error aa raha hai", payment failed, login/account issue, etc.) — NEVER tell the buyer to call any number. Ask them to share a SCREENSHOT of the problem (in their language), e.g. "Screenshot bhej dijiye sir, kya problem aa raha hai 🙏" / "Send a screenshot of the problem sir". The screenshot then reaches Ketu, who resolves it — do NOT direct them to call.
 - STRICT CATALOG DATA — NEVER invent product details. Only mention GSMs, sizes, colors that appear in the KNOWLEDGE BASE results for this query. Max adult size is XXL (no 3XL, 4XL, 5XL). If the knowledge base doesn't list a specific detail, don't guess — send the catalog link.`
 
-// Claude pricing (Haiku 4.5 — cheapest for high volume)
+// Claude pricing — Haiku 4.5 rates for the cheap binary classifiers + restraint gate
 const PRICE_PER_INPUT_TOKEN = 0.000001   // $1 per 1M input tokens
 const PRICE_PER_OUTPUT_TOKEN = 0.000005  // $5 per 1M output tokens
+// Sonnet 4.6 rates for the main buyer reply (smarter clone, better rule-following)
+const REPLY_PRICE_PER_INPUT_TOKEN = 0.000003   // $3 per 1M input tokens
+const REPLY_PRICE_PER_OUTPUT_TOKEN = 0.000015  // $15 per 1M output tokens
 const USD_TO_INR = 85
 
 /**
@@ -1346,7 +1349,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-sonnet-4-6',
       max_tokens: 500,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
@@ -1356,7 +1359,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     promptTokens = response.usage.input_tokens
     completionTokens = response.usage.output_tokens
     totalTokens = promptTokens + completionTokens
-    costUsd = (promptTokens * PRICE_PER_INPUT_TOKEN) + (completionTokens * PRICE_PER_OUTPUT_TOKEN)
+    costUsd = (promptTokens * REPLY_PRICE_PER_INPUT_TOKEN) + (completionTokens * REPLY_PRICE_PER_OUTPUT_TOKEN)
   } catch (err) {
     console.error(`[Claude Error] ${whatsappNumber}:`, err.message)
     await createLog(db, conversationId, mergedText, messageIds, {
