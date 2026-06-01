@@ -894,18 +894,21 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
-  // --- Check: Media-only message (actual image/audio/video/document) ---
+  // --- Check: Media-only message (image/audio/video/document the AI can't process) ---
+  // The AI can't see images or hear audio it couldn't transcribe. Instead of an awkward
+  // "I can't see images/audio" reply (which breaks the clone illusion), DEFER to Ketu —
+  // he sees the media in wwbun and handles it personally.
   if (hasMediaOnly) {
-    const sendResult = await sendReplyViaWwbun(whatsappNumber, settings.mediaMessage)
-    await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
-      status: 'REPLIED',
-      aiReply: settings.mediaMessage,
-      deferReason: 'media_only',
-      processingMs: Date.now() - startTime,
-      isMedia: true,
-      sentViaWwbun: !!sendResult,
-      wwbunMessageId: sendResult?.messageId || null,
+    scheduleDeferReply({
+      whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+      mergedText: mergedText || '[media]', messageIds, logData: {
+        status: 'DEFERRED',
+        deferReason: 'media_deferred',
+        processingMs: Date.now() - startTime,
+        isMedia: true,
+      }, db,
     })
+    console.log(`[Full AI] ${whatsappNumber} — media-only (can't process), deferred to Ketu`)
     return
   }
 
