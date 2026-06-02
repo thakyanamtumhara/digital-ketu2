@@ -9,7 +9,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
-import { isStockAvailabilityQuestion } from './stock-question.js'
+import { isStockAvailabilityQuestion, isTransactionalReply } from './stock-question.js'
 
 // Quality filter: both sides need 4+ words, no media/reaction placeholders
 const wordCount = (s) => (s || '').split(/\s+/).filter(w => w.length > 0).length
@@ -311,8 +311,9 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
         const embedding = await getEmbedding(null, pair.buyerMessage)
         // Context-dependent replies → store with empty correctReply (triggers defer to Ketu)
         // Context-independent replies → store with actual reply (reusable answer)
-        // Stock/availability/timing is always point-in-time → force defer-only even if the LLM missed it.
-        const correctReply = (result.contextDependent || isStockAvailabilityQuestion(pair.buyerMessage)) ? '' : pair.ketuReply
+        // Stock/availability/timing AND dispatch/tracking replies are point-in-time → force defer-only
+        // even if the LLM missed it (never inject a stale stock answer or a one-order tracking link).
+        const correctReply = (result.contextDependent || isStockAvailabilityQuestion(pair.buyerMessage) || isTransactionalReply(pair.ketuReply)) ? '' : pair.ketuReply
         const deferId = crypto.randomUUID()
         await db.$executeRaw`
           INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")

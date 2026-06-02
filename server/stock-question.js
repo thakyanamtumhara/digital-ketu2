@@ -26,3 +26,12 @@ export function isStockAvailabilityQuestion(text) {
 
   return false
 }
+
+// Detects TRANSACTIONAL / dispatch replies that must NEVER be learned as a correction:
+// Porter/courier dispatch notifications, tracking links, referral codes, order-tracking — these
+// carry a specific URL/code for ONE order and would leak (stale link, Ketu's referral) if replayed.
+export function isTransactionalReply(reply) {
+  if (!reply || !reply.trim()) return false
+  const t = reply.toLowerCase()
+  return /porter\.in\/|\/rd\/|porter mini|via porter|via dunzo|via shiprocket|sending you (some )?goods|track (the |your |this )?order|tracking (id|link|number|here)|referral code|book.{0,10}porter|order here:/.test(t)
+}
