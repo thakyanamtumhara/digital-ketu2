@@ -33,5 +33,5 @@ export function isStockAvailabilityQuestion(text) {
 export function isTransactionalReply(reply) {
   if (!reply || !reply.trim()) return false
   const t = reply.toLowerCase()
-  return /porter\.in\/|\/rd\/|porter mini|via porter|via dunzo|via shiprocket|sending you (some )?goods|track (the |your |this )?order|tracking (id|link|number|here)|referral code|book.{0,10}porter|order here:/.test(t)
+  return /porter\.in\/|\/rd\/|porter mini|via (porter|dunzo|shiprocket|delhivery)|shiprocket|delhivery|\bdtdc\b|bluedart|ekart|xpressbees|\/tracking|\/track\/|\btracking\b|\bawb\b|sending you (some )?goods|track (the |your |this )?order|referral code|book.{0,10}porter|order here:|genrate shp/.test(t)
 }
