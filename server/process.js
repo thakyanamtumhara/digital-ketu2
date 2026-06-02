@@ -15,7 +15,11 @@ import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } 
 // ===========================================
 const THREE_MINUTES_MS = 3 * 60 * 1000
 const DEFER_DELAY_MS = 30 * 1000 // 30 seconds — batch defers before sending
-const WELCOME_FOLLOWUP_GENERIC = 'Catalog dekhiye sir 👉 https://sale91.com/catalog'
+// Welcome follow-up nudge after a bare greeting ("hi"/"hello" with no question). Ketu WANTS this
+// "any questions?" engagement nudge here — do NOT replace it with the catalog link. The BANNED FILLER
+// rule in the system prompt applies to the AI's GENERATED replies (don't dodge a real question with
+// empty filler), NOT to this canned nudge that follows a content-less greeting.
+const WELCOME_FOLLOWUP_GENERIC = 'Ask me if any questions sir?'
 export const pendingWelcomeFollowups = new Map() // keyed by whatsappNumber
 export const pendingDefers = new Map() // keyed by whatsappNumber
 
