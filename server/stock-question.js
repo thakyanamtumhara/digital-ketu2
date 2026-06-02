@@ -27,11 +27,12 @@ export function isStockAvailabilityQuestion(text) {
   return false
 }
 
-// Detects TRANSACTIONAL / dispatch replies that must NEVER be learned as a correction:
-// Porter/courier dispatch notifications, tracking links, referral codes, order-tracking — these
-// carry a specific URL/code for ONE order and would leak (stale link, Ketu's referral) if replayed.
+// Detects replies that must NEVER be learned as a correction because they are tied to ONE order /
+// situation: (a) transactional dispatch — Porter/courier tracking links, referral codes; and
+// (b) personal complaint-handling actions ("main complaint daalta hun") that would fire on
+// unrelated messages if replayed (this caused the "Complaint daalta on a hello" bug).
 export function isTransactionalReply(reply) {
   if (!reply || !reply.trim()) return false
   const t = reply.toLowerCase()
-  return /porter\.in\/|\/rd\/|porter mini|via (porter|dunzo|shiprocket|delhivery)|shiprocket|delhivery|\bdtdc\b|bluedart|ekart|xpressbees|\/tracking|\/track\/|\btracking\b|\bawb\b|sending you (some )?goods|track (the |your |this )?order|referral code|book.{0,10}porter|order here:|genrate shp/.test(t)
+  return /porter\.in\/|\/rd\/|porter mini|via (porter|dunzo|shiprocket|delhivery)|shiprocket|delhivery|\bdtdc\b|bluedart|ekart|xpressbees|\/tracking|\/track\/|\btracking\b|\bawb\b|sending you (some )?goods|track (the |your |this )?order|referral code|book.{0,10}porter|order here:|genrate shp|complaint (daal|dal|kar|likh|raise|file)|complain (daal|kar)|shikayat (daal|kar)/.test(t)
 }
