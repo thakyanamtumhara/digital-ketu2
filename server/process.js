@@ -309,6 +309,17 @@ function isGenericMessage(text) {
     .replace(/\s+(sir|ji|bhai|bhaiya|boss|bro|sahab|saheb|g)$/i, '')
     .trim()
 
+  // Names a SPECIFIC product → real inquiry, never generic (so the welcome-followup runs the AI
+  // and sends that product's link, instead of the "any questions?" nudge). Bare "tshirt" stays generic.
+  const productKeywords = [
+    'sublimation', 'oversize', 'oversized', 'acid wash', 'acidwash', 'acid-wash',
+    'polo', 'hoodie', 'hoddie', 'sweatshirt', 'sweat shirt', 'boxy', 'box fit', 'boxfit',
+    'round neck', 'roundneck', 'rneck', 'r neck', 'drop shoulder', 'dropshoulder', 'drop-shoulder',
+    'varsity', 'jacket', 'shorts', 'biowash', 'bio wash', 'true bio', 'non bio',
+    'romper', 'kids', 'regular fit',
+  ]
+  if (productKeywords.some(k => normalized.includes(k))) return false
+
   // Known greetings
   const greetingPatterns = [
     'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
