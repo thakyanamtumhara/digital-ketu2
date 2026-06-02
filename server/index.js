@@ -4,6 +4,7 @@ import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers } from './process.js'
+import { isStockAvailabilityQuestion } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
 import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } from './transcribe.js'
@@ -245,7 +246,12 @@ app.post('/api/intervention', async (c) => {
 
   let learned = null
 
-  if (isQualityPair && isIntervention && buyerMessage && ketuReply) {
+  if (isQualityPair && isIntervention && buyerMessage && ketuReply && isStockAvailabilityQuestion(buyerMessage)) {
+    // Stock/availability/restock-timing answers are point-in-time — never learn them as a
+    // permanent correction (they go stale). The live AI answers these dynamically.
+    learned = 'intervention_skipped_stock'
+    console.log(`[AutoLearn] Intervention SKIPPED — stock/availability is point-in-time, not learnable: "${buyerMessage.substring(0, 50)}..."`)
+  } else if (isQualityPair && isIntervention && buyerMessage && ketuReply) {
     try {
       const embedding = await getEmbedding(anthropic, buyerMessage)
       const deferId = crypto.randomUUID()
@@ -292,6 +298,13 @@ app.post('/api/correction', async (c) => {
   const { buyerQuestion, aiWrongReply, correctReply } = await c.req.json()
   if (!buyerQuestion || !correctReply) {
     return c.json({ error: 'Missing buyerQuestion or correctReply' }, 400)
+  }
+
+  // Stock/availability/restock-timing answers are point-in-time — editing one just saves a new
+  // answer that goes stale too. Don't capture it; the live AI answers these dynamically.
+  if (isStockAvailabilityQuestion(buyerQuestion)) {
+    console.log(`[Correction] SKIPPED — stock/availability is point-in-time, not saved: "${buyerQuestion.substring(0, 50)}..."`)
+    return c.json({ status: 'skipped_point_in_time', reason: 'Stock/availability answers are not saved as corrections (they go stale). Delete the wrong reply instead.' })
   }
 
   // Generate embedding for the buyer question

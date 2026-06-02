@@ -9,6 +9,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
+import { isStockAvailabilityQuestion } from './stock-question.js'
 
 // Quality filter: both sides need 4+ words, no media/reaction placeholders
 const wordCount = (s) => (s || '').split(/\s+/).filter(w => w.length > 0).length
@@ -147,6 +148,8 @@ export async function reviewAiReplies(db) {
     const msg = messages.find(m => m.id === result.id)
     if (!msg) continue
 
+    // Skip stock/availability/restock-timing — point-in-time, never learn as a permanent correction
+    if (isStockAvailabilityQuestion(msg.buyerMessage)) continue
     // Auto-correct bad replies (only for quality pairs with 4+ words on both sides)
     if (result.rating <= 2 && result.suggestedReply && isQualityPair(msg.buyerMessage, result.suggestedReply)) {
       try {
@@ -222,6 +225,11 @@ For pairs where aiWouldFail=true, you MUST also determine if Ketu's reply is con
 - contextDependent=false: Ketu's reply is a universal answer that works for anyone asking this question.
   Example: Buyer "Rate batao 240 GSM round neck" → Ketu "205 per piece sir"
   (This answer is always correct regardless of context.)
+- STOCK / AVAILABILITY / RESTOCK-TIMING is ALWAYS contextDependent=true (point-in-time). If the buyer asks
+  whether something is in stock / available, which colours are available, or WHEN it will come / restock
+  ("red hai kya", "240 gsm red kab aayega", "pink available?", "acid wash colours kab aayenge", "kab tak aayega"),
+  Ketu's reply ("7 days", "abhi nahi", "aa gaya", "there is no red") was only true at that moment and must NEVER
+  be reused — ALWAYS mark contextDependent=true so it is never saved as a permanent correction.
 
 CATEGORIZE each pair into one of these categories:
 - order_issue (missing items, wrong items, damage, replacement, order modification)
@@ -303,7 +311,8 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
         const embedding = await getEmbedding(null, pair.buyerMessage)
         // Context-dependent replies → store with empty correctReply (triggers defer to Ketu)
         // Context-independent replies → store with actual reply (reusable answer)
-        const correctReply = result.contextDependent ? '' : pair.ketuReply
+        // Stock/availability/timing is always point-in-time → force defer-only even if the LLM missed it.
+        const correctReply = (result.contextDependent || isStockAvailabilityQuestion(pair.buyerMessage)) ? '' : pair.ketuReply
         const deferId = crypto.randomUUID()
         await db.$executeRaw`
           INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")
