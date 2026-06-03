@@ -45,9 +45,12 @@ app.get('/api/debug/transcribe-test', async (c) => {
   if (!id) { out.error = 'pass ?id=<wwbunMessageId>'; return c.json(out) }
   const settings = await getSettings()
   const WWBUN_API_URL = settings.wwbunApiUrl || process.env.WWBUN_API_URL
+  const SECRET = settings.digitalKetuSecret || process.env.DIGITAL_KETU_SECRET
   out.wwbunConfigured = !!WWBUN_API_URL
   try {
-    const dl = await fetch(`${WWBUN_API_URL}/api/messages/${id}/download-media`)
+    const dl = await fetch(`${WWBUN_API_URL}/api/messages/${id}/download-media`, {
+      headers: SECRET ? { 'X-Digital-Ketu-Secret': SECRET } : {},
+    })
     out.downloadStatus = dl.status
     const dlData = await dl.json().catch(() => ({}))
     out.mediaUrl = dlData.mediaUrl ? String(dlData.mediaUrl).slice(0, 160) : null
