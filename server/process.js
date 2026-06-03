@@ -538,6 +538,23 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  // --- Skip [Unsupported] placeholder messages (view-once / poll / forwarded post WhatsApp
+  // couldn't deliver) — Ketu disabled the wwbun "resend" auto-nudge for these ("most of the time
+  // not required"); match that on the AI side. If the buyer's content is ONLY the unsupported
+  // placeholder, log + skip (never auto-reply "resend kar dijiye"). If real text accompanies it,
+  // fall through and answer the real text.
+  const UNSUPPORTED_PLACEHOLDER = /\[unsupported\]\s*whatsapp could not deliver this message\s*\(often[^)]*\)\.?\s*ask the buyer to resend it normally\.?/gi
+  const strippedUnsupported = (mergedText || '').replace(UNSUPPORTED_PLACEHOLDER, '').replace(/\[unsupported\]/gi, '').trim()
+  if (mergedText && /could not deliver this message/i.test(mergedText) && strippedUnsupported.length < 4) {
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'SKIPPED',
+      deferReason: 'unsupported_skipped',
+      processingMs: Date.now() - startTime,
+    })
+    console.log(`[Unsupported] ${whatsappNumber} — unsupported-only message, logged + skipped (no resend nudge per Ketu)`)
+    return
+  }
+
   // --- Partial AI mode: only 3-min follow-up for new/7+day buyers, nothing else ---
   if (!settings.isActive && settings.partialAiEnabled) {
     // Cooldown check — if Om responded, 10-min silence for ALL message types
