@@ -55,6 +55,8 @@ app.get('/api/debug/transcribe-test', async (c) => {
     const dlData = await dl.json().catch(() => ({}))
     out.mediaUrl = dlData.mediaUrl ? String(dlData.mediaUrl).slice(0, 160) : null
     if (dlData.error) out.downloadError = dlData.error
+    if (dlData.messageType) out.wwbunMessageType = dlData.messageType
+    if (dlData.contentPreview) out.wwbunContentPreview = dlData.contentPreview
     if (dlData.mediaUrl) Object.assign(out, await transcribeAudioDebug(dlData.mediaUrl))
   } catch (err) {
     out.error = err.message
