@@ -7,7 +7,7 @@ import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT,
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
-import { transcribeAudio, transcribeAudioDebug, isTranscriptionConfigured, getTranscriptionProvider } from './transcribe.js'
+import { transcribeAudio, transcribeAudioDebug, isTranscriptionConfigured, getTranscriptionProvider, getTranscriptionHealth } from './transcribe.js'
 import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
 
 const app = new Hono()
@@ -34,6 +34,9 @@ app.get('/api/health', async (c) => {
 // Liveness only (no DB). Use THIS as Railway's healthcheck path so a brief Neon cold-start
 // hiccup can't trigger a restart loop — it only fails if the process itself is hung.
 app.get('/api/health/live', (c) => c.json({ status: 'alive', service: 'digital-ketu2' }))
+
+// Voice-transcription health for the wwbun dashboard badge (green = working, red = broken).
+app.get('/api/transcription-health', (c) => c.json(getTranscriptionHealth()))
 
 // TEMPORARY diagnostic: why are buyer voice notes failing transcription? Token-guarded.
 // Pass ?id=<wwbunMessageId>&token=... — runs the same download+transcribe chain the

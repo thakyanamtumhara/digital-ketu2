@@ -31,6 +31,27 @@ const MIN_TRANSCRIPT_LENGTH = 3
 
 const PROVIDER_KEYS = { groq: GROQ_API_KEY, openai: OPENAI_API_KEY, sarvam: SARVAM_API_KEY }
 
+// Live transcription health — updated on every real voice-note attempt so the dashboard can show a
+// green/red badge. Passive (no paid health-check calls): the moment a real voice note fails, it goes red.
+let lastTranscription = { ok: null, provider: null, at: null, error: null }
+function recordTranscription(ok, provider, error) {
+  lastTranscription = { ok, provider: provider || null, at: new Date().toISOString(), error: error || null }
+}
+export function getTranscriptionHealth() {
+  const providers = providerOrder()
+  // red if no provider key at all, or the most recent real attempt failed; green otherwise.
+  const status = providers.length === 0 ? 'red' : (lastTranscription.ok === false ? 'red' : 'green')
+  return {
+    status,
+    configuredProvider: PROVIDER,
+    providers,
+    lastOk: lastTranscription.ok,
+    lastProvider: lastTranscription.provider,
+    lastAt: lastTranscription.at,
+    lastError: lastTranscription.error,
+  }
+}
+
 // Providers to try, in order: the env-configured one first, then any others whose API key is set.
 // This makes transcription RESILIENT — if the primary provider fails (Sarvam out of credits, an
 // outage, a bad key), it automatically falls back to a working one instead of silently dropping the
@@ -75,19 +96,24 @@ export async function transcribeAudio(mediaUrl) {
   }
 
   // Try each provider in order; return the first usable transcript (fall back on any failure).
+  let lastErr = null
   for (const p of providers) {
     try {
       const result = await runProvider(p, audioBuffer)
       if (result && result.text && result.text.trim().length >= MIN_TRANSCRIPT_LENGTH) {
         const durationMs = Date.now() - startTime
         console.log(`[Transcribe] ${p} → "${result.text.substring(0, 80)}${result.text.length > 80 ? '…' : ''}" (${durationMs}ms)`)
+        recordTranscription(true, p, null)
         return { text: result.text.trim(), provider: p, costUsd: result.costUsd || 0, durationMs }
       }
+      lastErr = `${p}: empty/too-short`
       console.log(`[Transcribe] ${p} returned empty/too-short — trying next provider`)
     } catch (err) {
+      lastErr = `${p}: ${err.message}`
       console.error(`[Transcribe] ${p} failed (${err.message}) — trying next provider`)
     }
   }
+  recordTranscription(false, null, lastErr)
   console.log('[Transcribe] all providers failed — using media_only reply')
   return null
 }
