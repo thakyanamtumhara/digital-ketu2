@@ -29,55 +29,67 @@ export function getTranscriptionProvider() {
 // a failure (empty/garbled audio) and fall back to the media_only reply.
 const MIN_TRANSCRIPT_LENGTH = 3
 
+const PROVIDER_KEYS = { groq: GROQ_API_KEY, openai: OPENAI_API_KEY, sarvam: SARVAM_API_KEY }
+
+// Providers to try, in order: the env-configured one first, then any others whose API key is set.
+// This makes transcription RESILIENT — if the primary provider fails (Sarvam out of credits, an
+// outage, a bad key), it automatically falls back to a working one instead of silently dropping the
+// voice note. A single dead provider is exactly what broke transcription before, so this chain —
+// not just swapping one provider for another — is the durable fix.
+function providerOrder() {
+  return [...new Set([PROVIDER, 'openai', 'groq', 'sarvam'])].filter(p => PROVIDER_KEYS[p])
+}
+
+async function runProvider(p, audioBuffer) {
+  if (p === 'groq') return transcribeViaGroq(audioBuffer)
+  if (p === 'openai') return transcribeViaOpenAI(audioBuffer)
+  if (p === 'sarvam') return transcribeViaSarvam(audioBuffer)
+  return null
+}
+
 export async function transcribeAudio(mediaUrl) {
   if (!mediaUrl) return null
-  if (!isTranscriptionConfigured()) {
-    console.log(`[Transcribe] ${PROVIDER} not configured (missing API key) — skipping`)
+  const providers = providerOrder()
+  if (!providers.length) {
+    console.log('[Transcribe] no provider API key configured — skipping')
     return null
   }
 
   const startTime = Date.now()
+  let audioBuffer
   try {
-    // 1. Download the audio bytes from wwbun's storage
+    // Download the audio bytes once (reused across provider attempts).
     const audioRes = await fetch(mediaUrl)
     if (!audioRes.ok) {
       console.error(`[Transcribe] Audio fetch failed: ${audioRes.status} ${audioRes.statusText}`)
       return null
     }
-    const audioBuffer = await audioRes.arrayBuffer()
-    const audioBytes = audioBuffer.byteLength
-    if (audioBytes < 1000) {
-      console.log(`[Transcribe] Audio too small (${audioBytes}B) — skipping`)
+    audioBuffer = await audioRes.arrayBuffer()
+    if (audioBuffer.byteLength < 1000) {
+      console.log(`[Transcribe] Audio too small (${audioBuffer.byteLength}B) — skipping`)
       return null
-    }
-
-    // 2. Send to configured provider
-    let result
-    if (PROVIDER === 'groq') result = await transcribeViaGroq(audioBuffer)
-    else if (PROVIDER === 'openai') result = await transcribeViaOpenAI(audioBuffer)
-    else if (PROVIDER === 'sarvam') result = await transcribeViaSarvam(audioBuffer)
-    else {
-      console.error(`[Transcribe] Unknown provider: ${PROVIDER}`)
-      return null
-    }
-
-    if (!result || !result.text || result.text.trim().length < MIN_TRANSCRIPT_LENGTH) {
-      console.log(`[Transcribe] Empty/too-short transcript — falling back to media_only`)
-      return null
-    }
-
-    const durationMs = Date.now() - startTime
-    console.log(`[Transcribe] ${PROVIDER} → "${result.text.substring(0, 80)}${result.text.length > 80 ? '…' : ''}" (${durationMs}ms, $${(result.costUsd || 0).toFixed(5)})`)
-    return {
-      text: result.text.trim(),
-      provider: PROVIDER,
-      costUsd: result.costUsd || 0,
-      durationMs,
     }
   } catch (err) {
-    console.error(`[Transcribe] ${PROVIDER} error:`, err.message)
+    console.error('[Transcribe] audio fetch error:', err.message)
     return null
   }
+
+  // Try each provider in order; return the first usable transcript (fall back on any failure).
+  for (const p of providers) {
+    try {
+      const result = await runProvider(p, audioBuffer)
+      if (result && result.text && result.text.trim().length >= MIN_TRANSCRIPT_LENGTH) {
+        const durationMs = Date.now() - startTime
+        console.log(`[Transcribe] ${p} → "${result.text.substring(0, 80)}${result.text.length > 80 ? '…' : ''}" (${durationMs}ms)`)
+        return { text: result.text.trim(), provider: p, costUsd: result.costUsd || 0, durationMs }
+      }
+      console.log(`[Transcribe] ${p} returned empty/too-short — trying next provider`)
+    } catch (err) {
+      console.error(`[Transcribe] ${p} failed (${err.message}) — trying next provider`)
+    }
+  }
+  console.log('[Transcribe] all providers failed — using media_only reply')
+  return null
 }
 
 // Diagnostic variant: same steps as transcribeAudio but returns a structured
@@ -86,9 +98,9 @@ export async function transcribeAudio(mediaUrl) {
 // voice notes fail. The provider functions throw "Groq API <status>: <body>" on
 // error, so err.message carries the exact reason.
 export async function transcribeAudioDebug(mediaUrl) {
-  const out = { provider: PROVIDER, configured: isTranscriptionConfigured() }
+  const out = { configuredProvider: PROVIDER, providersToTry: providerOrder() }
   if (!mediaUrl) { out.error = 'no mediaUrl'; return out }
-  if (!out.configured) { out.error = `${PROVIDER} not configured (missing API key)`; return out }
+  if (!out.providersToTry.length) { out.error = 'no provider API key configured'; return out }
   try {
     const audioRes = await fetch(mediaUrl)
     out.audioFetchStatus = audioRes.status
@@ -97,13 +109,23 @@ export async function transcribeAudioDebug(mediaUrl) {
     const buf = await audioRes.arrayBuffer()
     out.audioBytes = buf.byteLength
     if (buf.byteLength < 1000) { out.error = `audio too small (${buf.byteLength}B)`; return out }
-    let result
-    if (PROVIDER === 'groq') result = await transcribeViaGroq(buf)
-    else if (PROVIDER === 'openai') result = await transcribeViaOpenAI(buf)
-    else if (PROVIDER === 'sarvam') result = await transcribeViaSarvam(buf)
-    out.transcript = result?.text || null
-    out.ok = !!(result && result.text && result.text.trim().length >= MIN_TRANSCRIPT_LENGTH)
-    if (!out.ok && !out.error) out.error = 'empty/too-short transcript'
+    out.attempts = []
+    for (const p of out.providersToTry) {
+      try {
+        const r = await runProvider(p, buf)
+        if (r && r.text && r.text.trim().length >= MIN_TRANSCRIPT_LENGTH) {
+          out.providerUsed = p
+          out.transcript = r.text.trim()
+          out.ok = true
+          return out
+        }
+        out.attempts.push({ provider: p, result: 'empty/too-short' })
+      } catch (e) {
+        out.attempts.push({ provider: p, error: (e.message || '').slice(0, 160) })
+      }
+    }
+    out.ok = false
+    out.error = 'all providers failed'
   } catch (err) {
     out.error = err.message
   }
