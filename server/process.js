@@ -325,6 +325,15 @@ function isGenericMessage(text) {
   ]
   if (productKeywords.some(k => normalized.includes(k))) return false
 
+  // Specific RESOURCE requests → real request, NOT generic, so the welcome-followup runs the AI and
+  // sends the actual resource link (size chart / HD photos / videos) instead of the "any questions?" nudge.
+  const resourceKeywords = [
+    'size chart', 'sizechart', 'size guide', 'size list',
+    'photo', 'photos', 'pics', 'picture', 'pictures', 'images', 'image',
+    'video', 'videos', 'hd photo', 'hd photos', 'sample photo',
+  ]
+  if (resourceKeywords.some(k => normalized.includes(k))) return false
+
   // Clear ORDER / BUYING intent → real inquiry, never generic (run the AI to guide them, don't nudge)
   const orderIntent = ['order lagana', 'order karna', 'order karni', 'order kar', 'order place', 'place order', 'order krna', 'order chahiye', 'buy karna', 'purchase karna', 'kaise order']
   if (orderIntent.some(k => normalized.includes(k))) return false
