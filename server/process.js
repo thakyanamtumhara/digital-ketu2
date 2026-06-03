@@ -443,6 +443,11 @@ const PRICE_PER_OUTPUT_TOKEN = 0.000005  // $5 per 1M output tokens
 // Sonnet 4.6 rates for the main buyer reply (smarter clone, better rule-following)
 const REPLY_PRICE_PER_INPUT_TOKEN = 0.000003   // $3 per 1M input tokens
 const REPLY_PRICE_PER_OUTPUT_TOKEN = 0.000015  // $15 per 1M output tokens
+// 1-hour prompt-cache TTL (Anthropic beta). Genuine AI replies here cluster within an hour
+// (42/43 gaps <60min) but are often >5min apart, so a 1h cache hits far more than the default
+// 5-min. If the beta is ever rejected, this flips false and we fall back to the 5-min ephemeral
+// cache for the rest of the process — so it can never break a reply.
+let extendedCacheTtlAvailable = true
 const USD_TO_INR = 85
 
 /**
@@ -1548,9 +1553,14 @@ Answer with ONLY one word: REPLY or SILENT.` }],
 
   const { staticPrompt, dynamicPrompt } = buildSystemPrompt({ settings, styleGuide, stylePairs: stylePairResults })
   const systemPrompt = staticPrompt + dynamicPrompt  // combined, for logging/grading
-  // Prompt-cache the static prefix; keep the per-query dynamic part as a separate uncached block.
-  const systemBlocks = [{ type: 'text', text: staticPrompt, cache_control: { type: 'ephemeral' } }]
-  if (dynamicPrompt) systemBlocks.push({ type: 'text', text: dynamicPrompt })
+  // Prompt-cache the static prefix (1h TTL — see extendedCacheTtlAvailable); keep the per-query
+  // dynamic part as a separate uncached block. buildSystemBlocks(ttl1h) lets us retry without it.
+  const buildSystemBlocks = (use1h) => {
+    const cc = use1h ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' }
+    const blocks = [{ type: 'text', text: staticPrompt, cache_control: cc }]
+    if (dynamicPrompt) blocks.push({ type: 'text', text: dynamicPrompt })
+    return blocks
+  }
   let userPrompt = buildUserPrompt({
     mergedText,
     knowledgeResults,
@@ -1569,12 +1579,26 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   let promptTokens, completionTokens, totalTokens, costUsd
 
   try {
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 500,
-      system: systemBlocks,
-      messages: [{ role: 'user', content: imageBlock ? [imageBlock, { type: 'text', text: userPrompt }] : userPrompt }],
-    })
+    const userMessages = [{ role: 'user', content: imageBlock ? [imageBlock, { type: 'text', text: userPrompt }] : userPrompt }]
+    let response
+    // Try the 1-hour cache TTL first (bigger savings); if the beta is rejected, disable it for the
+    // rest of the process and fall back to the standard 5-min ephemeral cache — never breaks a reply.
+    if (extendedCacheTtlAvailable) {
+      try {
+        response = await anthropic.messages.create(
+          { model: 'claude-sonnet-4-6', max_tokens: 500, system: buildSystemBlocks(true), messages: userMessages },
+          { headers: { 'anthropic-beta': 'extended-cache-ttl-2025-04-11' } }
+        )
+      } catch (e) {
+        console.error('[Cache] 1h TTL unavailable, falling back to 5-min ephemeral:', e.message)
+        extendedCacheTtlAvailable = false
+      }
+    }
+    if (!response) {
+      response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6', max_tokens: 500, system: buildSystemBlocks(false), messages: userMessages,
+      })
+    }
 
     aiReply = response.content[0].text
     // With prompt caching the usage splits into fresh input, cache writes (1.25x) and cache reads (0.1x).
@@ -1585,8 +1609,10 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     promptTokens = freshInput + cacheWrite + cacheRead
     completionTokens = u.output_tokens
     totalTokens = promptTokens + completionTokens
+    // 1h cache writes cost 2x input; 5-min writes cost 1.25x. Reads are 0.1x either way.
+    const writeMultiplier = extendedCacheTtlAvailable ? 2.0 : 1.25
     costUsd = (freshInput * REPLY_PRICE_PER_INPUT_TOKEN)
-      + (cacheWrite * REPLY_PRICE_PER_INPUT_TOKEN * 1.25)
+      + (cacheWrite * REPLY_PRICE_PER_INPUT_TOKEN * writeMultiplier)
       + (cacheRead * REPLY_PRICE_PER_INPUT_TOKEN * 0.10)
       + (completionTokens * REPLY_PRICE_PER_OUTPUT_TOKEN)
   } catch (err) {
