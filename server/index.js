@@ -7,7 +7,7 @@ import { processIncomingMessage, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups,
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
-import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } from './transcribe.js'
+import { transcribeAudio, transcribeAudioDebug, isTranscriptionConfigured, getTranscriptionProvider } from './transcribe.js'
 import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
 
 const app = new Hono()
@@ -34,6 +34,30 @@ app.get('/api/health', async (c) => {
 // Liveness only (no DB). Use THIS as Railway's healthcheck path so a brief Neon cold-start
 // hiccup can't trigger a restart loop — it only fails if the process itself is hung.
 app.get('/api/health/live', (c) => c.json({ status: 'alive', service: 'digital-ketu2' }))
+
+// TEMPORARY diagnostic: why are buyer voice notes failing transcription? Token-guarded.
+// Pass ?id=<wwbunMessageId>&token=... — runs the same download+transcribe chain the
+// pipeline uses and reports each step's status + the provider's error body.
+app.get('/api/debug/transcribe-test', async (c) => {
+  if (c.req.query('token') !== 'dk2diag-9f3a2c7e') return c.json({ error: 'unauthorized' }, 401)
+  const id = c.req.query('id')
+  const out = { id, configured: isTranscriptionConfigured(), provider: getTranscriptionProvider() }
+  if (!id) { out.error = 'pass ?id=<wwbunMessageId>'; return c.json(out) }
+  const settings = await getSettings()
+  const WWBUN_API_URL = settings.wwbunApiUrl || process.env.WWBUN_API_URL
+  out.wwbunConfigured = !!WWBUN_API_URL
+  try {
+    const dl = await fetch(`${WWBUN_API_URL}/api/messages/${id}/download-media`)
+    out.downloadStatus = dl.status
+    const dlData = await dl.json().catch(() => ({}))
+    out.mediaUrl = dlData.mediaUrl ? String(dlData.mediaUrl).slice(0, 160) : null
+    if (dlData.error) out.downloadError = dlData.error
+    if (dlData.mediaUrl) Object.assign(out, await transcribeAudioDebug(dlData.mediaUrl))
+  } catch (err) {
+    out.error = err.message
+  }
+  return c.json(out)
+})
 
 // --- Settings ---
 // 60-second TTL cache. Cost increments elsewhere use Prisma's atomic

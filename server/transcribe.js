@@ -80,6 +80,36 @@ export async function transcribeAudio(mediaUrl) {
   }
 }
 
+// Diagnostic variant: same steps as transcribeAudio but returns a structured
+// report (HTTP statuses, byte size, provider error body) instead of swallowing
+// failures to null. Used by the /api/debug/transcribe-test endpoint to find why
+// voice notes fail. The provider functions throw "Groq API <status>: <body>" on
+// error, so err.message carries the exact reason.
+export async function transcribeAudioDebug(mediaUrl) {
+  const out = { provider: PROVIDER, configured: isTranscriptionConfigured() }
+  if (!mediaUrl) { out.error = 'no mediaUrl'; return out }
+  if (!out.configured) { out.error = `${PROVIDER} not configured (missing API key)`; return out }
+  try {
+    const audioRes = await fetch(mediaUrl)
+    out.audioFetchStatus = audioRes.status
+    out.audioContentType = audioRes.headers.get('content-type')
+    if (!audioRes.ok) { out.error = `audio fetch failed: ${audioRes.status}`; return out }
+    const buf = await audioRes.arrayBuffer()
+    out.audioBytes = buf.byteLength
+    if (buf.byteLength < 1000) { out.error = `audio too small (${buf.byteLength}B)`; return out }
+    let result
+    if (PROVIDER === 'groq') result = await transcribeViaGroq(buf)
+    else if (PROVIDER === 'openai') result = await transcribeViaOpenAI(buf)
+    else if (PROVIDER === 'sarvam') result = await transcribeViaSarvam(buf)
+    out.transcript = result?.text || null
+    out.ok = !!(result && result.text && result.text.trim().length >= MIN_TRANSCRIPT_LENGTH)
+    if (!out.ok && !out.error) out.error = 'empty/too-short transcript'
+  } catch (err) {
+    out.error = err.message
+  }
+  return out
+}
+
 // ------------------------------------------------------------------
 // Provider: Groq Whisper-large-v3-turbo (OpenAI-compatible API)
 // ------------------------------------------------------------------
