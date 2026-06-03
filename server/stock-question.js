@@ -36,3 +36,10 @@ export function isTransactionalReply(reply) {
   const t = reply.toLowerCase()
   return /porter\.in\/|\/rd\/|porter mini|via (porter|dunzo|shiprocket|delhivery)|shiprocket|delhivery|\bdtdc\b|bluedart|ekart|xpressbees|\/tracking|\/track\/|\btracking\b|\bawb\b|sending you (some )?goods|track (the |your |this )?order|referral code|book.{0,10}porter|order here:|genrate shp|complaint (daal|dal|kar|likh|raise|file)|complain (daal|kar)|shikayat (daal|kar)/.test(t)
 }
+
+// A bare media PLACEHOLDER as the buyer message ("[Image]", "[Audio]", "[media]", ...) carries no
+// content — it must NEVER be learned as a correction, or it matches EVERY future image/audio message
+// at similarity 1.0 and injects a wrong reply (caused "[Image]" -> "Dispatching asap" / "Polo t-shirt").
+export function isMediaPlaceholder(text) {
+  return /^\s*\[(image|images|photo|audio|voice|video|media|document|sticker|gif|unsupported)\]\s*$/i.test(text || '')
+}

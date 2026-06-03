@@ -9,7 +9,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
-import { isStockAvailabilityQuestion, isTransactionalReply } from './stock-question.js'
+import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder } from './stock-question.js'
 
 // Quality filter: both sides need 4+ words, no media/reaction placeholders
 const wordCount = (s) => (s || '').split(/\s+/).filter(w => w.length > 0).length
@@ -148,8 +148,8 @@ export async function reviewAiReplies(db) {
     const msg = messages.find(m => m.id === result.id)
     if (!msg) continue
 
-    // Skip stock/availability/restock-timing — point-in-time, never learn as a permanent correction
-    if (isStockAvailabilityQuestion(msg.buyerMessage)) continue
+    // Skip stock/availability/restock-timing + bare media placeholders — never learn as a correction
+    if (isStockAvailabilityQuestion(msg.buyerMessage) || isMediaPlaceholder(msg.buyerMessage)) continue
     // Auto-correct bad replies (only for quality pairs with 4+ words on both sides)
     if (result.rating <= 2 && result.suggestedReply && isQualityPair(msg.buyerMessage, result.suggestedReply)) {
       try {
@@ -313,7 +313,7 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
         // Context-independent replies → store with actual reply (reusable answer)
         // Stock/availability/timing AND dispatch/tracking replies are point-in-time → force defer-only
         // even if the LLM missed it (never inject a stale stock answer or a one-order tracking link).
-        const correctReply = (result.contextDependent || isStockAvailabilityQuestion(pair.buyerMessage) || isTransactionalReply(pair.ketuReply)) ? '' : pair.ketuReply
+        const correctReply = (result.contextDependent || isStockAvailabilityQuestion(pair.buyerMessage) || isTransactionalReply(pair.ketuReply) || isMediaPlaceholder(pair.buyerMessage)) ? '' : pair.ketuReply
         const deferId = crypto.randomUUID()
         await db.$executeRaw`
           INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")

@@ -1295,9 +1295,13 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
     console.log(`[Vision] ${whatsappNumber} — image-only but load failed, deferred to Ketu`)
     return
   }
-  // Photo loaded but no caption → give downstream (logs / gate) a sane label. Retrieval is
-  // skipped for these (the label carries no product signal — see knowledgeResults below).
-  const captionlessPhoto = !!(imageBlock && !(mergedText && mergedText.trim()))
+  // Photo with no real caption → give downstream (logs / gate) a sane label. Retrieval is skipped
+  // for these (the label carries no product signal — see knowledgeResults below). IMPORTANT: a
+  // bare media PLACEHOLDER ("[Image]", "[Audio]", "[media]" etc.) counts as "no caption" — otherwise
+  // RAG runs on "[Image]" and matches a poison "[Image]"-keyed correction at 1.000 (this caused the
+  // "Polo t-shirt" hallucination on a photo-less message).
+  const isMediaPlaceholder = (t) => /^\s*\[(image|images|photo|audio|voice|video|media|document|sticker|gif)\]\s*$/i.test(t || '')
+  const captionlessPhoto = !!(imageBlock && (!(mergedText && mergedText.trim()) || isMediaPlaceholder(mergedText)))
   if (captionlessPhoto) mergedText = '[product photo]'
 
   // ============================================================
@@ -1430,7 +1434,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
 
   // Vision: tell the model a real photo is attached and how to use it (no hallucinated prices/details).
   if (imageBlock) {
-    userPrompt = `📷 The buyer attached a PHOTO (sent with this message). Look at the image carefully.\nFIRST: if the photo is clearly NOT apparel / a garment / a product we could sell (e.g. a selfie, a meme, a screenshot of text or chat, a document, or a random object), reply with EXACTLY [DEFER] and nothing else.\nOTHERWISE, identify which of our products it is (tshirt / oversized / polo / hoodie / sweatshirt / acid wash / drop shoulder / etc.) and reply about THAT product the way Om would: if it clearly matches something we make, say so briefly and send the catalog link https://sale91.com/catalog (use a specific product link only if one is given in the knowledge base above); if you can see it is apparel but cannot tell exactly which, ask which product they mean. NEVER invent a price, GSM, or detail that is not in the knowledge base, and never claim it is in/out of stock.\n\n${userPrompt}`
+    userPrompt = `📷 The buyer attached a PHOTO (sent with this message). Look at the image carefully.\nFIRST: if the photo is clearly NOT apparel / a garment / a product we could sell (a selfie, a meme, a screenshot of text or chat, a document, a random object), OR if the image is blank / unclear / blurry / you cannot actually make out a garment, reply with EXACTLY [DEFER] and nothing else — do NOT guess.\nOTHERWISE, identify which of our products it is (tshirt / oversized / polo / hoodie / sweatshirt / acid wash / drop shoulder / etc.) ONLY if you are genuinely confident from what you SEE. Reply about THAT product the way Om would: if it clearly matches something we make, say so briefly and send the catalog link https://sale91.com/catalog (use a specific product link only if one is given in the knowledge base above). If you are NOT sure which product it is, do NOT name one — ask "Kaunsa product chahiye sir?" instead of guessing a type (e.g. never say "polo" unless you can clearly see a collar). NEVER invent a price, GSM, or detail not in the knowledge base, and never claim it is in/out of stock.\n\n${userPrompt}`
   }
 
   // --- Call Claude API ---
