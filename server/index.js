@@ -260,13 +260,33 @@ app.post('/api/intervention', async (c) => {
   const settings = await getSettings()
   const cooldownUntil = new Date(Date.now() + settings.cooldownMinutes * 60 * 1000)
 
-  await db.buyerConversation.upsert({
+  const interventionConvo = await db.buyerConversation.upsert({
     where: { whatsappNumber },
     update: { cooldownUntil, lastMessageAt: new Date() },
     create: { whatsappNumber, cooldownUntil, lastMessageAt: new Date() },
   })
 
   console.log(`[Cooldown] ${whatsappNumber} — paused until ${cooldownUntil.toISOString()}`)
+
+  // Real-time feed of Om's manual replies for monitoring. manualReplyPair only stores AI-OFF
+  // pairs and interventions go to corrections, so manual replies were invisible to the watch loop.
+  // Log every manual reply (status SKIPPED + deferReason 'manual_reply', cost 0) so /api/logs is a
+  // single live feed of both AI replies and Om's manual replies. Does not affect learning.
+  if (ketuReply && ketuReply.trim()) {
+    try {
+      await db.messageLog.create({
+        data: {
+          conversationId: interventionConvo.id,
+          buyerMessage: buyerMessage || '',
+          messageIds: [],
+          status: 'SKIPPED',
+          deferReason: 'manual_reply',
+          aiReply: ketuReply,
+          processingMs: 0,
+        },
+      })
+    } catch (e) { console.error('[Intervention] manual-reply log failed:', e.message) }
+  }
 
   // 2. SELF-LEARNING: If AI was ON and replied recently (within 10 min), this is an intervention
   //    AI got it wrong → auto-add correction to DeferToKetu
