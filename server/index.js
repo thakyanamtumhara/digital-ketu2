@@ -40,17 +40,35 @@ app.get('/api/health/live', (c) => c.json({ status: 'alive', service: 'digital-k
 // pipeline uses and reports each step's status + the provider's error body.
 app.get('/api/debug/transcribe-test', async (c) => {
   if (c.req.query('token') !== 'dk2diag-9f3a2c7e') return c.json({ error: 'unauthorized' }, 401)
-  const id = c.req.query('id')
-  const out = { id, configured: isTranscriptionConfigured(), provider: getTranscriptionProvider() }
-  if (!id) { out.error = 'pass ?id=<wwbunMessageId>'; return c.json(out) }
+  const out = { configured: isTranscriptionConfigured(), provider: getTranscriptionProvider() }
   const settings = await getSettings()
   const WWBUN_API_URL = settings.wwbunApiUrl || process.env.WWBUN_API_URL
   const SECRET = settings.digitalKetuSecret || process.env.DIGITAL_KETU_SECRET
+  const hdr = SECRET ? { 'X-Digital-Ketu-Secret': SECRET } : {}
   out.wwbunConfigured = !!WWBUN_API_URL
   try {
-    const dl = await fetch(`${WWBUN_API_URL}/api/messages/${id}/download-media`, {
-      headers: SECRET ? { 'X-Digital-Ketu-Secret': SECRET } : {},
-    })
+    // Mode 1: raw URL — test Sarvam directly on any audio URL (isolates provider vs URL).
+    if (c.req.query('url')) {
+      Object.assign(out, await transcribeAudioDebug(c.req.query('url')))
+      return c.json(out)
+    }
+    // Mode 2: findAudio — locate the latest INBOUND buyer voice note in wwbun and run the
+    // full real chain (search -> download-media -> Sarvam). This is the genuine failing case.
+    let id = c.req.query('id')
+    if (!id && c.req.query('findAudio')) {
+      const sr = await fetch(`${WWBUN_API_URL}/api/messages/search?q=${encodeURIComponent('[Audio]')}`, { headers: hdr })
+      out.searchStatus = sr.status
+      const msgs = await sr.json().catch(() => [])
+      const list = Array.isArray(msgs) ? msgs : []
+      const inbound = list.filter(m => m.status === 'DELIVERED' && /audio/i.test(m.messageType || ''))
+      out.inboundAudioFound = inbound.length
+      if (!inbound.length) { out.error = 'no inbound audio messages found via search'; return c.json(out) }
+      id = inbound[0].id
+      out.testedCreatedAt = inbound[0].createdAt
+    }
+    if (!id) { out.error = 'pass ?id=<wwbunMessageId> or ?findAudio=1 or ?url=<audioUrl>'; return c.json(out) }
+    out.testedMessageId = id
+    const dl = await fetch(`${WWBUN_API_URL}/api/messages/${id}/download-media`, { headers: hdr })
     out.downloadStatus = dl.status
     const dlData = await dl.json().catch(() => ({}))
     out.mediaUrl = dlData.mediaUrl ? String(dlData.mediaUrl).slice(0, 160) : null
