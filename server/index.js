@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers } from './process.js'
+import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
@@ -2194,6 +2194,12 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
 
 // Run initial sync check on startup
 runScheduledSync().catch(err => console.error('[Sync] Startup sync check failed:', err.message))
+
+// Recover welcome-followups dropped by this restart (in-memory timers don't survive a
+// redeploy). Delay ~25s so the server + DB are fully up before the sweep runs.
+setTimeout(() => {
+  recoverPendingFollowups({ db, anthropic }).catch(err => console.error('[FollowupRecovery] startup sweep failed:', err.message))
+}, 25000)
 
 // Note: old DeferToKetu cleanup removed — corrections now use KnowledgeChunk (CORRECTION source)
 // Threshold is user-configurable from Settings — do NOT reset on startup

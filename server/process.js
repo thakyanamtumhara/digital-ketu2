@@ -1284,6 +1284,92 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 }
 
 // ===========================================
+// BOOT RECOVERY: fire welcome-followups dropped by a server restart
+// ===========================================
+// The 3-min welcome-followup is an in-memory setTimeout (pendingWelcomeFollowups).
+// A redeploy/restart wipes every pending timer, so buyers who messaged in that window
+// never get their followup (~15% orphan rate observed). On boot we sweep for
+// welcome_followup_scheduled logs whose timer would have elapsed (>3 min ago) but never
+// fired (no later activity in that conversation), and fire them now — mirroring the
+// timer's own logic. Guards: AI must be active; cooldown (Ketu intervened) skips so we
+// never talk over a manual reply; only the latest scheduled row per conversation; bounded
+// time window + count. Firing writes a log, so it won't re-fire on the next boot.
+export async function recoverPendingFollowups({ db, anthropic }) {
+  try {
+    const settings = await db.settings.findUnique({ where: { id: 'default' } })
+    if (!settings?.isActive) {
+      console.log('[FollowupRecovery] AI inactive — skipping sweep')
+      return
+    }
+    const now = Date.now()
+    // Tight window: cooldown is only ~10 min, so recovering rows older than that risks
+    // re-messaging a chat Ketu already closed manually (cooldown expired). Restart-orphans
+    // are only minutes old when this runs, so 15 min covers them with margin.
+    const windowStart = new Date(now - 15 * 60 * 1000)  // don't recover anything older than 15 min
+    const fireBefore = new Date(now - THREE_MINUTES_MS)  // timer would already have fired
+    const scheduled = await db.messageLog.findMany({
+      where: {
+        deferReason: 'welcome_followup_scheduled',
+        createdAt: { gte: windowStart, lte: fireBefore },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, conversationId: true, buyerMessage: true, createdAt: true },
+    })
+    if (!scheduled.length) { console.log('[FollowupRecovery] none pending'); return }
+
+    // Keep only the latest scheduled row per conversation
+    const latestPerConv = new Map()
+    for (const row of scheduled) {
+      if (!latestPerConv.has(row.conversationId)) latestPerConv.set(row.conversationId, row)
+    }
+
+    let recovered = 0, skipped = 0
+    const MAX_RECOVER = 25
+    for (const row of latestPerConv.values()) {
+      if (recovered >= MAX_RECOVER) { console.log('[FollowupRecovery] hit per-boot cap (25)'); break }
+      // Anything logged after the scheduled row means the conversation moved on / followup fired
+      const laterLog = await db.messageLog.findFirst({
+        where: { conversationId: row.conversationId, createdAt: { gt: row.createdAt } },
+        select: { id: true },
+      })
+      if (laterLog) { skipped++; continue }
+      const convo = await db.buyerConversation.findUnique({
+        where: { id: row.conversationId },
+        select: { whatsappNumber: true, cooldownUntil: true },
+      })
+      if (!convo?.whatsappNumber) { skipped++; continue }
+      // Ketu replied manually → /api/intervention set a cooldown → don't talk over him
+      if (convo.cooldownUntil && new Date() < new Date(convo.cooldownUntil)) { skipped++; continue }
+
+      const mergedText = row.buyerMessage || ''
+      try {
+        if (isGenericMessage(mergedText)) {
+          const sendResult = await sendReplyViaWwbun(convo.whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+          await createLog(db, row.conversationId, mergedText, [], {
+            status: 'REPLIED', aiReply: WELCOME_FOLLOWUP_GENERIC,
+            deferReason: 'welcome_followup_recovered_generic', processingMs: 0,
+            sentViaWwbun: !!sendResult, wwbunMessageId: sendResult?.messageId || null,
+          })
+        } else {
+          await runAiFlow({
+            whatsappNumber: convo.whatsappNumber, mergedText, quotedText: null,
+            conversationId: row.conversationId, normalizedText: mergedText.trim().toLowerCase(),
+            db, anthropic, settings, startTime: now, messageIds: [],
+          })
+        }
+        recovered++
+        console.log(`[FollowupRecovery] fired for ${convo.whatsappNumber}: "${mergedText.slice(0, 40)}"`)
+      } catch (err) {
+        console.error(`[FollowupRecovery] error for ${convo.whatsappNumber}:`, err.message)
+      }
+    }
+    console.log(`[FollowupRecovery] done — recovered ${recovered}, skipped ${skipped}, candidates ${latestPerConv.size}`)
+  } catch (err) {
+    console.error('[FollowupRecovery] sweep failed:', err.message)
+  }
+}
+
+// ===========================================
 // AI Flow: Vector Search → Claude → Reply
 // Reusable by both main pipeline and welcome follow-up
 // ===========================================
