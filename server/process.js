@@ -198,7 +198,12 @@ const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
 async function downloadMediaFromWwbun(wwbunMessageId) {
   if (!wwbunMessageId || !WWBUN_API_URL) return null
   try {
-    const res = await fetch(`${WWBUN_API_URL}/api/messages/${wwbunMessageId}/download-media`)
+    // download-media is a per-user wwbun endpoint behind auth — authenticate as the
+    // trusted digital-ketu2 server with the shared secret (resolves to admin) so the
+    // fetch isn't rejected 401, which silently killed all voice-note transcription.
+    const res = await fetch(`${WWBUN_API_URL}/api/messages/${wwbunMessageId}/download-media`, {
+      headers: DIGITAL_KETU_SECRET ? { 'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET } : {},
+    })
     if (!res.ok) {
       console.log(`[MediaDownload] Failed for message ${wwbunMessageId}: ${res.status}`)
       return null
