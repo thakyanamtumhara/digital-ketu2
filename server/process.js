@@ -1654,6 +1654,29 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     return
   }
 
+  // --- Final cooldown re-check before sending (intervention race) ---
+  // Generation (vector search + Claude) takes a few seconds — sometimes longer. If Om manually
+  // replied DURING that window, his /api/intervention set a cooldown. Without this re-check the AI
+  // would send its now-redundant reply on top of Om's (the duplicate "HD Photos" link bug). So if a
+  // cooldown is active here, suppress the send and log it as superseded.
+  const preSendCooldown = await db.buyerConversation.findUnique({
+    where: { whatsappNumber },
+    select: { cooldownUntil: true },
+  })
+  if (preSendCooldown?.cooldownUntil && new Date() < new Date(preSendCooldown.cooldownUntil)) {
+    cancelPendingDefer(whatsappNumber)
+    await createLog(db, conversationId, mergedText, messageIds, {
+      status: 'SKIPPED',
+      deferReason: 'superseded_by_intervention',
+      aiReply,
+      promptTokens, completionTokens, totalTokens, costUsd,
+      processingMs: Date.now() - startTime,
+    })
+    await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
+    console.log(`[Full AI] ${whatsappNumber} — Om intervened during generation; suppressing duplicate reply`)
+    return
+  }
+
   // --- Send reply via wwbun ---
   // Cancel any pending defer — AI is engaging with the buyer
   cancelPendingDefer(whatsappNumber)
