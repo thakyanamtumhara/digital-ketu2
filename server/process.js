@@ -1546,7 +1546,11 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   })
   const styleGuide = styleGuideChunk?.content || null
 
-  const systemPrompt = buildSystemPrompt({ settings, styleGuide, stylePairs: stylePairResults })
+  const { staticPrompt, dynamicPrompt } = buildSystemPrompt({ settings, styleGuide, stylePairs: stylePairResults })
+  const systemPrompt = staticPrompt + dynamicPrompt  // combined, for logging/grading
+  // Prompt-cache the static prefix; keep the per-query dynamic part as a separate uncached block.
+  const systemBlocks = [{ type: 'text', text: staticPrompt, cache_control: { type: 'ephemeral' } }]
+  if (dynamicPrompt) systemBlocks.push({ type: 'text', text: dynamicPrompt })
   let userPrompt = buildUserPrompt({
     mergedText,
     knowledgeResults,
@@ -1568,15 +1572,23 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 500,
-      system: systemPrompt,
+      system: systemBlocks,
       messages: [{ role: 'user', content: imageBlock ? [imageBlock, { type: 'text', text: userPrompt }] : userPrompt }],
     })
 
     aiReply = response.content[0].text
-    promptTokens = response.usage.input_tokens
-    completionTokens = response.usage.output_tokens
+    // With prompt caching the usage splits into fresh input, cache writes (1.25x) and cache reads (0.1x).
+    const u = response.usage
+    const freshInput = u.input_tokens || 0
+    const cacheWrite = u.cache_creation_input_tokens || 0
+    const cacheRead = u.cache_read_input_tokens || 0
+    promptTokens = freshInput + cacheWrite + cacheRead
+    completionTokens = u.output_tokens
     totalTokens = promptTokens + completionTokens
-    costUsd = (promptTokens * REPLY_PRICE_PER_INPUT_TOKEN) + (completionTokens * REPLY_PRICE_PER_OUTPUT_TOKEN)
+    costUsd = (freshInput * REPLY_PRICE_PER_INPUT_TOKEN)
+      + (cacheWrite * REPLY_PRICE_PER_INPUT_TOKEN * 1.25)
+      + (cacheRead * REPLY_PRICE_PER_INPUT_TOKEN * 0.10)
+      + (completionTokens * REPLY_PRICE_PER_OUTPUT_TOKEN)
   } catch (err) {
     console.error(`[Claude Error] ${whatsappNumber}:`, err.message)
     await createLog(db, conversationId, mergedText, messageIds, {
@@ -1647,26 +1659,28 @@ Answer with ONLY one word: REPLY or SILENT.` }],
 // ===========================================
 
 function buildSystemPrompt({ settings, styleGuide, stylePairs }) {
-  // Use dashboard-editable system prompt if available, otherwise hardcoded default
-  let prompt = settings.systemPrompt || DEFAULT_SYSTEM_PROMPT
-
-  // Om's extracted style guide (compact — extracted once from 337 real reply pairs)
+  // Split into a STATIC part (prompt-cached) and a DYNAMIC part (per-query, not cached).
+  // The static part — base prompt + Om's style guide — is identical on every reply, so caching it
+  // (Anthropic cache reads = 10% of input price) roughly halves the input cost. The dynamic part
+  // (similar-conversation examples from vector search) varies per query, so it must stay UNcached
+  // (caching it would change the cached content each call and miss every time).
+  let staticPrompt = settings.systemPrompt || DEFAULT_SYSTEM_PROMPT
   if (styleGuide) {
-    prompt += `\n\nOM'S COMMUNICATION STYLE:\n${styleGuide}`
+    staticPrompt += `\n\nOM'S COMMUNICATION STYLE:\n${styleGuide}`
   }
 
-  // Personality DNA: inject similar real Om-buyer conversations as tone examples
+  let dynamicPrompt = ''
   if (stylePairs && stylePairs.length > 0) {
-    prompt += `\n\nSIMILAR PAST CONVERSATIONS (reply like Om — match his tone, length, and style):\n`
+    dynamicPrompt += `\n\nSIMILAR PAST CONVERSATIONS (reply like Om — match his tone, length, and style):\n`
     for (const pair of stylePairs) {
       const meta = typeof pair.metadata === 'string' ? JSON.parse(pair.metadata) : pair.metadata
       if (meta?.buyerMessage && meta?.omReply) {
-        prompt += `Buyer: ${meta.buyerMessage}\nOm: ${meta.omReply}\n\n`
+        dynamicPrompt += `Buyer: ${meta.buyerMessage}\nOm: ${meta.omReply}\n\n`
       }
     }
   }
 
-  return prompt
+  return { staticPrompt, dynamicPrompt }
 }
 
 function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conversationHistory, quotedText }) {
