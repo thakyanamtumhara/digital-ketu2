@@ -58,27 +58,35 @@ app.get('/api/debug/transcribe-test', async (c) => {
     // Mode 2: findAudio — locate the latest INBOUND buyer voice note in wwbun and run the
     // full real chain (search -> download-media -> Sarvam). This is the genuine failing case.
     let id = c.req.query('id')
-    if (!id && c.req.query('findAudio')) {
-      const sr = await fetch(`${WWBUN_API_URL}/api/messages/search?q=${encodeURIComponent('[Audio]')}`, { headers: hdr })
+    let mediaKind = 'audio'
+    // Mode 2b: findImage — locate the latest INBOUND image (optionally from a given number) and
+    // return its media URL so it can be fetched + viewed. Generalizes the media-retrieval capability.
+    if (!id && (c.req.query('findImage') || c.req.query('findAudio'))) {
+      mediaKind = c.req.query('findImage') ? 'image' : 'audio'
+      const marker = mediaKind === 'image' ? '[Image]' : '[Audio]'
+      const num = (c.req.query('number') || '').replace(/\D/g, '')
+      const sr = await fetch(`${WWBUN_API_URL}/api/messages/search?q=${encodeURIComponent(marker)}`, { headers: hdr })
       out.searchStatus = sr.status
       const msgs = await sr.json().catch(() => [])
       const list = Array.isArray(msgs) ? msgs : []
-      const inbound = list.filter(m => m.status === 'DELIVERED' && /audio/i.test(m.messageType || ''))
-      out.inboundAudioFound = inbound.length
-      if (!inbound.length) { out.error = 'no inbound audio messages found via search'; return c.json(out) }
+      let inbound = list.filter(m => m.status === 'DELIVERED' && new RegExp(mediaKind, 'i').test(m.messageType || ''))
+      if (num) inbound = inbound.filter(m => (m.contactNumber || '').replace(/\D/g, '').endsWith(num.slice(-10)))
+      out.inboundFound = inbound.length
+      if (!inbound.length) { out.error = `no inbound ${mediaKind} found via search`; return c.json(out) }
       id = inbound[0].id
       out.testedCreatedAt = inbound[0].createdAt
     }
-    if (!id) { out.error = 'pass ?id=<wwbunMessageId> or ?findAudio=1 or ?url=<audioUrl>'; return c.json(out) }
+    if (!id) { out.error = 'pass ?id=, ?findAudio=1, ?findImage=1[&number=], or ?url='; return c.json(out) }
     out.testedMessageId = id
     const dl = await fetch(`${WWBUN_API_URL}/api/messages/${id}/download-media`, { headers: hdr })
     out.downloadStatus = dl.status
     const dlData = await dl.json().catch(() => ({}))
-    out.mediaUrl = dlData.mediaUrl ? String(dlData.mediaUrl).slice(0, 160) : null
+    out.mediaUrl = dlData.mediaUrl || null
     if (dlData.error) out.downloadError = dlData.error
     if (dlData.messageType) out.wwbunMessageType = dlData.messageType
     if (dlData.contentPreview) out.wwbunContentPreview = dlData.contentPreview
-    if (dlData.mediaUrl) Object.assign(out, await transcribeAudioDebug(dlData.mediaUrl))
+    // Only transcribe audio; for images just return the URL to fetch + view.
+    if (dlData.mediaUrl && mediaKind === 'audio') Object.assign(out, await transcribeAudioDebug(dlData.mediaUrl))
   } catch (err) {
     out.error = err.message
   }
