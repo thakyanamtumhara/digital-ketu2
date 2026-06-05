@@ -866,6 +866,18 @@ app.delete('/api/knowledge/reply-template/:shortcut', async (c) => {
   return c.json({ status: 'deleted', count: Number(deleted) })
 })
 
+// Delete a single bad/stale CORRECTION chunk by id (pruning capture errors / stale stock answers).
+// Restricted to source='CORRECTION' so it can never touch CATALOG / SAVED_REPLY data.
+app.delete('/api/knowledge/correction/:id', async (c) => {
+  const { id } = c.req.param()
+  const deleted = await db.$executeRaw`
+    DELETE FROM "KnowledgeChunk"
+    WHERE source = 'CORRECTION' AND id::text = ${id}
+  `
+  console.log(`[Knowledge] Deleted CORRECTION ${id} — ${deleted} chunks removed`)
+  return c.json({ status: 'deleted', count: Number(deleted) })
+})
+
 // ===========================================
 // Embedding Management
 // ===========================================
