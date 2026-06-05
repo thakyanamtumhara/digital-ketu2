@@ -338,6 +338,10 @@ function isGenericMessage(text) {
   const orderIntent = ['order lagana', 'order karna', 'order karni', 'order kar', 'order place', 'place order', 'order krna', 'order chahiye', 'buy karna', 'purchase karna', 'kaise order']
   if (orderIntent.some(k => normalized.includes(k))) return false
 
+  // Dispatch / order-action / tracking requests → real (the AI will DEFER to Ketu), never the generic "any questions?" nudge
+  const orderAction = ['dispatch', 'nikal do', 'nikal di', 'nikal dijiye', 'nikal dena', 'nikaal', 'tracking', 'track kar']
+  if (orderAction.some(k => normalized.includes(k))) return false
+
   // Known greetings
   const greetingPatterns = [
     'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
