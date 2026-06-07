@@ -249,6 +249,54 @@ app.post('/api/incoming', async (c) => {
 })
 
 // ===========================================
+// Owner Command Channel — POST /api/ask
+// ===========================================
+// ISOLATED from the customer auto-reply pipeline (/api/incoming). wwbun calls this ONLY for
+// messages from the owner's OWN number, so he can WhatsApp his company number and get a Claude
+// answer back. Reuses the existing `anthropic` client + voice transcription. Reads/writes NO
+// customer conversation, learning, or message-log state — so it cannot affect auto-replies.
+app.post('/api/ask', async (c) => {
+  try {
+    const settings = await getSettings()
+    const SECRET = settings.digitalKetuSecret || process.env.DIGITAL_KETU_SECRET
+    if (SECRET && c.req.header('X-Digital-Ketu-Secret') !== SECRET) {
+      return c.json({ error: 'unauthorized' }, 401)
+    }
+
+    const body = await c.req.json()
+    let { text, mediaUrl, messageType } = body
+
+    // Voice note → text, reusing the SAME transcription the customer pipeline uses. For audio we
+    // always transcribe (wwbun sends "[Audio]" as a placeholder, so ignore the provided text).
+    if (mediaUrl && (messageType === 'audio' || messageType === 'AUDIO')) {
+      try {
+        const result = await transcribeAudio(mediaUrl)
+        if (result && result.text) text = result.text
+      } catch (e) {
+        console.warn('[Ask] transcription failed:', e.message)
+      }
+    }
+
+    if (!text || !text.trim()) {
+      return c.json({ answer: "I couldn't read that — please send text or a clearer voice note." })
+    }
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
+      system: "You are the private assistant of the owner of a wholesale t-shirt business (Own Knitted Blank Wears). He is messaging you from his OWN WhatsApp to ask questions, think through problems, or get quick help — this is NOT a customer, so be direct and practical with no sales pitch. Reply in the same language he uses (Hindi / English / Hinglish). Keep answers concise and WhatsApp-friendly. If he asks you to do something you can't do from here (e.g. change code, place an order), say briefly what's needed.",
+      messages: [{ role: 'user', content: text }],
+    })
+    const answer = (response.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim()
+      || "Sorry, I couldn't come up with an answer."
+    return c.json({ answer })
+  } catch (error) {
+    console.error('[Ask] error:', error.message)
+    return c.json({ answer: 'Sorry, something went wrong handling that. Please try again.' })
+  }
+})
+
+// ===========================================
 // Manual Intervention Detection
 // ===========================================
 // wwbun calls this when Om sends a manual message in a conversation
