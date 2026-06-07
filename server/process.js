@@ -472,6 +472,14 @@ const USD_TO_INR = 85
 export async function processIncomingMessage({ whatsappNumber, messages, db, anthropic, settings }) {
   const startTime = Date.now()
 
+  // OPERATOR / PERSONAL numbers — Ketu records his own ideas/notes from these; they are NOT buyers.
+  // Never process, reply, or treat as a buyer conversation. (endsWith handles country-code prefixes.)
+  const OPERATOR_NUMBERS = ['8527150400']
+  if (OPERATOR_NUMBERS.some(n => String(whatsappNumber || '').replace(/\D/g, '').endsWith(n))) {
+    console.log(`[Skip] ${whatsappNumber} — operator/personal number (not a buyer), ignoring`)
+    return
+  }
+
   try {
   // Check existing conversation BEFORE updating lastMessageAt (needed for welcome bypass)
   const existingConversation = await db.buyerConversation.findUnique({
