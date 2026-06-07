@@ -1651,6 +1651,27 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     return
   }
 
+  // --- REASONING-LEAK GUARD ---
+  // The reply brain occasionally dumps its internal chain-of-thought into the buyer message
+  // ("Wait - ... Let me reconsider ... This is a RAW WHATSAPP ORDER ... the buyer shared a photo").
+  // Never let that reach a buyer. If the reply looks like leaked reasoning, defer to Ketu instead.
+  const _leakMarkers = /\bWait\s*[-—,:]|Let me (reconsider|think|re-?check)|RAW WHATSAPP ORDER|the buyer (shared|is asking|wants|gave)|the previous context|which means (Regular Fit|the buyer)|\bRoute to website\b|this is a size breakdown|\bI should (reply|defer|reconsider|send)/i
+  const _wc = (aiReply || '').trim().split(/\s+/).filter(Boolean).length
+  const _paras = ((aiReply || '').match(/\n\s*\n/g) || []).length
+  if (_leakMarkers.test(aiReply || '') || _wc > 60 || _paras >= 2) {
+    console.warn(`[LeakGuard] ${whatsappNumber} — reply looked like a reasoning leak (${_wc} words, ${_paras} para-breaks); deferring. First 120: ${(aiReply || '').slice(0, 120)}`)
+    scheduleDeferReply({
+      whatsappNumber, deferMessage: settings.deferMessage, conversationId,
+      mergedText, messageIds, logData: {
+        status: 'DEFERRED', deferReason: 'reasoning_leak_blocked',
+        aiReply, promptTokens, completionTokens, totalTokens, costUsd,
+        processingMs: Date.now() - startTime,
+      }, db,
+    })
+    await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
+    return
+  }
+
   // --- Check if Claude detected a conversation ender ---
   if (aiReply.includes('[SKIP]')) {
     await createLog(db, conversationId, mergedText, messageIds, {
