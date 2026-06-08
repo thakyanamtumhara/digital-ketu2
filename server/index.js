@@ -4,7 +4,7 @@ import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers } from './process.js'
-import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder } from './stock-question.js'
+import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
 import { transcribeAudio, transcribeAudioDebug, isTranscriptionConfigured, getTranscriptionProvider, getTranscriptionHealth } from './transcribe.js'
@@ -344,6 +344,11 @@ app.post('/api/intervention', async (c) => {
   })
 
   console.log(`[Cooldown] ${whatsappNumber} — paused until ${cooldownUntil.toISOString()}`)
+
+  // Owner's own number = the /api/ask owner channel, not a buyer. Never feed-log or learn from it.
+  if (isOwnerNumber(whatsappNumber)) {
+    return c.json({ status: 'cooldown_set', cooldownUntil, learned: 'skipped_owner_number' })
+  }
 
   // Real-time feed of Om's manual replies for monitoring. manualReplyPair only stores AI-OFF
   // pairs and interventions go to corrections, so manual replies were invisible to the watch loop.

@@ -9,7 +9,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
-import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder } from './stock-question.js'
+import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber } from './stock-question.js'
 
 // Quality filter: both sides need 4+ words, no media/reaction placeholders
 const wordCount = (s) => (s || '').split(/\s+/).filter(w => w.length > 0).length
@@ -257,11 +257,11 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
   const inputPrice = isOpus ? OPUS_INPUT_PRICE : SONNET_INPUT_PRICE
   const outputPrice = isOpus ? OPUS_OUTPUT_PRICE : SONNET_OUTPUT_PRICE
 
-  const pairs = await db.manualReplyPair.findMany({
+  const pairs = (await db.manualReplyPair.findMany({
     where: { reviewedAt: null },
     orderBy: { createdAt: 'desc' },
     take: useBatchSize,
-  })
+  })).filter(p => !isOwnerNumber(p.whatsappNumber))  // never learn from the owner's own-number chats
 
   if (pairs.length === 0) return { reviewed: 0, corrections: 0, costUsd: 0 }
 

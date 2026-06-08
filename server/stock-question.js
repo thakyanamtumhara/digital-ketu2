@@ -43,6 +43,16 @@ export function isTransactionalReply(reply) {
   return /porter\.in\/|\/rd\/|porter mini|via (porter|dunzo|shiprocket|delhivery)|shiprocket|delhivery|\bdtdc\b|bluedart|ekart|xpressbees|\/tracking|\/track\/|\btracking\b|\bawb\b|\bdispatch(?:ing|ed)?\b|\basap\b|sending you (some )?goods|track (the |your |this )?order|referral code|book.{0,10}porter|order here:|genrate shp|complaint (daal|dal|kar|likh|raise|file)|complain (daal|kar)|shikayat (daal|kar)|\bnext day\b|\bsame day\b|agle din|kal tak|aaj hi (mil|aa|nikal|dispatch|bhej)|\b\d+\s*(-|to|–|\s)?\s*\d*\s*(din|days?|ghant[ae]|hours?|hrs?)\b|\bby (train|air)\b|train se|\b(i will|i'll) (inform|update|let you know|tell you)\b|\bwill (inform|update) you\b|update (karta|kar) (hun|dunga|denge|dunga)|inform (karta|kar) (hun|dunga)|baaki update/.test(t)
 }
 
+// The owner talks to the assistant from his OWN WhatsApp (the /api/ask owner channel): instructions
+// and answers about his business + software, NOT customer Q&A. These must never be logged to the buyer
+// feed or learned as corrections, or they poison the customer clone (e.g. a Porter-webhook deploy reply
+// becoming a "correction"). Number is env-overridable; default is the known owner number.
+export function isOwnerNumber(num) {
+  if (!num) return false
+  const owner = (process.env.OWNER_WHATSAPP || '918527150400').replace(/\D/g, '')
+  return String(num).replace(/\D/g, '') === owner
+}
+
 // A bare media PLACEHOLDER as the buyer message ("[Image]", "[Audio]", "[media]", ...) carries no
 // content — it must NEVER be learned as a correction, or it matches EVERY future image/audio message
 // at similarity 1.0 and injects a wrong reply (caused "[Image]" -> "Dispatching asap" / "Polo t-shirt").
