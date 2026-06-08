@@ -820,11 +820,13 @@ app.get('/api/logs', async (c) => {
 
 // Analytics / aggregate stats
 app.get('/api/analytics', async (c) => {
-  const period = c.req.query('period') || 'today' // today, week, month
+  const period = c.req.query('period') || 'today' // today, 24h, week, month
   const now = new Date()
   let since
   if (period === 'today') {
     since = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  } else if (period === '24h') {
+    since = new Date(now.getTime() - 24 * 60 * 60 * 1000)
   } else if (period === 'week') {
     since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
   } else {
@@ -840,6 +842,7 @@ app.get('/api/analytics', async (c) => {
       where: { createdAt: { gte: since }, status: 'REPLIED' },
       _sum: { promptTokens: true, completionTokens: true, totalTokens: true, costUsd: true },
       _avg: { totalTokens: true, costUsd: true, processingMs: true },
+      _max: { costUsd: true },
     }),
   ])
 
@@ -862,6 +865,7 @@ app.get('/api/analytics', async (c) => {
       totalCostUsd: tokenStats._sum.costUsd || 0,
       avgTokensPerReply: Math.round(tokenStats._avg.totalTokens || 0),
       avgCostPerReply: tokenStats._avg.costUsd || 0,
+      maxCostPerReply: tokenStats._max.costUsd || 0,
       avgProcessingMs: Math.round(tokenStats._avg.processingMs || 0),
     },
     dailyBudget: {
