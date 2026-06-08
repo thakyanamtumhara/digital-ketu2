@@ -28,7 +28,8 @@ export function isStockAvailabilityQuestion(text) {
 }
 
 // Detects replies that must NEVER be learned as a correction because they are tied to ONE order /
-// situation: (a) transactional dispatch — Porter/courier tracking links, referral codes; (b)
+// situation: (a) transactional dispatch — Porter/courier tracking links, referral codes, and bare
+// "dispatching asap" / "...asap" acks that only describe one in-flight order; (b)
 // personal complaint-handling actions ("main complaint daalta hun") that would fire on unrelated
 // messages if replayed (this caused the "Complaint daalta on a hello" bug); and (c) point-in-time
 // DELIVERY-TIMING answers Ketu gives from live routing knowledge ("2 days by bluedart", "next day
@@ -39,7 +40,7 @@ export function isStockAvailabilityQuestion(text) {
 export function isTransactionalReply(reply) {
   if (!reply || !reply.trim()) return false
   const t = reply.toLowerCase()
-  return /porter\.in\/|\/rd\/|porter mini|via (porter|dunzo|shiprocket|delhivery)|shiprocket|delhivery|\bdtdc\b|bluedart|ekart|xpressbees|\/tracking|\/track\/|\btracking\b|\bawb\b|sending you (some )?goods|track (the |your |this )?order|referral code|book.{0,10}porter|order here:|genrate shp|complaint (daal|dal|kar|likh|raise|file)|complain (daal|kar)|shikayat (daal|kar)|\bnext day\b|\bsame day\b|agle din|kal tak|aaj hi (mil|aa|nikal|dispatch|bhej)|\b\d+\s*(-|to|–|\s)?\s*\d*\s*(din|days?|ghant[ae]|hours?|hrs?)\b|\bby (train|air)\b|train se|\b(i will|i'll) (inform|update|let you know|tell you)\b|\bwill (inform|update) you\b|update (karta|kar) (hun|dunga|denge|dunga)|inform (karta|kar) (hun|dunga)|baaki update/.test(t)
+  return /porter\.in\/|\/rd\/|porter mini|via (porter|dunzo|shiprocket|delhivery)|shiprocket|delhivery|\bdtdc\b|bluedart|ekart|xpressbees|\/tracking|\/track\/|\btracking\b|\bawb\b|\bdispatch(?:ing|ed)?\b|\basap\b|sending you (some )?goods|track (the |your |this )?order|referral code|book.{0,10}porter|order here:|genrate shp|complaint (daal|dal|kar|likh|raise|file)|complain (daal|kar)|shikayat (daal|kar)|\bnext day\b|\bsame day\b|agle din|kal tak|aaj hi (mil|aa|nikal|dispatch|bhej)|\b\d+\s*(-|to|–|\s)?\s*\d*\s*(din|days?|ghant[ae]|hours?|hrs?)\b|\bby (train|air)\b|train se|\b(i will|i'll) (inform|update|let you know|tell you)\b|\bwill (inform|update) you\b|update (karta|kar) (hun|dunga|denge|dunga)|inform (karta|kar) (hun|dunga)|baaki update/.test(t)
 }
 
 // A bare media PLACEHOLDER as the buyer message ("[Image]", "[Audio]", "[media]", ...) carries no
