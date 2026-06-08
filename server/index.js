@@ -833,9 +833,11 @@ app.get('/api/analytics', async (c) => {
     since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
   }
 
-  const [totalMessages, totalReplied, totalDeferred, totalSkipped, tokenStats] = await Promise.all([
+  const [totalMessages, totalReplied, repliedWithCost, totalDeferred, totalSkipped, tokenStats] = await Promise.all([
     db.messageLog.count({ where: { createdAt: { gte: since } } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, status: 'REPLIED' } }),
+    // REAL paid AI replies only (cost > 0) — excludes the free hardcoded auto-replies (bill->dispatch, welcome)
+    db.messageLog.count({ where: { createdAt: { gte: since }, status: 'REPLIED', costUsd: { gt: 0 } } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, status: 'DEFERRED' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, status: 'SKIPPED' } }),
     db.messageLog.aggregate({
@@ -853,6 +855,7 @@ app.get('/api/analytics', async (c) => {
     since,
     totalMessages,
     totalReplied,
+    repliedWithCost,
     totalDeferred,
     totalSkipped,
     interventionRate: totalMessages > 0
