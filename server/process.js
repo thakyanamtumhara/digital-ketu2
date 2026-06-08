@@ -1723,7 +1723,12 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   const _leakMarkers = /\bWait\s*[-—,:]|Let me (reconsider|think|re-?check)|RAW WHATSAPP ORDER|the buyer (shared|is asking|wants|gave)|the previous context|which means (Regular Fit|the buyer)|\bRoute to website\b|this is a size breakdown|\bI should (reply|defer|reconsider|send)/i
   const _wc = (aiReply || '').trim().split(/\s+/).filter(Boolean).length
   const _paras = ((aiReply || '').match(/\n\s*\n/g) || []).length
-  if (_leakMarkers.test(aiReply || '') || _wc > 60 || _paras >= 2) {
+  // Block ONLY on an explicit chain-of-thought marker, or an EXTREME length dump (>120 words —
+  // well above any legitimate reply). Do NOT block on length/paragraphs alone: legitimate replies
+  // are often multi-line and >60 words (the full Delhi visit-address block, store-hours, an
+  // enumerated product family, the train-flow explanation). Blocking those was deferring real
+  // answers (Ketu 2026-06-08: "share your delhi shop address" got deferred instead of the address).
+  if (_leakMarkers.test(aiReply || '') || _wc > 120) {
     console.warn(`[LeakGuard] ${whatsappNumber} — reply looked like a reasoning leak (${_wc} words, ${_paras} para-breaks); deferring. First 120: ${(aiReply || '').slice(0, 120)}`)
     scheduleDeferReply({
       whatsappNumber, deferMessage: settings.deferMessage, conversationId,
