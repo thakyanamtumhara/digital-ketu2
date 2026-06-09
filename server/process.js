@@ -480,8 +480,8 @@ RULES:
 const PRICE_PER_INPUT_TOKEN = 0.000001   // $1 per 1M input tokens
 const PRICE_PER_OUTPUT_TOKEN = 0.000005  // $5 per 1M output tokens
 // Sonnet 4.6 rates for the main buyer reply (smarter clone, better rule-following)
-const REPLY_PRICE_PER_INPUT_TOKEN = 0.000003   // $3 per 1M input tokens
-const REPLY_PRICE_PER_OUTPUT_TOKEN = 0.000015  // $15 per 1M output tokens
+const REPLY_PRICE_PER_INPUT_TOKEN = 0.000005   // $5 per 1M input tokens (Opus 4.8)
+const REPLY_PRICE_PER_OUTPUT_TOKEN = 0.000025  // $25 per 1M output tokens (Opus 4.8)
 // 1-hour prompt-cache TTL (Anthropic beta). Genuine AI replies here cluster within an hour
 // (42/43 gaps <60min) but are often >5min apart, so a 1h cache hits far more than the default
 // 5-min. If the beta is ever rejected, this flips false and we fall back to the 5-min ephemeral
@@ -1677,7 +1677,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     if (extendedCacheTtlAvailable) {
       try {
         response = await anthropic.messages.create(
-          { model: 'claude-sonnet-4-6', max_tokens: 500, system: buildSystemBlocks(true), messages: userMessages },
+          { model: 'claude-opus-4-8', max_tokens: 500, system: buildSystemBlocks(true), messages: userMessages },
           { headers: { 'anthropic-beta': 'extended-cache-ttl-2025-04-11' } }
         )
       } catch (e) {
@@ -1687,7 +1687,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     }
     if (!response) {
       response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-6', max_tokens: 500, system: buildSystemBlocks(false), messages: userMessages,
+        model: 'claude-opus-4-8', max_tokens: 500, system: buildSystemBlocks(false), messages: userMessages,
       })
     }
 
