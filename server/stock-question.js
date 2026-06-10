@@ -40,7 +40,12 @@ export function isStockAvailabilityQuestion(text) {
 export function isTransactionalReply(reply) {
   if (!reply || !reply.trim()) return false
   const t = reply.toLowerCase()
-  return /porter\.in\/|\/rd\/|porter mini|via (porter|dunzo|shiprocket|delhivery)|shiprocket|delhivery|\bdtdc\b|bluedart|ekart|xpressbees|\/tracking|\/track\/|\btracking\b|\bawb\b|\bdispatch(?:ing|ed)?\b|\basap\b|sending you (some )?goods|track (the |your |this )?order|referral code|book.{0,10}porter|order here:|genrate shp|complaint (daal|dal|kar|likh|raise|file)|complain (daal|kar)|shikayat (daal|kar)|\bnext day\b|\bsame day\b|agle din|kal tak|aaj hi (mil|aa|nikal|dispatch|bhej)|\b\d+\s*(-|to|–|\s)?\s*\d*\s*(din|days?|ghant[ae]|hours?|hrs?)\b|\bby (train|air)\b|train se|\b(i will|i'll) (inform|update|let you know|tell you)\b|\bwill (inform|update) you\b|update (karta|kar) (hun|dunga|denge|dunga)|inform (karta|kar) (hun|dunga)|baaki update/.test(t)
+  if (/porter\.in\/|\/rd\/|porter mini|via (porter|dunzo|shiprocket|delhivery)|shiprocket|delhivery|\bdtdc\b|bluedart|ekart|xpressbees|\/tracking|\/track\/|\btracking\b|\bawb\b|\bdispatch(?:ing|ed)?\b|\basap\b|sending you (some )?goods|track (the |your |this )?order|referral code|book.{0,10}porter|order here:|genrate shp|complaint (daal|dal|kar|likh|raise|file)|complain (daal|kar)|shikayat (daal|kar)|\bnext day\b|\bsame day\b|agle din|kal tak|aaj hi (mil|aa|nikal|dispatch|bhej)|\b\d+\s*(-|to|–|\s)?\s*\d*\s*(din|days?|ghant[ae]|hours?|hrs?)\b|\bby (train|air)\b|train se|\b(i will|i'll) (inform|update|let you know|tell you)\b|\bwill (inform|update) you\b|update (karta|kar) (hun|dunga|denge|dunga)|inform (karta|kar) (hun|dunga)|baaki update/.test(t)) return true
+  // Month-named restock/launch dates ("September ke baad milega", "October mein aayega") are
+  // point-in-time like "7 din mein" — a month + timing particle must never become a correction.
+  // (Particle required so plain English "you may order" can't false-positive.)
+  if (/\b(jan(uary)?|feb(ruary)?|march|april|may|june|july|aug(ust)?|sept(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\s*(ke\s*(baad|pehle)|mein|me\b|tak|se\b|end|start|last|first)/i.test(t)) return true
+  return /(जनवरी|फरवरी|मार्च|अप्रैल|मई|जून|जुलाई|अगस्त|सितंबर|सितम्बर|अक्टूबर|नवंबर|दिसंबर)\s*(के\s*(बाद|पहले)|में|तक|से)/.test(t)
 }
 
 // The owner talks to the assistant from his OWN WhatsApp (the /api/ask owner channel): instructions
