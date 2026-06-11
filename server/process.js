@@ -279,6 +279,17 @@ async function isInvoiceImage(anthropic, mediaUrl) {
 // complaint and may be untrue. Defer to Ketu instead (Ketu 2026-06-08, buyer 919163331280).
 const DELAY_COMPLAINT_RE = /abhi\s*t[ak]+\b[^]{0,25}\b(nahi|nhi|nahin|nehi|nai)|dispatch\s*(nahi|nhi|nahin|nehi|nai)\s*hua|\b(nahi|nhi|nehi|nai)\s*hua\b|itni\s*(late|der|deri)|(kyu|kyun|q)\b[^]{0,20}\b(late|der)\b|\b(kab|kaha|kahan)\b[^]{0,20}\b(aa?yega|aega|tak|hai|hoga)|\d+\s*din\s*(ho|hue|huye)[^]{0,8}(gaye|gae|gaya|gye|hai)|\bdelay\b|late\s*ho\s*rah/i
 
+// A bill/invoice can also arrive with TEXT whose intent is NOT a dispatch confirmation at all —
+// RETURN / REFUND / CANCEL / closing-the-business buy-back ("stock return kar sakte hain?",
+// "business band karna pad raha hai", "refund kar do", "cancel kar do", "wapas le lo"). The canned
+// "dispatching ASAP" to such a message ignores (and insults) the actual request — honor the TEXT
+// and defer to Ketu (Ketu 2026-06-11, buyer 917771860806: closing business, asked to return stock,
+// got "dispatching ASAP").
+const NON_DISPATCH_INTENT_RE = /\breturn\b|\brefund\b|\bcancel\b|\bexchange\b|\breplace\b|wapas|वापस|लौटा|रिफंड|कैंसल|रिटर्न|band\s*(karna|kar\s*rah|ho\s*rah)|बंद\s*(करना|कर\s*रह|हो\s*रह)|बदल\s*(do|दो|na|ना)/i
+function hasNonDispatchIntentText(text) {
+  return NON_DISPATCH_INTENT_RE.test(text || '')
+}
+
 async function hasRecentDelayComplaint(db, conversationId) {
   try {
     const recent = await db.messageLog.findMany({
@@ -645,7 +656,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     // Match common bill/invoice document patterns (Bill, Invoice, Tax, Receipt, GST, etc.)
     const isBillDoc = mergedText?.match(/\[Document:.*(?:bill|invoice|tax|receipt|gst|challan|voucher|order).*\.pdf\]/i)
     if (isBillDoc) {
-      if (await hasRecentDelayComplaint(db, conversation.id)) {
+      if (hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
           mergedText, messageIds, logData: {
@@ -683,7 +694,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       }
     }
     if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
-      if (await hasRecentDelayComplaint(db, conversation.id)) {
+      if (hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
           mergedText, messageIds, logData: {
@@ -1039,7 +1050,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // Match common bill/invoice document patterns (Bill, Invoice, Tax, Receipt, GST, etc.)
   const isBillDocument = mergedText.match(/\[Document:.*(?:bill|invoice|tax|receipt|gst|challan|voucher|order).*\.pdf\]/i)
   if (isBillDocument) {
-    if (await hasRecentDelayComplaint(db, conversation.id)) {
+    if (hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
         mergedText, messageIds, logData: {
@@ -1076,7 +1087,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
   }
   if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
-    if (await hasRecentDelayComplaint(db, conversation.id)) {
+    if (hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
         mergedText, messageIds, logData: {
