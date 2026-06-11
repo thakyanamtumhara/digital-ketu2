@@ -486,7 +486,11 @@ const REPLY_PRICE_PER_OUTPUT_TOKEN = 0.000025  // $25 per 1M output tokens (Opus
 // (42/43 gaps <60min) but are often >5min apart, so a 1h cache hits far more than the default
 // 5-min. If the beta is ever rejected, this flips false and we fall back to the 5-min ephemeral
 // cache for the rest of the process — so it can never break a reply.
-let extendedCacheTtlAvailable = true
+// Timestamp gate for the 1h-cache attempts: 0 = try now; on failure set to now+15min so a
+// TRANSIENT error (overload/timeout) can't permanently degrade caching to the 5-min tier —
+// the old boolean latch did exactly that, making every spaced-out reply pay a full ~₹14
+// cache re-write for the rest of the process lifetime.
+let extendedCacheTtlRetryAt = 0
 const USD_TO_INR = 85
 
 /**
@@ -1672,17 +1676,19 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   try {
     const userMessages = [{ role: 'user', content: imageBlock ? [imageBlock, { type: 'text', text: userPrompt }] : userPrompt }]
     let response
-    // Try the 1-hour cache TTL first (bigger savings); if the beta is rejected, disable it for the
-    // rest of the process and fall back to the standard 5-min ephemeral cache — never breaks a reply.
-    if (extendedCacheTtlAvailable) {
+    let used1hCache = false
+    // Try the 1-hour cache TTL first (bigger savings with spaced traffic); on error fall back to
+    // the standard 5-min ephemeral cache for THIS reply and retry the 1h path after 15 minutes.
+    if (Date.now() >= extendedCacheTtlRetryAt) {
       try {
         response = await anthropic.messages.create(
           { model: 'claude-opus-4-8', max_tokens: 500, system: buildSystemBlocks(true), messages: userMessages },
           { headers: { 'anthropic-beta': 'extended-cache-ttl-2025-04-11' } }
         )
+        used1hCache = true
       } catch (e) {
-        console.error('[Cache] 1h TTL unavailable, falling back to 5-min ephemeral:', e.message)
-        extendedCacheTtlAvailable = false
+        console.error(`[Cache] 1h TTL attempt failed (status=${e.status || '?'}; retrying 1h path in 15 min):`, e.message)
+        extendedCacheTtlRetryAt = Date.now() + 15 * 60 * 1000
       }
     }
     if (!response) {
@@ -1701,7 +1707,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     completionTokens = u.output_tokens
     totalTokens = promptTokens + completionTokens
     // 1h cache writes cost 2x input; 5-min writes cost 1.25x. Reads are 0.1x either way.
-    const writeMultiplier = extendedCacheTtlAvailable ? 2.0 : 1.25
+    const writeMultiplier = used1hCache ? 2.0 : 1.25
     costUsd = (freshInput * REPLY_PRICE_PER_INPUT_TOKEN)
       + (cacheWrite * REPLY_PRICE_PER_INPUT_TOKEN * writeMultiplier)
       + (cacheRead * REPLY_PRICE_PER_INPUT_TOKEN * 0.10)
