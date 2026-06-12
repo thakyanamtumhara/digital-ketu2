@@ -41,6 +41,10 @@ export function isTransactionalReply(reply) {
   if (!reply || !reply.trim()) return false
   const t = reply.toLowerCase()
   if (/porter\.in\/|\/rd\/|porter mini|via (porter|dunzo|shiprocket|delhivery)|shiprocket|delhivery|\bdtdc\b|bluedart|ekart|xpressbees|\/tracking|\/track\/|\btracking\b|\bawb\b|\bdispatch(?:ing|ed)?\b|\basap\b|sending you (some )?goods|track (the |your |this )?order|referral code|book.{0,10}porter|order here:|genrate shp|complaint (daal|dal|kar|likh|raise|file)|complain (daal|kar)|shikayat (daal|kar)|\bnext day\b|\bsame day\b|agle din|kal tak|aaj hi (mil|aa|nikal|dispatch|bhej)|\b\d+\s*(-|to|–|\s)?\s*\d*\s*(din|days?|ghant[ae]|hours?|hrs?)\b|\bby (train|air)\b|train se|\b(i will|i'll) (inform|update|let you know|tell you)\b|\bwill (inform|update) you\b|update (karta|kar) (hun|dunga|denge|dunga)|inform (karta|kar) (hun|dunga)|baaki update/.test(t)) return true
+  // A reply carrying a buyer's ACCOUNT CREDENTIALS (their login email / a password) is per-buyer
+  // private data — replaying it would send one buyer's credentials to another (caught live
+  // 2026-06-12: "Email: <buyer>@gmail.com Password: 12345678" auto-captured as a correction).
+  if (/password\s*[:=]|[\w.+-]+@(gmail|yahoo|hotmail|outlook|rediffmail|icloud)\./i.test(t)) return true
   // Month-named restock/launch dates ("September ke baad milega", "October mein aayega") are
   // point-in-time like "7 din mein" — a month + timing particle must never become a correction.
   // (Particle required so plain English "you may order" can't false-positive.)
