@@ -35,6 +35,35 @@ app.get('/api/health', async (c) => {
 // hiccup can't trigger a restart loop — it only fails if the process itself is hung.
 app.get('/api/health/live', (c) => c.json({ status: 'alive', service: 'digital-ketu2' }))
 
+// Which database is production actually connected to? (Settles the Neon-vs-Railway-PG
+// question without dashboard access.) Secret-gated; reports host/db/version only — the
+// connection string's credentials never leave the server.
+app.get('/api/admin/db-info', async (c) => {
+  const settings = await getSettings()
+  const SECRET = settings.digitalKetuSecret || process.env.DIGITAL_KETU_SECRET
+  if (!SECRET || c.req.header('X-Digital-Ketu-Secret') !== SECRET) {
+    return c.json({ error: 'unauthorized' }, 401)
+  }
+  try {
+    const u = new URL(process.env.DATABASE_URL || 'postgres://unset')
+    const ver = await db.$queryRaw`SELECT version() AS v`
+    const vec = await db.$queryRaw`SELECT count(*)::int AS n FROM pg_extension WHERE extname = 'vector'`
+    const chunks = await db.knowledgeChunk.count()
+    const withEmbedding = await db.$queryRaw`SELECT count(*)::int AS n FROM "KnowledgeChunk" WHERE embedding IS NOT NULL`
+    return c.json({
+      host: u.hostname,
+      port: u.port || '5432',
+      database: u.pathname.replace('/', ''),
+      serverVersion: ver?.[0]?.v || null,
+      pgvector: (vec?.[0]?.n || 0) > 0,
+      knowledgeChunks: chunks,
+      chunksWithEmbedding: withEmbedding?.[0]?.n || 0,
+    })
+  } catch (e) {
+    return c.json({ error: e.message }, 500)
+  }
+})
+
 // Voice-transcription health for the wwbun dashboard badge (green = working, red = broken).
 app.get('/api/transcription-health', (c) => c.json(getTranscriptionHealth()))
 
