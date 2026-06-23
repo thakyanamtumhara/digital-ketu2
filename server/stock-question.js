@@ -45,6 +45,11 @@ export function isTransactionalReply(reply) {
   // private data — replaying it would send one buyer's credentials to another (caught live
   // 2026-06-12: "Email: <buyer>@gmail.com Password: 12345678" auto-captured as a correction).
   if (/password\s*[:=]|[\w.+-]+@(gmail|yahoo|hotmail|outlook|rediffmail|icloud)\./i.test(t)) return true
+  // Order-lookup / "send me the bill" asks are point-in-time ORDER HANDLING (only Ketu acts on a
+  // bill). Learning them made the clone ask "Bill bhejo / kaun sa order hai" on delivery/tracking
+  // complaints instead of deferring (10 such corrections deleted 2026-06-23; caused buyer 9163133430
+  // to be looped for a bill on a delivery-delay complaint). Never re-capture these.
+  if (/\bbill bhej(o|na|do|iye|dijiye)\b|kaun\s*sa order|konsa order|kaunsa order|which order|share (the )?bill|order (number|no\.?|id) (bhej|batao|do)|tracking link bhej/i.test(t)) return true
   // Month-named restock/launch dates ("September ke baad milega", "October mein aayega") are
   // point-in-time like "7 din mein" — a month + timing particle must never become a correction.
   // (Particle required so plain English "you may order" can't false-positive.)
