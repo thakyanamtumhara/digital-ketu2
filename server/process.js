@@ -1660,6 +1660,31 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   })
   const styleGuide = styleGuideChunk?.content || null
 
+  // AUTHORITATIVE PRICE LIST — inject EVERY catalog product's price on every request, so a price
+  // answer never depends on whether vector search happened to retrieve that product's chunk.
+  // Root cause of the 2026-06-23 ₹160 hallucination for oversize 210gsm (real ₹185): the slug/link
+  // lives in the static prompt but the PRICE only rode in via top-K retrieval, which missed the
+  // oversize-210gsm chunk that query — so the model had the link but no price and guessed a number.
+  let priceTable = null
+  try {
+    const catalogChunks = await db.knowledgeChunk.findMany({
+      where: { source: 'CATALOG' },
+      select: { title: true, metadata: true },
+    })
+    const lines = []
+    for (const c of catalogChunks) {
+      const m = typeof c.metadata === 'string' ? JSON.parse(c.metadata) : (c.metadata || {})
+      if (!m.bulkPrice && !m.samplePrice) continue
+      const parts = []
+      if (m.bulkPrice) parts.push(`bulk ₹${m.bulkPrice}`)
+      if (m.samplePrice) parts.push(`sample ₹${m.samplePrice}`)
+      lines.push(`${c.title}: ${parts.join(', ')} /pc`)
+    }
+    if (lines.length) priceTable = lines.sort().join('\n')
+  } catch (err) {
+    console.error(`[PriceTable] ${whatsappNumber} — build failed, falling back to RAG-only prices:`, err.message)
+  }
+
   const { staticPrompt, dynamicPrompt } = buildSystemPrompt({ settings, styleGuide, stylePairs: stylePairResults })
   const systemPrompt = staticPrompt + dynamicPrompt  // combined, for logging/grading
   // Prompt-cache the static prefix (1h TTL — see extendedCacheTtlAvailable); keep the per-query
@@ -1676,6 +1701,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     stylePairResults,
     conversationHistory,
     quotedText,
+    priceTable,
   })
 
   // Vision: tell the model a real photo is attached and how to use it (no hallucinated prices/details).
@@ -1869,7 +1895,7 @@ function buildSystemPrompt({ settings, styleGuide, stylePairs }) {
   return { staticPrompt, dynamicPrompt }
 }
 
-function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conversationHistory, quotedText }) {
+function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conversationHistory, quotedText, priceTable }) {
   let prompt = ''
 
   // Current IST date/day (computed per-request) so date-relative questions — store hours on
@@ -1879,6 +1905,13 @@ function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conve
   const _nowIST = new Date(Date.now() + _IST_MS)
   const _tomIST = new Date(Date.now() + _IST_MS + 86400000)
   prompt += `TODAY (IST): ${_DAYS[_nowIST.getUTCDay()]}, ${_nowIST.toISOString().slice(0, 10)}. TOMORROW (IST): ${_DAYS[_tomIST.getUTCDay()]}. (Use this ONLY for date-relative questions like store hours on "aaj/kal/today/tomorrow" — never volunteer the date unprompted.)\n\n`
+
+  // AUTHORITATIVE PRICE LIST (every product, every request) — the model must quote prices ONLY
+  // from here, never from retrieval gaps or memory. Prevents price hallucinations like the
+  // ₹160-for-oversize-210gsm slip (real ₹185) when vector search missed that product's chunk.
+  if (priceTable) {
+    prompt += `AUTHORITATIVE PRICE LIST — these are the ONLY correct prices. If you state ANY price it MUST be copied EXACTLY from this list (never round, never guess, never use a number from memory or the chat). "bulk" = 10+ pcs, "sample" = under 10 pcs. If a product the buyer asks about is NOT in this list, do NOT quote a number — just send its link.\n${priceTable}\n\n`
+  }
 
   // Knowledge results from vector search (top 5 matches from catalog + templates + policies)
   if (knowledgeResults.length > 0) {
