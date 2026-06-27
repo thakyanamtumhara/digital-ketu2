@@ -35,6 +35,54 @@ app.get('/api/health', async (c) => {
 // hiccup can't trigger a restart loop — it only fails if the process itself is hung.
 app.get('/api/health/live', (c) => c.json({ status: 'alive', service: 'digital-ketu2' }))
 
+// AI DOWN-ALERT for the wwbun operator banner: is the reply brain actually answering, or is
+// something blocking it (Anthropic usage-limit / overload / rate-limit / DB)? A reply-call
+// failure is logged as status:'FAILED' with the raw API error in deferReason (process.js), so we
+// read recent logs and surface the EXACT reason. CORS-open + no secret so the wwbun frontend can
+// poll it directly; it returns status + error text only (no buyer data). Origin: 2026-06-27 — the
+// Anthropic monthly usage limit was hit at 26 Jun 14:23 IST and the clone went dark ~19h unnoticed.
+app.get('/api/ai-status', async (c) => {
+  c.header('Access-Control-Allow-Origin', '*')
+  c.header('Cache-Control', 'no-store')
+  let dbOk = true
+  try { await db.$queryRaw`SELECT 1` } catch { dbOk = false }
+  try {
+    const recent = await db.messageLog.findMany({
+      orderBy: { createdAt: 'desc' }, take: 60,
+      select: { createdAt: true, status: true, deferReason: true, costUsd: true, aiReply: true },
+    })
+    const API_ERR = /usage limit|overloaded|rate.?limit|invalid_request|"type"\s*:\s*"error"|^\s*\d{3}\s/i
+    const isErr = (r) => r.status === 'FAILED' || API_ERR.test(r.deferReason || '')
+    const isPaid = (r) => (Number(r.costUsd) || 0) > 0.0003 && (r.aiReply || '').trim()
+    const lastError = recent.find(isErr)
+    const lastPaid = recent.find(isPaid)
+    const errFresh = lastError && (Date.now() - new Date(lastError.createdAt).getTime() < 2 * 60 * 60 * 1000)
+    const errNewest = lastError && (!lastPaid || new Date(lastError.createdAt) > new Date(lastPaid.createdAt))
+    let down = false, reason = null, detail = null, since = null
+    if (!dbOk) {
+      down = true; reason = 'Database disconnected — the clone cannot read or reply.'; detail = 'db_disconnected'
+    } else if (errFresh && errNewest) {
+      down = true
+      detail = lastError.deferReason || lastError.status
+      since = lastError.createdAt
+      const d = String(detail).toLowerCase()
+      if (d.includes('usage limit')) {
+        const when = (String(detail).match(/regain access on ([0-9:\sA-Za-z\-]+UTC)/i) || [])[1]
+        reason = `Anthropic API monthly usage limit reached — AI replies are PAUSED${when ? ` (resets ${when.trim()})` : ''}. Raise the limit at console.anthropic.com → Billing → Limits to resume now.`
+      } else if (d.includes('overloaded')) {
+        reason = 'Anthropic API temporarily overloaded — replies delayed, auto-retrying.'
+      } else if (d.includes('rate') || /^\s*429/.test(String(detail))) {
+        reason = 'Anthropic rate limit hit — replies throttled, auto-retrying.'
+      } else {
+        reason = `AI reply error: ${String(detail).slice(0, 180)}`
+      }
+    }
+    return c.json({ ok: !down, down, reason, detail, since, lastPaidReplyAt: lastPaid?.createdAt || null, checkedAt: new Date().toISOString() })
+  } catch (e) {
+    return c.json({ ok: false, down: true, reason: `Status check failed: ${e.message}`, detail: 'status_error' })
+  }
+})
+
 // Which database is production actually connected to? (Settles the Neon-vs-Railway-PG
 // question without dashboard access.) Secret-gated; reports host/db/version only — the
 // connection string's credentials never leave the server.
