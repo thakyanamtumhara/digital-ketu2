@@ -41,6 +41,25 @@ app.get('/api/health/live', (c) => c.json({ status: 'alive', service: 'digital-k
 // read recent logs and surface the EXACT reason. CORS-open + no secret so the wwbun frontend can
 // poll it directly; it returns status + error text only (no buyer data). Origin: 2026-06-27 — the
 // Anthropic monthly usage limit was hit at 26 Jun 14:23 IST and the clone went dark ~19h unnoticed.
+// Cached live probe — one tiny Haiku call to confirm the Anthropic API is actually answering RIGHT
+// NOW (it shares the account's usage limit, so it fails the same way when capped, and succeeds the
+// moment the limit is raised). Fires ONLY when the status endpoint already suspects down, cached
+// 60s — so it costs ~nothing in steady state but lets the banner auto-clear within ~1min of a fix
+// even while the operator is replying manually (no organic Opus call needed to confirm recovery).
+let aiProbeCache = null // { ts, ok, errMsg }
+async function probeAnthropic() {
+  if (aiProbeCache && Date.now() - aiProbeCache.ts < 60 * 1000) return aiProbeCache
+  let out
+  try {
+    await anthropic.messages.create({ model: 'claude-haiku-4-5-20251001', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] })
+    out = { ok: true, errMsg: null }
+  } catch (e) {
+    out = { ok: false, errMsg: e?.message || String(e) }
+  }
+  out.ts = Date.now()
+  aiProbeCache = out
+  return out
+}
 app.get('/api/ai-status', async (c) => {
   c.header('Access-Control-Allow-Origin', '*')
   c.header('Cache-Control', 'no-store')
@@ -58,26 +77,34 @@ app.get('/api/ai-status', async (c) => {
     const lastPaid = recent.find(isPaid)
     const errFresh = lastError && (Date.now() - new Date(lastError.createdAt).getTime() < 2 * 60 * 60 * 1000)
     const errNewest = lastError && (!lastPaid || new Date(lastError.createdAt) > new Date(lastPaid.createdAt))
-    let down = false, reason = null, detail = null, since = null
+    const humanize = (dt) => {
+      const d = String(dt).toLowerCase()
+      if (d.includes('usage limit')) {
+        const when = (String(dt).match(/regain access on ([0-9:\sA-Za-z\-]+UTC)/i) || [])[1]
+        return `Anthropic API monthly usage limit reached — AI replies are PAUSED${when ? ` (resets ${when.trim()})` : ''}. Raise the limit at console.anthropic.com → Billing → Limits to resume now.`
+      }
+      if (d.includes('overloaded')) return 'Anthropic API temporarily overloaded — replies delayed, auto-retrying.'
+      if (d.includes('rate') || /^\s*429/.test(String(dt))) return 'Anthropic rate limit hit — replies throttled, auto-retrying.'
+      return `AI reply error: ${String(dt).slice(0, 180)}`
+    }
+    let down = false, reason = null, detail = null, since = null, probed = false
     if (!dbOk) {
       down = true; reason = 'Database disconnected — the clone cannot read or reply.'; detail = 'db_disconnected'
     } else if (errFresh && errNewest) {
-      down = true
-      detail = lastError.deferReason || lastError.status
-      since = lastError.createdAt
-      const d = String(detail).toLowerCase()
-      if (d.includes('usage limit')) {
-        const when = (String(detail).match(/regain access on ([0-9:\sA-Za-z\-]+UTC)/i) || [])[1]
-        reason = `Anthropic API monthly usage limit reached — AI replies are PAUSED${when ? ` (resets ${when.trim()})` : ''}. Raise the limit at console.anthropic.com → Billing → Limits to resume now.`
-      } else if (d.includes('overloaded')) {
-        reason = 'Anthropic API temporarily overloaded — replies delayed, auto-retrying.'
-      } else if (d.includes('rate') || /^\s*429/.test(String(detail))) {
-        reason = 'Anthropic rate limit hit — replies throttled, auto-retrying.'
-      } else {
-        reason = `AI reply error: ${String(detail).slice(0, 180)}`
+      // Suspected down from the logs — but the operator may be replying manually (no fresh Opus
+      // call to confirm recovery). PROBE the API live so the banner reflects the TRUE current state
+      // and clears within ~1min of a limit-raise / outage ending.
+      probed = true
+      const probe = await probeAnthropic()
+      if (!probe.ok) {
+        down = true
+        detail = probe.errMsg || lastError.deferReason || lastError.status
+        since = lastError.createdAt
+        reason = humanize(detail)
       }
+      // probe.ok === true → API answering again → leave down=false (recovered)
     }
-    return c.json({ ok: !down, down, reason, detail, since, lastPaidReplyAt: lastPaid?.createdAt || null, checkedAt: new Date().toISOString() })
+    return c.json({ ok: !down, down, reason, detail, since, probed, lastPaidReplyAt: lastPaid?.createdAt || null, checkedAt: new Date().toISOString() })
   } catch (e) {
     return c.json({ ok: false, down: true, reason: `Status check failed: ${e.message}`, detail: 'status_error' })
   }
