@@ -493,6 +493,12 @@ RULES:
 - WEBSITE / ORDER / TECHNICAL PROBLEM (buyer says "order nahi ho raha", website/page not opening, "error aa raha hai", payment failed, login/account issue, etc.) — NEVER tell the buyer to call any number. Ask them to share a SCREENSHOT of the problem (in their language), e.g. "Screenshot bhej dijiye sir, kya problem aa raha hai 🙏" / "Send a screenshot of the problem sir". The screenshot then reaches Ketu, who resolves it — do NOT direct them to call.
 - STRICT CATALOG DATA — NEVER invent product details. Only mention GSMs, sizes, colors that appear in the KNOWLEDGE BASE results for this query. Max adult size is XXL (no 3XL, 4XL, 5XL). If the knowledge base doesn't list a specific detail, don't guess — send the catalog link.`
 
+// Prompt-cache freshness tracker — set on every successful Opus reply call. The keep-alive in
+// index.js reads this to know whether the 1h static-prompt cache is still warm and worth
+// extending with a cheap ping (cache read ≈ ₹1.5) instead of letting it expire and making the
+// next buyer pay a cold 2x re-write (≈ ₹25-33; those spikes were 35% of the daily bill, 2026-07-02).
+export const cacheTouch = { at: 0 }
+
 // Claude pricing — Haiku 4.5 rates for the cheap binary classifiers + restraint gate
 const PRICE_PER_INPUT_TOKEN = 0.000001   // $1 per 1M input tokens
 const PRICE_PER_OUTPUT_TOKEN = 0.000005  // $5 per 1M output tokens
@@ -1755,6 +1761,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
       + (cacheWrite * REPLY_PRICE_PER_INPUT_TOKEN * writeMultiplier)
       + (cacheRead * REPLY_PRICE_PER_INPUT_TOKEN * 0.10)
       + (completionTokens * REPLY_PRICE_PER_OUTPUT_TOKEN)
+    if (used1hCache) cacheTouch.at = Date.now()  // 1h static-prompt cache is warm as of now
   } catch (err) {
     console.error(`[Claude Error] ${whatsappNumber}:`, err.message)
     await createLog(db, conversationId, mergedText, messageIds, {

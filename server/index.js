@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers } from './process.js'
+import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
@@ -2372,6 +2372,49 @@ app.use('/*', serveStatic({ root: './dist' }))
 app.get('/*', serveStatic({ path: './dist/index.html' }))
 
 // ===========================================
+// ===========================================
+// PROMPT-CACHE KEEP-ALIVE — kills the cold-cache cost spikes (2026-07-02: 10 spikes in 48h were
+// ₹299 of a ₹854 bill — 35% of cost from 4% of replies). The 1h-TTL static-prompt cache expires
+// during traffic gaps, so the next buyer's reply pays a full 2x re-write (₹25-33). This pings the
+// API with the IDENTICAL static block + a 1-token user message when the cache is 50-58 min old
+// (a cache READ ≈ ₹1.5), refreshing the TTL. Chains only continue from real traffic (a ping also
+// counts as a touch), and only during IST business hours 07-23 — overnight the cache goes cold on
+// purpose (one morning write beats pinging all night). ZERO effect on reply behaviour: no rule,
+// model, or flow change — pure cache-economics.
+async function cacheKeepAlive() {
+  try {
+    const age = Date.now() - cacheTouch.at
+    if (cacheTouch.at === 0 || age < 50 * 60 * 1000 || age > 58 * 60 * 1000) return
+    const istHour = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours()
+    if (istHour < 7 || istHour >= 23) return
+    const settings = await getSettings()
+    let staticPrompt = settings.systemPrompt || DEFAULT_SYSTEM_PROMPT
+    const styleGuideChunk = await db.knowledgeChunk.findFirst({
+      where: { source: 'STYLE_GUIDE', sourceId: 'om_style_guide' },
+      select: { content: true },
+    })
+    if (styleGuideChunk?.content) staticPrompt += `\n\nOM'S COMMUNICATION STYLE:\n${styleGuideChunk.content}`
+    const res = await anthropic.messages.create({
+      model: 'claude-opus-4-8',
+      max_tokens: 1,
+      system: [{ type: 'text', text: staticPrompt, cache_control: { type: 'ephemeral', ttl: '1h' } }],
+      messages: [{ role: 'user', content: 'ping' }],
+    })
+    cacheTouch.at = Date.now()
+    const u = res.usage || {}
+    // $5/M input: fresh 1x, 1h-cache write 2x, cache read 0.1x — same accounting as the reply path
+    const cost = ((u.input_tokens || 0) * 0.000005)
+      + ((u.cache_creation_input_tokens || 0) * 0.000005 * 2.0)
+      + ((u.cache_read_input_tokens || 0) * 0.000005 * 0.10)
+      + ((u.output_tokens || 0) * 0.000025)
+    await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: cost } } }).catch(() => {})
+    console.log(`[CacheKeepAlive] pinged — read=${u.cache_read_input_tokens || 0} write=${u.cache_creation_input_tokens || 0} cost=$${cost.toFixed(4)}`)
+  } catch (err) {
+    console.error('[CacheKeepAlive] ping failed (harmless — next buyer pays the write):', err.message)
+  }
+}
+setInterval(cacheKeepAlive, 5 * 60 * 1000)
+
 // Start Server
 // ===========================================
 
