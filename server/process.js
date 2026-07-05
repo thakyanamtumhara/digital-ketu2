@@ -285,7 +285,9 @@ const DELAY_COMPLAINT_RE = /abhi\s*t[ak]+\b[^]{0,25}\b(nahi|nhi|nahin|nehi|nai)|
 // "dispatching ASAP" to such a message ignores (and insults) the actual request — honor the TEXT
 // and defer to Ketu (Ketu 2026-06-11, buyer 917771860806: closing business, asked to return stock,
 // got "dispatching ASAP").
-const NON_DISPATCH_INTENT_RE = /\breturn\b|\brefund\b|\bcancel\b|\bexchange\b|\breplace\b|wapas|वापस|लौटा|रिफंड|कैंसल|रिटर्न|band\s*(karna|kar\s*rah|ho\s*rah)|बंद\s*(करना|कर\s*रह|हो\s*रह)|बदल\s*(do|दो|na|ना)/i
+// Includes MISSING-PIECE / short-shipment complaint phrasings (2026-07-05, buyer 6353441274:
+// "ordered 2 pcs & received only 1 pcs" — a bill + such TEXT must defer, not "dispatching ASAP").
+const NON_DISPATCH_INTENT_RE = /\breturn\b|\brefund\b|\bcancel\b|\bexchange\b|\breplace\b|wapas|वापस|लौटा|रिफंड|कैंसल|रिटर्न|band\s*(karna|kar\s*rah|ho\s*rah)|बंद\s*(करना|कर\s*रह|हो\s*रह)|बदल\s*(do|दो|na|ना)|received only|\bonly\s*\d+\s*(pc|pcs|piece)|sirf\s*\d+\s*(aaya|aaye|mila|mile)|kam\s*(mila|mile|aaya|aaye|nikla|nikle|hai|the)\b|(pc|pcs|piece[s]?)\s*kam\b|\bmissing\b|\bshort\s*(aaya|mila|received)|नहीं\s*(आया|आये|मिला|मिले)|कम\s*(मिला|मिले|आया|आये|निकला|निकले)|\bwrong\s*(size|colour|color|item)|galat\s*(size|colour|color|item|maal)|गलत\s*(साइज|कलर|आइटम|माल)/i
 function hasNonDispatchIntentText(text) {
   return NON_DISPATCH_INTENT_RE.test(text || '')
 }
