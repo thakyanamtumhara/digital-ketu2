@@ -13,7 +13,10 @@ import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } 
 // ===========================================
 // Welcome Follow-Up Constants & State
 // ===========================================
-const THREE_MINUTES_MS = 3 * 60 * 1000
+// Was 3 minutes; cut to 60s on Ketu's call (2026-07-06): buyers got the "any questions?" nudge
+// or their first answer 3 min late and disengaged. 60s still lets a multi-message first burst
+// finish and still gives Ketu first shot (his manual reply cancels the timer via cooldown).
+const THREE_MINUTES_MS = 60 * 1000  // welcome follow-up delay (name kept for the 3 call sites)
 const DEFER_DELAY_MS = 30 * 1000 // 30 seconds — batch defers before sending
 // Welcome follow-up nudge after a bare greeting ("hi"/"hello" with no question). Ketu WANTS this
 // "any questions?" engagement nudge here — do NOT replace it with the catalog link. The BANNED FILLER
