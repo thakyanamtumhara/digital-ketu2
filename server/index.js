@@ -20,6 +20,27 @@ app.use('*', cors({
   credentials: true,
 }))
 
+// LOCKDOWN (Ketu-approved 2026-07-06): these endpoints leak buyer phone numbers + full chats and
+// were fully public. Now they require EITHER the main shared secret (X-Digital-Ketu-Secret — wwbun
+// holds it) OR the low-privilege read token (X-DK-Read-Token = env LOGS_READ_TOKEN — used by the
+// local watcher, sweep scripts, and the cloud reviewer; rotate by changing the env var).
+// Health + ai-status stay public on purpose (no buyer data; the wwbun banner & monitors need them).
+const readGuard = async (c, next) => {
+  const settings = await getSettings().catch(() => null)
+  const main = settings?.digitalKetuSecret || process.env.DIGITAL_KETU_SECRET
+  const read = process.env.LOGS_READ_TOKEN
+  const h = c.req.header('X-Digital-Ketu-Secret') || c.req.header('X-DK-Read-Token')
+  if ((main && h === main) || (read && h === read)) return next()
+  return c.json({ error: 'unauthorized' }, 401)
+}
+app.use('/api/logs', readGuard)
+app.use('/api/learning/manual-pairs', readGuard)
+app.use('/api/defer-list', readGuard)
+app.use('/api/defer-list/*', readGuard)
+app.use('/api/knowledge/chunks', readGuard)
+app.use('/api/knowledge/correction/*', readGuard)
+app.use('/api/correction', readGuard)
+
 // --- Health Check ---
 // /api/health does a real DB probe so external monitors (UptimeRobot) see RED when Neon is
 // down — the missing signal that let both outages run for days. Point UptimeRobot here.
