@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch } from './process.js'
+import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, IG_BUSINESS_ID, IG_VERIFY_TOKEN } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
@@ -281,6 +281,75 @@ app.put('/api/settings', async (c) => {
 // Buffer for message merging (same sender within 3 sec = one thought)
 const messageBuffer = new Map() // whatsappNumber -> { messages: [], timer: null }
 
+// Shared enqueue used by BOTH /api/incoming (WhatsApp via wwbun) and /ig/webhook (Instagram,
+// senderKey 'ig:<IGSID>'). Extracted verbatim from the /api/incoming handler — same followup/defer
+// pausing, same merge buffer, same settle timer, same processIncomingMessage handoff.
+async function enqueueIncoming(senderKey, message) {
+  // Cancel pending welcome followup if buyer sends another message
+  if (pendingWelcomeFollowups.has(senderKey)) {
+    clearTimeout(pendingWelcomeFollowups.get(senderKey).timer)
+    pendingWelcomeFollowups.delete(senderKey)
+    console.log(`[Welcome] ${senderKey} — cancelled pending followup (new message received)`)
+  }
+
+  // Pause pending defer timer — new message arrived, let it process first
+  // The defer will be restarted/batched/cancelled by processIncomingMessage
+  if (pendingDefers.has(senderKey)) {
+    const pending = pendingDefers.get(senderKey)
+    clearTimeout(pending.timer)
+    pending.timer = null
+    console.log(`[DeferBatch] ${senderKey} — paused defer timer (new message received)`)
+  }
+
+  // Add to merge buffer
+  const bufferKey = senderKey
+  if (!messageBuffer.has(bufferKey)) {
+    messageBuffer.set(bufferKey, { messages: [], timer: null })
+  }
+  const buffer = messageBuffer.get(bufferKey)
+  buffer.messages.push({
+    messageText: message.messageText || '',
+    messageId: message.messageId,
+    messageType: message.messageType || 'text',
+    hasMedia: message.hasMedia || false,
+    timestamp: message.timestamp || new Date().toISOString(),
+    senderName: message.senderName,
+    quotedText: message.quotedText || null,
+    mediaUrl: message.mediaUrl || null,
+    wwbunMessageId: message.wwbunMessageId || null,
+  })
+
+  // Clear existing timer and set new one (merge window)
+  if (buffer.timer) clearTimeout(buffer.timer)
+
+  const settings = await getSettings()
+  // (A) In Full AI mode, wait longer so a buyer firing several messages in a row gets ONE
+  // consolidated reply — like a human reading the whole thing — instead of a reply per message.
+  // Each new message resets this timer, so it only fires once the buyer pauses. Partial mode
+  // keeps its fast window unchanged.
+  const FULL_AI_SETTLE_MS = 15000
+  const windowMs = settings.isActive ? FULL_AI_SETTLE_MS : settings.mergeWindowMs
+  buffer.timer = setTimeout(async () => {
+    const merged = messageBuffer.get(bufferKey)
+    messageBuffer.delete(bufferKey)
+    if (!merged || merged.messages.length === 0) return
+
+    try {
+      await processIncomingMessage({
+        whatsappNumber: senderKey,
+        messages: merged.messages,
+        db,
+        anthropic,
+        settings,
+      })
+    } catch (err) {
+      console.error(`[Process Error] ${senderKey}:`, err.message)
+    }
+  }, windowMs)
+
+  return buffer.messages.length
+}
+
 app.post('/api/incoming', async (c) => {
   const body = await c.req.json()
   const {
@@ -308,69 +377,93 @@ app.post('/api/incoming', async (c) => {
     return c.json({ status: 'duplicate', message: 'Already processed' })
   }
 
-  // Cancel pending welcome followup if buyer sends another message
-  if (pendingWelcomeFollowups.has(whatsappNumber)) {
-    clearTimeout(pendingWelcomeFollowups.get(whatsappNumber).timer)
-    pendingWelcomeFollowups.delete(whatsappNumber)
-    console.log(`[Welcome] ${whatsappNumber} — cancelled pending followup (new message received)`)
-  }
-
-  // Pause pending defer timer — new message arrived, let it process first
-  // The defer will be restarted/batched/cancelled by processIncomingMessage
-  if (pendingDefers.has(whatsappNumber)) {
-    const pending = pendingDefers.get(whatsappNumber)
-    clearTimeout(pending.timer)
-    pending.timer = null
-    console.log(`[DeferBatch] ${whatsappNumber} — paused defer timer (new message received)`)
-  }
-
-  // Add to merge buffer
-  const bufferKey = whatsappNumber
-  if (!messageBuffer.has(bufferKey)) {
-    messageBuffer.set(bufferKey, { messages: [], timer: null })
-  }
-  const buffer = messageBuffer.get(bufferKey)
-  buffer.messages.push({
-    messageText: messageText || '',
-    messageId,
-    messageType: messageType || 'text',
-    hasMedia: hasMedia || false,
-    timestamp: timestamp || new Date().toISOString(),
-    senderName,
-    quotedText: quotedText || null,
-    mediaUrl: mediaUrl || null,
-    wwbunMessageId: wwbunMessageId || null,
+  const bufferSize = await enqueueIncoming(whatsappNumber, {
+    messageText, messageId, messageType, hasMedia, timestamp, senderName, quotedText, mediaUrl, wwbunMessageId,
   })
 
-  // Clear existing timer and set new one (merge window)
-  if (buffer.timer) clearTimeout(buffer.timer)
+  return c.json({ status: 'buffered', bufferSize })
+})
 
-  const settings = await getSettings()
-  // (A) In Full AI mode, wait longer so a buyer firing several messages in a row gets ONE
-  // consolidated reply — like a human reading the whole thing — instead of a reply per message.
-  // Each new message resets this timer, so it only fires once the buyer pauses. Partial mode
-  // keeps its fast window unchanged.
-  const FULL_AI_SETTLE_MS = 15000
-  const windowMs = settings.isActive ? FULL_AI_SETTLE_MS : settings.mergeWindowMs
-  buffer.timer = setTimeout(async () => {
-    const merged = messageBuffer.get(bufferKey)
-    messageBuffer.delete(bufferKey)
-    if (!merged || merged.messages.length === 0) return
+// ===========================================
+// Instagram DM webhook (Meta Graph API)
+// ===========================================
+// IG conversations ride the SAME buffer + pipeline as WhatsApp, keyed 'ig:<IGSID>' — the
+// prefix guards every IG-specific branch downstream (cost gate, Graph API send, persona).
 
-    try {
-      await processIncomingMessage({
-        whatsappNumber,
-        messages: merged.messages,
-        db,
-        anthropic,
-        settings,
-      })
-    } catch (err) {
-      console.error(`[Process Error] ${whatsappNumber}:`, err.message)
+// Meta verification handshake — must return the raw challenge as text/plain, NOT JSON.
+app.get('/ig/webhook', (c) => {
+  if (
+    c.req.query('hub.mode') === 'subscribe' &&
+    IG_VERIFY_TOKEN &&
+    c.req.query('hub.verify_token') === IG_VERIFY_TOKEN
+  ) {
+    return c.text(c.req.query('hub.challenge') || '')
+  }
+  return c.text('forbidden', 403)
+})
+
+// In-memory recent-mid dedupe: Meta retries can land inside the merge window BEFORE any
+// MessageLog row exists, so the DB `has` check alone can't catch them.
+const recentIgMids = new Set()
+const RECENT_IG_MIDS_MAX = 500
+
+app.post('/ig/webhook', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => null)
+    // Tolerate 'page' too (events can route via the linked Facebook Page)
+    if (body && (body.object === 'instagram' || body.object === 'page')) {
+      for (const entry of body.entry || []) {
+        for (const ev of entry.messaging || []) {
+          try {
+            const msg = ev.message
+            if (!msg) continue                 // read/delivery/reaction/postback events — ignore
+            if (msg.is_echo) continue          // our own outbound echoed back — replying would loop forever
+            const senderId = ev.sender?.id
+            if (!senderId) continue
+            if (IG_BUSINESS_ID && String(senderId) === String(IG_BUSINESS_ID)) continue // self-sent
+
+            const text = (msg.text || '').trim()
+            const attachments = msg.attachments || []
+            if (!text && attachments.length === 0) continue
+
+            const mid = msg.mid
+            if (!mid) continue
+            // Dedupe (Meta retries non-200s): fast in-memory set + the MessageLog `has` check
+            if (recentIgMids.has(mid)) continue
+            const existing = await db.messageLog.findFirst({
+              where: { messageIds: { has: mid } },
+              select: { id: true },
+            })
+            if (existing) continue
+            recentIgMids.add(mid)
+            if (recentIgMids.size > RECENT_IG_MIDS_MAX) {
+              recentIgMids.delete(recentIgMids.values().next().value)
+            }
+
+            // Attachments without text → '[media]' marker so the IG cost gate can zero-cost
+            // skip it. Story replies are tagged so the gate can zero-tier them even with text.
+            const isStoryReply = !!(msg.reply_to && msg.reply_to.story)
+            const messageText = text || '[media]'
+            const messageType = isStoryReply ? 'ig_story_reply' : 'text'
+
+            console.log(`[IG] DM from ${senderId}: "${messageText.slice(0, 60)}"`)
+            await enqueueIncoming(`ig:${senderId}`, {
+              messageText,
+              messageId: mid,
+              messageType,
+              timestamp: ev.timestamp ? new Date(ev.timestamp).toISOString() : new Date().toISOString(),
+            })
+          } catch (err) {
+            console.error('[IG] event error (continuing):', err.message)
+          }
+        }
+      }
     }
-  }, windowMs)
-
-  return c.json({ status: 'buffered', bufferSize: buffer.messages.length })
+  } catch (err) {
+    console.error('[IG] webhook error:', err.message)
+  }
+  // ALWAYS ack 200 fast — Meta retries non-200s and eventually disables the subscription
+  return c.json({ status: 'ok' })
 })
 
 // ===========================================
@@ -963,7 +1056,7 @@ app.get('/api/analytics', async (c) => {
     since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
   }
 
-  const [totalMessages, totalReplied, repliedWithCost, totalDeferred, totalSkipped, tokenStats] = await Promise.all([
+  const [totalMessages, totalReplied, repliedWithCost, totalDeferred, totalSkipped, tokenStats, igPaidCount, igCostAgg] = await Promise.all([
     db.messageLog.count({ where: { createdAt: { gte: since } } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, status: 'REPLIED' } }),
     // REAL paid AI replies only (cost > 0) — excludes the free hardcoded auto-replies (bill->dispatch, welcome)
@@ -975,6 +1068,20 @@ app.get('/api/analytics', async (c) => {
       _sum: { promptTokens: true, completionTokens: true, totalTokens: true, costUsd: true },
       _avg: { totalTokens: true, costUsd: true, processingMs: true },
       _max: { costUsd: true },
+    }),
+    // Instagram sub-stats ('ig:' conversations) — ADDITIVE: every existing field above/below is untouched
+    db.messageLog.count({
+      where: {
+        createdAt: { gte: since }, status: 'REPLIED', costUsd: { gt: 0 },
+        conversation: { whatsappNumber: { startsWith: 'ig:' } },
+      },
+    }),
+    db.messageLog.aggregate({
+      where: {
+        createdAt: { gte: since }, status: 'REPLIED',
+        conversation: { whatsappNumber: { startsWith: 'ig:' } },
+      },
+      _sum: { costUsd: true },
     }),
   ])
 
@@ -1008,6 +1115,12 @@ app.get('/api/analytics', async (c) => {
       percentUsed: settings.dailyBudgetInr > 0
         ? (((settings.dailySpentUsd * 85) / settings.dailyBudgetInr) * 100).toFixed(1) + '%'
         : '0%',
+    },
+    // Instagram DM bridge sub-stats (additive — the wwbun rate strip depends on the fields above)
+    instagram: {
+      aiPaidCount: igPaidCount,
+      totalCostUsd: igCostAgg._sum.costUsd || 0,
+      avgCostUsd: igPaidCount > 0 ? (igCostAgg._sum.costUsd || 0) / igPaidCount : 0,
     },
   })
 })

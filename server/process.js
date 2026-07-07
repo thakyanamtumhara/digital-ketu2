@@ -9,6 +9,7 @@
 
 import { vectorSearch } from './embeddings.js'
 import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } from './transcribe.js'
+import { evaluateIgGate } from './ig-gate.js'
 
 // ===========================================
 // Welcome Follow-Up Constants & State
@@ -194,6 +195,11 @@ async function autoLearnAcknowledgment(db, phrase) {
 
 const WWBUN_API_URL = process.env.WWBUN_API_URL
 const DIGITAL_KETU_SECRET = process.env.DIGITAL_KETU_SECRET
+// Instagram DM bridge — all IG behavior is guarded behind the 'ig:' conversation-key prefix.
+// IG_BUSINESS_ID / IG_VERIFY_TOKEN are exported for the /ig/webhook handlers in index.js.
+const IG_MSG_TOKEN = process.env.IG_MSG_TOKEN
+export const IG_BUSINESS_ID = process.env.IG_BUSINESS_ID
+export const IG_VERIFY_TOKEN = process.env.IG_VERIFY_TOKEN
 
 // ===========================================
 // On-demand media download from wwbun
@@ -527,10 +533,15 @@ const USD_TO_INR = 85
 export async function processIncomingMessage({ whatsappNumber, messages, db, anthropic, settings }) {
   const startTime = Date.now()
 
+  // Instagram conversations use the key 'ig:<IGSID>' — every IG-specific branch below is
+  // guarded on this flag so the WhatsApp path stays exactly as it was.
+  const isInstagram = String(whatsappNumber || '').startsWith('ig:')
+
   // OPERATOR / PERSONAL numbers — Ketu records his own ideas/notes from these; they are NOT buyers.
   // Never process, reply, or treat as a buyer conversation. (endsWith handles country-code prefixes.)
+  // IG keys are exempt: an IGSID coincidentally ending in the operator digits is still a buyer.
   const OPERATOR_NUMBERS = ['8527150400']
-  if (OPERATOR_NUMBERS.some(n => String(whatsappNumber || '').replace(/\D/g, '').endsWith(n))) {
+  if (!isInstagram && OPERATOR_NUMBERS.some(n => String(whatsappNumber || '').replace(/\D/g, '').endsWith(n))) {
     console.log(`[Skip] ${whatsappNumber} — operator/personal number (not a buyer), ignoring`)
     return
   }
@@ -633,6 +644,57 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       isMedia: hasMediaOnly,
     })
     return
+  }
+
+  // ============================================================
+  // INSTAGRAM COST GATE ('ig:' conversations ONLY — WhatsApp flow is untouched)
+  // ============================================================
+  // Pure-JS/DB tier decision BEFORE any paid AI/embedding call:
+  //   ZERO  → silent skip (emoji/media/greeting)      NUDGE → one canned pointer per 24h
+  //   CAPS  → 10/user/day + 100 global/day AI replies  AI    → fall through to the full pipeline
+  if (isInstagram) {
+    const gate = await evaluateIgGate({ db, conversationId: conversation.id, mergedText, messages })
+
+    if (gate.action === 'skip') {
+      await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
+        status: 'SKIPPED',
+        deferReason: gate.reason,
+        processingMs: Date.now() - startTime,
+        isMedia: hasMediaOnly,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+      })
+      console.log(`[IG Gate] ${whatsappNumber} — ${gate.reason}, skipped (0 tokens)`)
+      return
+    }
+
+    if (gate.action === 'canned') {
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, gate.cannedText)
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'REPLIED',
+        aiReply: gate.cannedText,
+        deferReason: gate.reason,
+        processingMs: Date.now() - startTime,
+        sentViaWwbun: !!sendResult,
+        wwbunMessageId: sendResult?.messageId || null,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+      })
+      console.log(`[IG Gate] ${whatsappNumber} — ${gate.reason}, sent canned reply (0 tokens)${sendResult ? '' : ' (SEND FAILED)'}`)
+      return
+    }
+
+    // gate.action === 'ai' (buyer tier). The partial-AI path below is WhatsApp/wwbun-specific
+    // (bill vision, dispatch detection, welcome nudges) — IG only runs the FULL AI pipeline.
+    if (!settings.isActive) {
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'SKIPPED',
+        deferReason: 'ig_ai_inactive',
+        processingMs: Date.now() - startTime,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+      })
+      console.log(`[IG Gate] ${whatsappNumber} — buyer tier but full AI is off, skipped`)
+      return
+    }
+    console.log(`[IG Gate] ${whatsappNumber} — buyer tier (${gate.reason}), entering full AI pipeline`)
   }
 
   // --- Skip [Unsupported] placeholder messages (view-once / poll / forwarded post WhatsApp
@@ -1328,7 +1390,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
   // --- 3-MIN FOLLOW-UP for new/7+day buyers (AI ON mode) ---
   // wwbun handles the welcome message. Digital-ketu2 only schedules the 3-min follow-up.
-  let shouldFollowUp = isWelcomeEligible
+  // IG conversations skip this entirely: wwbun sends no IG welcome, and a gate-approved buyer
+  // message should get its AI answer NOW, not a delayed WhatsApp-style "any questions?" nudge.
+  let shouldFollowUp = isWelcomeEligible && !isInstagram
 
   // Extra safety: check message logs too — if there are recent logs (within 7 days), skip
   if (shouldFollowUp && !isFirstTime) {
@@ -1539,7 +1603,20 @@ export async function recoverPendingFollowups({ db, anthropic }) {
 // AI Flow: Vector Search → Claude → Reply
 // Reusable by both main pipeline and welcome follow-up
 // ===========================================
+
+// Instagram persona addendum — appended as a SEPARATE (uncached) system block for 'ig:'
+// conversations only, so the cached static WhatsApp prompt stays byte-identical (cache-safe)
+// and the main persona is untouched.
+const IG_SYSTEM_ADDENDUM = `
+
+INSTAGRAM DM MODE — this buyer is messaging on INSTAGRAM, not WhatsApp:
+- You are the business account's automated assistant (a business inbox, not Ketu's personal chat). Same products, prices, and knowledge rules as above.
+- Keep replies to 2 short sentences MAX.
+- For placing orders or detailed help, point the buyer to WhatsApp: wa.me/919336695049 (mention it at most once per conversation).
+- Every other rule above still applies: language matching, authoritative prices only, never invent details, [DEFER]/[SKIP].`
+
 async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId, normalizedText, db, anthropic, settings, startTime, messageIds, imageUrl = null }) {
+  const isInstagram = String(whatsappNumber || '').startsWith('ig:')
   // --- Product-photo vision: load the image so Claude can SEE it (null if none/failed/unsupported) ---
   const imageBlock = imageUrl ? await fetchImageBlock(imageUrl) : null
   if (imageUrl && !imageBlock && !(mergedText && mergedText.trim())) {
@@ -1707,13 +1784,17 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   }
 
   const { staticPrompt, dynamicPrompt } = buildSystemPrompt({ settings, styleGuide, stylePairs: stylePairResults })
-  const systemPrompt = staticPrompt + dynamicPrompt  // combined, for logging/grading
+  const igAddendum = isInstagram ? IG_SYSTEM_ADDENDUM : ''
+  const systemPrompt = staticPrompt + dynamicPrompt + igAddendum  // combined, for logging/grading
   // Prompt-cache the static prefix (1h TTL — see extendedCacheTtlAvailable); keep the per-query
   // dynamic part as a separate uncached block. buildSystemBlocks(ttl1h) lets us retry without it.
+  // The IG addendum rides as its own uncached block AFTER the cached prefix, so WhatsApp and IG
+  // replies share the exact same cached static prompt.
   const buildSystemBlocks = (use1h) => {
     const cc = use1h ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' }
     const blocks = [{ type: 'text', text: staticPrompt, cache_control: cc }]
     if (dynamicPrompt) blocks.push({ type: 'text', text: dynamicPrompt })
+    if (igAddendum) blocks.push({ type: 'text', text: igAddendum })
     return blocks
   }
   let userPrompt = buildUserPrompt({
@@ -1862,6 +1943,39 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     return
   }
 
+  // --- IG-only pre-send guards: 24h messaging window + first-reply automation disclosure ---
+  if (isInstagram) {
+    try {
+      // Meta rejects sends >24h after the buyer's last inbound (error 10). lastMessageAt is
+      // refreshed on every inbound, so this only trips on stale buffered/recovered work.
+      const igConv = await db.buyerConversation.findUnique({
+        where: { whatsappNumber },
+        select: { lastMessageAt: true },
+      })
+      const lastInboundMs = igConv?.lastMessageAt ? new Date(igConv.lastMessageAt).getTime() : 0
+      if (!lastInboundMs || Date.now() - lastInboundMs > 24 * 60 * 60 * 1000) {
+        await createLog(db, conversationId, mergedText, messageIds, {
+          status: 'SKIPPED',
+          deferReason: 'ig_window_expired',
+          aiReply,
+          promptTokens, completionTokens, totalTokens, costUsd,
+          processingMs: Date.now() - startTime,
+        })
+        await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
+        console.log(`[IG] ${whatsappNumber} — 24h messaging window expired, suppressing send`)
+        return
+      }
+      // First reply of an IG conversation carries the automation disclosure.
+      const priorReplied = await db.messageLog.findFirst({
+        where: { conversationId, status: 'REPLIED' },
+        select: { id: true },
+      })
+      if (!priorReplied) aiReply = `${aiReply} — (auto-reply)`
+    } catch (err) {
+      console.error(`[IG] ${whatsappNumber} — pre-send guard error (sending anyway):`, err.message)
+    }
+  }
+
   // --- Send reply via wwbun ---
   // Cancel any pending defer — AI is engaging with the buyer
   cancelPendingDefer(whatsappNumber)
@@ -1983,10 +2097,70 @@ function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conve
 }
 
 // ===========================================
+// Send reply via Instagram Graph API ('ig:' conversations)
+// ===========================================
+// Mirrors sendReplyViaWwbun's native-fetch + 2-retry backoff. Returns { messageId } so
+// sendResult?.messageId works unchanged at every call site. IG DM text caps at 1000 chars.
+async function sendReplyViaInstagram(igsid, message) {
+  if (!IG_MSG_TOKEN || !IG_BUSINESS_ID) {
+    console.error('[IGSend] IG_MSG_TOKEN or IG_BUSINESS_ID not configured — message NOT sent to', igsid)
+    return null
+  }
+
+  let text = String(message || '')
+  if (text.length > 990) text = text.slice(0, 987) + '…'
+
+  // /me/messages resolves to the Page the token belongs to — the canonical
+  // Instagram-Messaging form for Facebook-Login page tokens
+  const url = `https://graph.facebook.com/v21.0/me/messages?access_token=${encodeURIComponent(IG_MSG_TOKEN)}`
+  const MAX_RETRIES = 2
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipient: { id: igsid }, message: { text } }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const errInfo = JSON.stringify(data.error || data).slice(0, 300)
+        // Error code 10 = outside Meta's 24h messaging window — final, never retry
+        if (data.error?.code === 10) {
+          console.error(`[IGSend] ${igsid} — outside 24h messaging window (code 10), NOT retrying: ${errInfo}`)
+          return null
+        }
+        console.error(`[IGSend] Graph API error (attempt ${attempt}/${MAX_RETRIES}): ${response.status} — ${igsid} — ${errInfo}`)
+        if (attempt < MAX_RETRIES && response.status >= 500) {
+          await new Promise(r => setTimeout(r, 1000 * attempt))
+          continue
+        }
+        return null
+      }
+      if (attempt > 1) console.log(`[IGSend] ${igsid} — succeeded on retry attempt ${attempt}`)
+      return { messageId: data.message_id || null }
+    } catch (err) {
+      console.error(`[IGSend] Failed (attempt ${attempt}/${MAX_RETRIES}): ${igsid} — ${err.message}`)
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, 1000 * attempt))
+        continue
+      }
+      return null
+    }
+  }
+  return null
+}
+
+// ===========================================
 // Send reply via wwbun API
 // ===========================================
 
 async function sendReplyViaWwbun(whatsappNumber, message) {
+  // Platform switch: 'ig:' keys are Instagram conversations — every reply path in this file
+  // funnels through here, so IG sends route to the Graph API and never reach wwbun.
+  if (String(whatsappNumber || '').startsWith('ig:')) {
+    return sendReplyViaInstagram(String(whatsappNumber).slice(3), message)
+  }
+
   if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) {
     console.error('[Send] WWBUN_API_URL or DIGITAL_KETU_SECRET not configured — message NOT sent to', whatsappNumber)
     return null
