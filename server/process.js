@@ -2155,11 +2155,10 @@ async function sendReplyViaInstagram(igsid, message) {
 // ===========================================
 
 async function sendReplyViaWwbun(whatsappNumber, message) {
-  // Platform switch: 'ig:' keys are Instagram conversations — every reply path in this file
-  // funnels through here, so IG sends route to the Graph API and never reach wwbun.
-  if (String(whatsappNumber || '').startsWith('ig:')) {
-    return sendReplyViaInstagram(String(whatsappNumber).slice(3), message)
-  }
+  // 'ig:' keys flow through wwbun like any number since 2026-07-07 — wwbun's
+  // send-ai-reply branches on the prefix and does the Graph send + store + emit,
+  // so IG replies appear in the operator's threads. (sendReplyViaInstagram below
+  // is retained as dormant fallback for the dk2-direct webhook path.)
 
   if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) {
     console.error('[Send] WWBUN_API_URL or DIGITAL_KETU_SECRET not configured — message NOT sent to', whatsappNumber)
