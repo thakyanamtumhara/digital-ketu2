@@ -17,7 +17,7 @@ import { evaluateIgGate } from './ig-gate.js'
 // Was 3 minutes; cut to 60s on Ketu's call (2026-07-06): buyers got the "any questions?" nudge
 // or their first answer 3 min late and disengaged. 60s still lets a multi-message first burst
 // finish and still gives Ketu first shot (his manual reply cancels the timer via cooldown).
-const THREE_MINUTES_MS = 60 * 1000  // welcome follow-up delay (name kept for the 3 call sites)
+const WELCOME_FOLLOWUP_DELAY_MS = 60 * 1000  // 1 minute — Ketu-tuned; was misnamed WELCOME_FOLLOWUP_DELAY_MS
 const DEFER_DELAY_MS = 30 * 1000 // 30 seconds — batch defers before sending
 // Welcome follow-up nudge after a bare greeting ("hi"/"hello" with no question). Ketu WANTS this
 // "any questions?" engagement nudge here — do NOT replace it with the catalog link. The BANNED FILLER
@@ -718,7 +718,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
-  // --- Partial AI mode: only 3-min follow-up for new/7+day buyers, nothing else ---
+  // --- Partial AI mode: only 1-min follow-up for new/7+day buyers, nothing else ---
   if (!settings.isActive && settings.partialAiEnabled) {
     // Cooldown check — if Om responded, 10-min silence for ALL message types
     const freshCooldownPartial = await db.buyerConversation.findUnique({
@@ -1018,7 +1018,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       }
 
       if (!skipFollowup) {
-        console.log(`[Partial AI] ${whatsappNumber} — scheduling 3-min followup only (wwbun sent welcome)`)
+        console.log(`[Partial AI] ${whatsappNumber} — scheduling 1-min followup only (wwbun sent welcome)`)
         const followupTimer = setTimeout(async () => {
           pendingWelcomeFollowups.delete(whatsappNumber)
           try {
@@ -1052,7 +1052,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
           } catch (err) {
             console.error(`[Partial AI Followup Error] ${whatsappNumber}:`, err.message)
           }
-        }, THREE_MINUTES_MS)
+        }, WELCOME_FOLLOWUP_DELAY_MS)
 
         pendingWelcomeFollowups.set(whatsappNumber, {
           timer: followupTimer,
@@ -1392,7 +1392,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     isGreeting = greetingPatterns.includes(normalizedForGreeting)
   }
 
-  // --- 3-MIN FOLLOW-UP for new/7+day buyers (AI ON mode) ---
+  // --- 1-MIN FOLLOW-UP for new/7+day buyers (AI ON mode) ---
   // wwbun handles the welcome message (WA template send / IG Graph send — same
   // /welcome content since 2026-07-07). Digital-ketu2 only schedules the follow-up.
   let shouldFollowUp = isWelcomeEligible
@@ -1423,7 +1423,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   if (shouldFollowUp) {
-    console.log(`[Followup] ${whatsappNumber} — new/returning buyer, scheduling 3-min followup (wwbun sent welcome)`)
+    console.log(`[Followup] ${whatsappNumber} — new/returning buyer, scheduling 1-min followup (wwbun sent welcome)`)
 
     // Schedule 3-minute delayed follow-up
     const followupTimer = setTimeout(async () => {
@@ -1475,7 +1475,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       } catch (err) {
         console.error(`[Followup Error] ${whatsappNumber}:`, err.message)
       }
-    }, THREE_MINUTES_MS)
+    }, WELCOME_FOLLOWUP_DELAY_MS)
 
     pendingWelcomeFollowups.set(whatsappNumber, {
       timer: followupTimer,
@@ -1519,7 +1519,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 // ===========================================
 // BOOT RECOVERY: fire welcome-followups dropped by a server restart
 // ===========================================
-// The 3-min welcome-followup is an in-memory setTimeout (pendingWelcomeFollowups).
+// The 1-min welcome-followup is an in-memory setTimeout (pendingWelcomeFollowups).
 // A redeploy/restart wipes every pending timer, so buyers who messaged in that window
 // never get their followup (~15% orphan rate observed). On boot we sweep for
 // welcome_followup_scheduled logs whose timer would have elapsed (>3 min ago) but never
@@ -1539,7 +1539,7 @@ export async function recoverPendingFollowups({ db, anthropic }) {
     // re-messaging a chat Ketu already closed manually (cooldown expired). Restart-orphans
     // are only minutes old when this runs, so 15 min covers them with margin.
     const windowStart = new Date(now - 15 * 60 * 1000)  // don't recover anything older than 15 min
-    const fireBefore = new Date(now - THREE_MINUTES_MS)  // timer would already have fired
+    const fireBefore = new Date(now - WELCOME_FOLLOWUP_DELAY_MS)  // timer would already have fired
     const scheduled = await db.messageLog.findMany({
       where: {
         deferReason: 'welcome_followup_scheduled',
