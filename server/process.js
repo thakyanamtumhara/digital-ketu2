@@ -652,7 +652,11 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // Pure-JS/DB tier decision BEFORE any paid AI/embedding call:
   //   ZERO  → silent skip (emoji/media/greeting)      NUDGE → one canned pointer per 24h
   //   CAPS  → 10/user/day + 100 global/day AI replies  AI    → fall through to the full pipeline
-  if (isInstagram) {
+  // Welcome-eligible (new/7+day) IG buyers BYPASS the gate and take the exact
+  // WhatsApp welcome path below: wwbun sends the /welcome template, dk2 schedules
+  // the 3-min "any questions?" follow-up (Ketu 2026-07-07: "match the exact same
+  // kind of chatting"). The gate disciplines REPEAT casual chatters only.
+  if (isInstagram && !isWelcomeEligible) {
     const gate = await evaluateIgGate({ db, conversationId: conversation.id, mergedText, messages })
 
     if (gate.action === 'skip') {
@@ -1389,10 +1393,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   // --- 3-MIN FOLLOW-UP for new/7+day buyers (AI ON mode) ---
-  // wwbun handles the welcome message. Digital-ketu2 only schedules the 3-min follow-up.
-  // IG conversations skip this entirely: wwbun sends no IG welcome, and a gate-approved buyer
-  // message should get its AI answer NOW, not a delayed WhatsApp-style "any questions?" nudge.
-  let shouldFollowUp = isWelcomeEligible && !isInstagram
+  // wwbun handles the welcome message (WA template send / IG Graph send — same
+  // /welcome content since 2026-07-07). Digital-ketu2 only schedules the follow-up.
+  let shouldFollowUp = isWelcomeEligible
 
   // Extra safety: check message logs too — if there are recent logs (within 7 days), skip
   if (shouldFollowUp && !isFirstTime) {
