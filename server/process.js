@@ -1712,7 +1712,11 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   const allVectorResults = await vectorSearch(db, anthropic, mergedText, {
     limit: 10,  // fetch extra so corrections can be boosted into top 5
     minSimilarity: 0.0,
-    excludeSources: ['STYLE_GUIDE', 'STYLE_PAIR', 'PREMIUM_PAIR'],
+    // CATALOG excluded 2026-07-09: every product's facts are now injected deterministically as the
+    // AUTHORITATIVE CATALOG block, so pulling CATALOG chunks via fuzzy retrieval is redundant (and
+    // used to MISS the right product — the whole reason for this change). RAG now supplies only
+    // CORRECTION (Ketu's fixes) + SAVED_REPLY (his canned phrasing) — i.e. STYLE, not facts.
+    excludeSources: ['STYLE_GUIDE', 'STYLE_PAIR', 'PREMIUM_PAIR', 'CATALOG'],
   })
 
   const bestSimilarity = allVectorResults.length > 0
@@ -1761,29 +1765,39 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   })
   const styleGuide = styleGuideChunk?.content || null
 
-  // AUTHORITATIVE PRICE LIST — inject EVERY catalog product's price on every request, so a price
-  // answer never depends on whether vector search happened to retrieve that product's chunk.
-  // Root cause of the 2026-06-23 ₹160 hallucination for oversize 210gsm (real ₹185): the slug/link
-  // lives in the static prompt but the PRICE only rode in via top-K retrieval, which missed the
-  // oversize-210gsm chunk that query — so the model had the link but no price and guessed a number.
+  // AUTHORITATIVE CATALOG — inject EVERY product's full facts (gsm, fabric, colours, sizes, price,
+  // slug) on every request, so NO product fact ever depends on whether vector search happened to
+  // retrieve that product's chunk. This is the "take facts off RAG" change (Ketu-approved
+  // 2026-07-09): the vector DB matches by word-similarity, not situation, and kept missing or
+  // surfacing the wrong/stale chunk — the root cause of the ₹160 price, the 88/12-vs-cotton fabric
+  // slips, the size-chart error, etc. RAG now only supplies STYLE examples + corrections; the FACTS
+  // come from here, deterministically. Grew out of the 2026-06-23 price-table fix.
   let priceTable = null
   try {
     const catalogChunks = await db.knowledgeChunk.findMany({
       where: { source: 'CATALOG' },
-      select: { title: true, metadata: true },
+      select: { title: true, content: true, metadata: true },
     })
     const lines = []
     for (const c of catalogChunks) {
       const m = typeof c.metadata === 'string' ? JSON.parse(c.metadata) : (c.metadata || {})
-      if (!m.bulkPrice && !m.samplePrice) continue
-      const parts = []
+      // Pull the fabric/composition from the chunk's "Description:" line (has 100% cotton / 88-12 /
+      // terry / supercombed / biowash detail the metadata doesn't carry).
+      const desc = ((c.content || '').match(/Description:\s*(.+)/i) || [])[1] || ''
+      const fabric = desc.replace(/\s*\([^)]*\)/g, '').replace(/Premium Quality.*$/i, '').replace(/,\s*$/, '').trim().slice(0, 90)
+      const parts = [`${c.title}`]
+      if (m.gsm) parts.push(`${m.gsm}gsm`)
+      if (fabric) parts.push(fabric)
+      if (m.colors && m.colors.length) parts.push(`colours: ${m.colors.join('/')}`)
+      if (m.sizes && m.sizes.length) parts.push(`sizes: ${m.sizes.join('/')}`)
       if (m.bulkPrice) parts.push(`bulk ₹${m.bulkPrice}`)
       if (m.samplePrice) parts.push(`sample ₹${m.samplePrice}`)
-      lines.push(`${c.title}: ${parts.join(', ')} /pc`)
+      if (m.slug) parts.push(`→ /catalog/p/${m.slug}`)
+      lines.push(parts.join(' | '))
     }
     if (lines.length) priceTable = lines.sort().join('\n')
   } catch (err) {
-    console.error(`[PriceTable] ${whatsappNumber} — build failed, falling back to RAG-only prices:`, err.message)
+    console.error(`[Catalog] ${whatsappNumber} — build failed, falling back to RAG-only facts:`, err.message)
   }
 
   const { staticPrompt, dynamicPrompt } = buildSystemPrompt({ settings, styleGuide, stylePairs: stylePairResults })
@@ -2045,11 +2059,11 @@ function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conve
   const _tomIST = new Date(Date.now() + _IST_MS + 86400000)
   prompt += `TODAY (IST): ${_DAYS[_nowIST.getUTCDay()]}, ${_nowIST.toISOString().slice(0, 10)}. TOMORROW (IST): ${_DAYS[_tomIST.getUTCDay()]}. (Use this ONLY for date-relative questions like store hours on "aaj/kal/today/tomorrow" — never volunteer the date unprompted.)\n\n`
 
-  // AUTHORITATIVE PRICE LIST (every product, every request) — the model must quote prices ONLY
-  // from here, never from retrieval gaps or memory. Prevents price hallucinations like the
-  // ₹160-for-oversize-210gsm slip (real ₹185) when vector search missed that product's chunk.
+  // AUTHORITATIVE CATALOG (every product's full facts, every request) — the model must take ALL
+  // product FACTS (price, gsm, fabric, colours, sizes, link) from here, never from a retrieval gap
+  // or memory. This is the deterministic fact source that replaces trusting the vector DB for facts.
   if (priceTable) {
-    prompt += `AUTHORITATIVE PRICE LIST — these are the ONLY correct prices. If you state ANY price it MUST be copied EXACTLY from this list (never round, never guess, never use a number from memory or the chat). "bulk" = 10+ pcs, "sample" = under 10 pcs. If a product the buyer asks about is NOT in this list, do NOT quote a number — just send its link.\n${priceTable}\n\n`
+    prompt += `AUTHORITATIVE CATALOG — the COMPLETE, current product list. This is the ONLY source of product FACTS: every price, GSM, fabric, colour, size and link the buyer could ask about is here. If you state ANY price/gsm/colour/size, it MUST be copied EXACTLY from this list (never round, never guess, never use a number from memory or the chat). "bulk" = 10+ pcs, "sample" = under 10 pcs. A colour NOT listed for a product = we don't make it in that colour (send HD Photos). A product NOT in this list = we don't make it. If a listed detail isn't shown, don't invent it. (The KNOWLEDGE BASE below is only for STYLE/how-Ketu-phrases-it — NOT for facts.)\n${priceTable}\n\n`
   }
 
   // Knowledge results from vector search (top 5 matches from catalog + templates + policies)
