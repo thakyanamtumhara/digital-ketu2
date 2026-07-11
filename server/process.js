@@ -301,6 +301,16 @@ function hasNonDispatchIntentText(text) {
   return NON_DISPATCH_INTENT_RE.test(text || '')
 }
 
+// A bill/invoice image can ALSO arrive alongside a plain INFO REQUEST — "send me location",
+// "office address?", "ye number update kar do (phone off hai)". The canned "dispatching ASAP"
+// ignores the actual ask (11-Jul 16:48: buyer sent an image + "Send me location" and got
+// "dispatching ASAP"; Ketu then handled a phone-number change himself). These want an answer or a
+// human, never a dispatch ack — so defer to Ketu instead of firing the canned reply.
+const NON_DISPATCH_REQUEST_RE = /\b(location|address|adress|adres)\b|पता|लोकेशन|send\s*(me\s*)?(the\s*)?(location|address)|share\s*(your\s*)?location|naya\s*(number|no\b|contact|nmbr|numbr)|(number|no\.?|contact|phone|mobile|numbr)\s*(update|change|badal|badlo|sahi|galat|naya|band)|(number|no\.?|contact|phone|mobile)\s*(is\s*)?off\b|(update|change|badal|badlo)\s*(this\s*)?(number|no\.?|contact)|\b(number|contact|phone|mobile|numbr)\b[^]{0,20}\b(update|change|badal|badlo|sahi\s*kar)\b/i
+function hasNonDispatchRequestText(text) {
+  return NON_DISPATCH_REQUEST_RE.test(text || '')
+}
+
 async function hasRecentDelayComplaint(db, conversationId) {
   try {
     const recent = await db.messageLog.findMany({
@@ -744,11 +754,11 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       // at night for a delivered order (1 pc missing) and got "dispatching ASAP" twice (2026-07-05,
       // Ketu: "you should have understood the context and deferred"). Defer instead.
       const hasPhotoInBurst = messages.some(m => m.messageType === 'image') || /\[(product photo|Image)\]/i.test(mergedText || '')
-      if (hasPhotoInBurst || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+      if (hasPhotoInBurst || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
           mergedText, messageIds, logData: {
-            status: 'DEFERRED', deferReason: 'bill_with_delay_complaint',
+            status: 'DEFERRED', deferReason: 'bill_with_nondispatch_text',
             processingMs: Date.now() - startTime,
           }, db,
         })
@@ -784,11 +794,11 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
       // Same bill+photo evidence guard as the bill-doc path above (2026-07-05, buyer 6353441274).
       const hasExtraPhotoInBurst = messages.filter(m => m.messageType === 'image').length > 1 || /\[product photo\]/i.test(mergedText || '')
-      if (hasExtraPhotoInBurst || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+      if (hasExtraPhotoInBurst || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
           mergedText, messageIds, logData: {
-            status: 'DEFERRED', deferReason: 'bill_with_delay_complaint',
+            status: 'DEFERRED', deferReason: 'bill_with_nondispatch_text',
             processingMs: Date.now() - startTime,
           }, db,
         })
