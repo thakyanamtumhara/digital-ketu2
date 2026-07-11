@@ -1802,14 +1802,21 @@ Answer with ONLY one word: REPLY or SILENT.` }],
 
   const { staticPrompt, dynamicPrompt } = buildSystemPrompt({ settings, styleGuide, stylePairs: stylePairResults })
   const igAddendum = isInstagram ? IG_SYSTEM_ADDENDUM : ''
-  const systemPrompt = staticPrompt + dynamicPrompt + igAddendum  // combined, for logging/grading
-  // Prompt-cache the static prefix (1h TTL — see extendedCacheTtlAvailable); keep the per-query
-  // dynamic part as a separate uncached block. buildSystemBlocks(ttl1h) lets us retry without it.
-  // The IG addendum rides as its own uncached block AFTER the cached prefix, so WhatsApp and IG
-  // replies share the exact same cached static prompt.
+  // The AUTHORITATIVE CATALOG is IDENTICAL every request (changes only when the catalog syncs), so
+  // it belongs in a CACHED block — NOT the uncached user message. Putting it in buildUserPrompt
+  // (2026-07-09) cost ~₹2/reply extra (full-price ~1180 tokens each time) and blew the daily budget
+  // → unreplied messages (2026-07-10). Now it's its own cached breakpoint after the static prompt:
+  // cache-read (0.1×) on every reply, re-written only when the catalog changes.
+  const catalogBlock = priceTable
+    ? `AUTHORITATIVE CATALOG — the COMPLETE, current product list. This is the ONLY source of product FACTS: every price, GSM, fabric, colour, size and link the buyer could ask about is here. If you state ANY price/gsm/colour/size, it MUST be copied EXACTLY from this list (never round, never guess, never use a number from memory or the chat). "bulk" = 10+ pcs, "sample" = under 10 pcs. A colour NOT listed for a product = we don't make it in that colour (send HD Photos). A product NOT in this list = we don't make it. If a listed detail isn't shown, don't invent it. (The KNOWLEDGE BASE in the user message is only for STYLE/how-Ketu-phrases-it — NOT for facts.)\n${priceTable}`
+    : null
+  const systemPrompt = staticPrompt + (catalogBlock ? '\n\n' + catalogBlock : '') + dynamicPrompt + igAddendum  // combined, for logging/grading
+  // Prompt-cache the static prefix + catalog (both stable → 1h TTL); keep the per-query dynamic part
+  // as a separate uncached block. buildSystemBlocks(ttl1h) lets us retry without it.
   const buildSystemBlocks = (use1h) => {
     const cc = use1h ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' }
     const blocks = [{ type: 'text', text: staticPrompt, cache_control: cc }]
+    if (catalogBlock) blocks.push({ type: 'text', text: catalogBlock, cache_control: cc })  // cached breakpoint
     if (dynamicPrompt) blocks.push({ type: 'text', text: dynamicPrompt })
     if (igAddendum) blocks.push({ type: 'text', text: igAddendum })
     return blocks
@@ -2062,8 +2069,8 @@ function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conve
   // AUTHORITATIVE CATALOG (every product's full facts, every request) — the model must take ALL
   // product FACTS (price, gsm, fabric, colours, sizes, link) from here, never from a retrieval gap
   // or memory. This is the deterministic fact source that replaces trusting the vector DB for facts.
-  if (priceTable) {
-    prompt += `AUTHORITATIVE CATALOG — the COMPLETE, current product list. This is the ONLY source of product FACTS: every price, GSM, fabric, colour, size and link the buyer could ask about is here. If you state ANY price/gsm/colour/size, it MUST be copied EXACTLY from this list (never round, never guess, never use a number from memory or the chat). "bulk" = 10+ pcs, "sample" = under 10 pcs. A colour NOT listed for a product = we don't make it in that colour (send HD Photos). A product NOT in this list = we don't make it. If a listed detail isn't shown, don't invent it. (The KNOWLEDGE BASE below is only for STYLE/how-Ketu-phrases-it — NOT for facts.)\n${priceTable}\n\n`
+  if (false && priceTable) {  // catalog moved to a CACHED system block (2026-07-11 cost fix); kept guard for clarity
+    prompt += ``
   }
 
   // Knowledge results from vector search (top 5 matches from catalog + templates + policies)
