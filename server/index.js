@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, IG_BUSINESS_ID, IG_VERIFY_TOKEN } from './process.js'
+import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
@@ -125,7 +125,7 @@ app.get('/api/ai-status', async (c) => {
       }
       // probe.ok === true → API answering again → leave down=false (recovered)
     }
-    return c.json({ ok: !down, down, reason, detail, since, probed, lastPaidReplyAt: lastPaid?.createdAt || null, checkedAt: new Date().toISOString() })
+    return c.json({ ok: !down, down, reason, detail, since, probed, lastPaidReplyAt: lastPaid?.createdAt || null, cost: { avgInr: costAlarm.avgInr, ceiling: costAlarm.ceiling, over: costAlarm.over, replies: costAlarm.replies }, checkedAt: new Date().toISOString() })
   } catch (e) {
     return c.json({ ok: false, down: true, reason: `Status check failed: ${e.message}`, detail: 'status_error' })
   }
@@ -2515,12 +2515,24 @@ app.get('/*', serveStatic({ path: './dist/index.html' }))
 // counts as a touch), and only during IST business hours 07-23 — overnight the cache goes cold on
 // purpose (one morning write beats pinging all night). ZERO effect on reply behaviour: no rule,
 // model, or flow change — pure cache-economics.
+let lastPrewarmIstDay = ''
 async function cacheKeepAlive() {
   try {
+    const istNow = new Date(Date.now() + 5.5 * 3600 * 1000)
+    const istHour = istNow.getUTCHours()
+    if (istHour < 7 || istHour >= 23) return  // overnight: let the cache go cold on purpose
     const age = Date.now() - cacheTouch.at
-    if (cacheTouch.at === 0 || age < 50 * 60 * 1000 || age > 58 * 60 * 1000) return
-    const istHour = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours()
-    if (istHour < 7 || istHour >= 23) return
+    const warm = cacheTouch.at !== 0 && age <= 58 * 60 * 1000
+    const inMaintainWindow = warm && age >= 50 * 60 * 1000
+    // MORNING PRE-WARM: the first business-hour tick that finds the cache cold does ONE warm-up
+    // write, so the day's first buyers hit a warm cache — the unavoidable overnight cold-write lands
+    // HERE (on the keep-alive line) instead of on a real buyer's reply, where on a low-traffic
+    // morning it inflates the per-reply cost (6 replies + one ₹25-33 write ⇒ a fake ₹15/reply spike
+    // on the chart). Once per IST day; after this the 50-58min maintain cycle holds it warm.
+    const istDay = istNow.toISOString().slice(0, 10)
+    const needMorningPrewarm = !warm && lastPrewarmIstDay !== istDay
+    if (!inMaintainWindow && !needMorningPrewarm) return
+    if (needMorningPrewarm) lastPrewarmIstDay = istDay
     const settings = await getSettings()
     let staticPrompt = settings.systemPrompt || DEFAULT_SYSTEM_PROMPT
     const styleGuideChunk = await db.knowledgeChunk.findFirst({
@@ -2548,6 +2560,45 @@ async function cacheKeepAlive() {
   }
 }
 setInterval(cacheKeepAlive, 5 * 60 * 1000)
+
+// COST-CEILING ALARM — Ketu's "interfere only if it goes very high" trigger, automated. Healthy
+// full-fidelity Opus cost is ~₹3.3-3.7/reply; sustained above the ceiling means a regression (a
+// prompt-size creep, a bug like the 2026-07-09 catalog-in-user-message one, or cache misbehaving),
+// never normal clone cost. We watch the trailing-7-day AVERAGE (immune to the low-traffic-morning
+// blips) and, when it crosses the ceiling, WhatsApp Ketu directly (max once / 12h) + expose it on
+// /api/ai-status for the operator banner. Pure monitoring — ZERO effect on replies.
+const COST_ALARM_CEILING_INR = Number(process.env.COST_ALARM_CEILING_INR || 4.5)
+const COST_ALARM_USD_TO_INR = 85
+let costAlarm = { avgInr: null, replies: 0, over: false, ceiling: COST_ALARM_CEILING_INR, lastAlertAt: 0, checkedAt: null }
+async function checkCostCeiling() {
+  try {
+    const since = new Date(Date.now() - 7 * 24 * 3600 * 1000)
+    const rows = await db.messageLog.findMany({
+      where: { status: 'REPLIED', createdAt: { gte: since }, costUsd: { gt: 0.0003 } },
+      select: { costUsd: true },
+    })
+    if (rows.length < 30) {  // too few paid replies to judge — hold
+      costAlarm = { ...costAlarm, replies: rows.length, checkedAt: new Date().toISOString() }
+      return
+    }
+    const totalUsd = rows.reduce((s, r) => s + (Number(r.costUsd) || 0), 0)
+    const avgInr = (totalUsd / rows.length) * COST_ALARM_USD_TO_INR
+    const over = avgInr > COST_ALARM_CEILING_INR
+    costAlarm = { ...costAlarm, avgInr: +avgInr.toFixed(2), replies: rows.length, over, checkedAt: new Date().toISOString() }
+    if (over && Date.now() - costAlarm.lastAlertAt > 12 * 3600 * 1000) {
+      costAlarm.lastAlertAt = Date.now()
+      const msg = `⚠️ dk2 cost alert — 7-day average is ₹${avgInr.toFixed(2)}/reply (over the ₹${COST_ALARM_CEILING_INR} ceiling), across ${rows.length} replies. Healthy is ~₹3.3-3.7. This means a regression (prompt-size creep / a bug / cache), not normal clone cost — I'm on it.`
+      await notifyOwner(msg).catch(e => console.error('[CostAlarm] owner notify failed:', e.message))
+      console.log(`[CostAlarm] TRIPPED — ₹${avgInr.toFixed(2)}/reply over ${rows.length} replies; owner alerted`)
+    } else if (over) {
+      console.log(`[CostAlarm] over ceiling (₹${avgInr.toFixed(2)}) but within 12h dedupe — no re-alert`)
+    }
+  } catch (e) {
+    console.error('[CostAlarm] check failed:', e.message)
+  }
+}
+setInterval(checkCostCeiling, 60 * 60 * 1000)  // hourly
+setTimeout(checkCostCeiling, 90 * 1000)        // once shortly after boot
 
 // Start Server
 // ===========================================

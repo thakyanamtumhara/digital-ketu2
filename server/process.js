@@ -2231,6 +2231,15 @@ async function sendReplyViaWwbun(whatsappNumber, message) {
   return null
 }
 
+// Owner alert channel — a WhatsApp to Ketu himself (his own number), reusing the wwbun send path.
+// Used by the cost-ceiling alarm so a runaway per-reply cost surfaces to him automatically instead
+// of him having to watch the chart. OWNER_WHATSAPP overridable via env; falls back to his number.
+const OWNER_WHATSAPP = process.env.OWNER_WHATSAPP || '918527150400'
+export async function notifyOwner(message) {
+  if (!OWNER_WHATSAPP) return null
+  return sendReplyViaWwbun(OWNER_WHATSAPP, message)
+}
+
 // ===========================================
 // Helper: Create message log
 // ===========================================
