@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun } from './process.js'
+import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
@@ -334,6 +334,7 @@ async function enqueueIncoming(senderKey, message) {
     messageBuffer.delete(bufferKey)
     if (!merged || merged.messages.length === 0) return
 
+    const startedAt = Date.now()
     try {
       await processIncomingMessage({
         whatsappNumber: senderKey,
@@ -345,12 +346,15 @@ async function enqueueIncoming(senderKey, message) {
     } catch (err) {
       console.error(`[Process Error] ${senderKey}:`, err.message)
     }
-    // Clear wwbun's "Digital Ketu is preparing a reply" badge whenever the AI concluded WITHOUT
-    // arranging a reply — a skip (cooldown, off-hours, filtered), or an error. A reply that WAS
-    // sent already cleared the badge via send-ai-reply; a DEFERRED reply is still pending in
-    // pendingDefers and clears when its timer resolves (reply sent, or cooldown-skip re-notifies).
-    // Fire-and-forget; a redundant clear after a sent reply is a harmless no-op.
-    if (!pendingDefers.has(senderKey)) {
+    // Clear wwbun's "Digital Ketu is preparing a reply" badge only when this turn concluded WITHOUT
+    // any reply on the way — a genuine skip (cooldown, off-hours, filtered) or an error. Exclude:
+    //  - a reply just SENT this turn (lastReplySentAt ≥ startedAt) — send-ai-reply already cleared it;
+    //    firing again would be a wasted POST that can race-clear a NEW message's fresh badge.
+    //  - a DEFERRED reply (pendingDefers) — clears when its timer resolves.
+    //  - a scheduled welcome nudge (pendingWelcomeFollowups) — clears when the nudge is sent.
+    // Fire-and-forget; the 2-min client self-heal is the backstop.
+    const repliedThisTurn = (lastReplySentAt.get(senderKey) || 0) >= startedAt
+    if (!repliedThisTurn && !pendingDefers.has(senderKey) && !pendingWelcomeFollowups.has(senderKey)) {
       notifySkippedViaWwbun(senderKey)
     }
   }, windowMs)

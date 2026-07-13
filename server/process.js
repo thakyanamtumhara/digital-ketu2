@@ -26,6 +26,11 @@ const DEFER_DELAY_MS = 30 * 1000 // 30 seconds — batch defers before sending
 const WELCOME_FOLLOWUP_GENERIC = 'Ask me if any questions sir?'
 export const pendingWelcomeFollowups = new Map() // keyed by whatsappNumber
 export const pendingDefers = new Map() // keyed by whatsappNumber
+// whatsappNumber -> ms of the last reply actually SENT via wwbun. Lets the /api/incoming caller
+// distinguish "a reply just went out this turn" (badge already cleared by send-ai-reply) from a
+// genuine skip (needs clearing) — without threading a return status through processIncomingMessage's
+// ~30 bare-return exit points. Set by sendReplyViaWwbun on success.
+export const lastReplySentAt = new Map()
 
 // ===========================================
 // Defer Batching: Wait 30s, batch multiple defers into one message
@@ -2229,6 +2234,7 @@ async function sendReplyViaWwbun(whatsappNumber, message) {
       }
 
       const result = await response.json()
+      lastReplySentAt.set(whatsappNumber, Date.now()) // a reply went out — the caller must NOT then clear the badge
       if (attempt > 1) console.log(`[Send] ${whatsappNumber} — succeeded on retry attempt ${attempt}`)
       return result
     } catch (err) {
