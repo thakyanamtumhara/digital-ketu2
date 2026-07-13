@@ -72,6 +72,8 @@ function createDeferTimerCallback(whatsappNumber) {
             processingMs: 0,
           })
         }
+        // The deferred reply won't go out — clear wwbun's "preparing a reply" badge.
+        notifySkippedViaWwbun(whatsappNumber)
         return
       }
 
@@ -2239,6 +2241,24 @@ async function sendReplyViaWwbun(whatsappNumber, message) {
     }
   }
   return null
+}
+
+// Digital Ketu concluded WITHOUT sending a reply (cooldown, off-hours, filtered, error, …).
+// Tell wwbun so it can clear the "Digital Ketu is preparing a reply" badge it showed when the
+// message was handed off — otherwise the badge lingers until wwbun's 2-min client self-heal and
+// re-shows on every message during cooldown, so it looks permanently stuck. Fire-and-forget: a
+// failure here only delays the badge to that self-heal; it never blocks or affects the reply path.
+export async function notifySkippedViaWwbun(whatsappNumber) {
+  if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) return
+  try {
+    await fetch(`${WWBUN_API_URL}/api/messages/ai-reply-skipped`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET },
+      body: JSON.stringify({ whatsappNumber }),
+    })
+  } catch (err) {
+    console.error('[Skip-notify] failed for', whatsappNumber, '—', err.message)
+  }
 }
 
 // Owner alert channel — a WhatsApp to Ketu himself (his own number), reusing the wwbun send path.

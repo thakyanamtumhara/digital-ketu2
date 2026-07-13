@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner } from './process.js'
+import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
@@ -344,6 +344,14 @@ async function enqueueIncoming(senderKey, message) {
       })
     } catch (err) {
       console.error(`[Process Error] ${senderKey}:`, err.message)
+    }
+    // Clear wwbun's "Digital Ketu is preparing a reply" badge whenever the AI concluded WITHOUT
+    // arranging a reply — a skip (cooldown, off-hours, filtered), or an error. A reply that WAS
+    // sent already cleared the badge via send-ai-reply; a DEFERRED reply is still pending in
+    // pendingDefers and clears when its timer resolves (reply sent, or cooldown-skip re-notifies).
+    // Fire-and-forget; a redundant clear after a sent reply is a harmless no-op.
+    if (!pendingDefers.has(senderKey)) {
+      notifySkippedViaWwbun(senderKey)
     }
   }, windowMs)
 
