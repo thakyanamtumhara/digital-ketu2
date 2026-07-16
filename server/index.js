@@ -538,6 +538,28 @@ app.post('/api/intervention', async (c) => {
   const ketuMediaUrl = body.mediaUrl || body.ketuMediaUrl || null
   if (!whatsappNumber) return c.json({ error: 'Missing whatsappNumber' }, 400)
 
+  // 1. Set cooldown FIRST and respond — this is the only time-critical part (the AI loop
+  // re-checks it from DB before sending). wwbun awaits this endpoint on every manual send,
+  // so transcription/embedding/learning below must never block the operator's send.
+  const settings = await getSettings()
+  const cooldownUntil = new Date(Date.now() + settings.cooldownMinutes * 60 * 1000)
+
+  const interventionConvo = await db.buyerConversation.upsert({
+    where: { whatsappNumber },
+    update: { cooldownUntil, lastMessageAt: new Date() },
+    create: { whatsappNumber, cooldownUntil, lastMessageAt: new Date() },
+  })
+
+  console.log(`[Cooldown] ${whatsappNumber} — paused until ${cooldownUntil.toISOString()}`)
+
+  // Owner's own number = the /api/ask owner channel, not a buyer. Never feed-log or learn from it.
+  if (isOwnerNumber(whatsappNumber)) {
+    return c.json({ status: 'cooldown_set', cooldownUntil, learned: 'skipped_owner_number' })
+  }
+
+  // Everything below (transcription, feed log, self-learning) runs after the response.
+  ;(async () => {
+
   // --- AUDIO TRANSCRIPTION (Path B: Om's voice reply → learning) ---
   // If the reply was audio and wwbun sent us the mediaUrl, transcribe to text so the pair
   // becomes reusable learning signal instead of being silently dropped as non-text.
@@ -562,23 +584,6 @@ app.post('/api/intervention', async (c) => {
   // which dropped ~180 useful pairs/day. Now buyer ≥2 words, Om ≥3 words.
   const wordCount = (s) => (s || '').split(/\s+/).filter(w => w.length > 0).length
   const isQualityPair = isTextReply && wordCount(buyerMessage) >= 2 && wordCount(ketuReply) >= 3
-
-  // 1. Set cooldown (existing behavior)
-  const settings = await getSettings()
-  const cooldownUntil = new Date(Date.now() + settings.cooldownMinutes * 60 * 1000)
-
-  const interventionConvo = await db.buyerConversation.upsert({
-    where: { whatsappNumber },
-    update: { cooldownUntil, lastMessageAt: new Date() },
-    create: { whatsappNumber, cooldownUntil, lastMessageAt: new Date() },
-  })
-
-  console.log(`[Cooldown] ${whatsappNumber} — paused until ${cooldownUntil.toISOString()}`)
-
-  // Owner's own number = the /api/ask owner channel, not a buyer. Never feed-log or learn from it.
-  if (isOwnerNumber(whatsappNumber)) {
-    return c.json({ status: 'cooldown_set', cooldownUntil, learned: 'skipped_owner_number' })
-  }
 
   // Real-time feed of Om's manual replies for monitoring. manualReplyPair only stores AI-OFF
   // pairs and interventions go to corrections, so manual replies were invisible to the watch loop.
@@ -647,7 +652,11 @@ app.post('/api/intervention', async (c) => {
     }
   }
 
-  return c.json({ status: 'cooldown_set', cooldownUntil, learned })
+  if (learned) console.log(`[Intervention] ${whatsappNumber} — background learning done: ${learned}`)
+
+  })().catch(err => console.error('[Intervention] background learning error:', err.message))
+
+  return c.json({ status: 'cooldown_set', cooldownUntil, learned: 'deferred' })
 })
 
 // ===========================================
