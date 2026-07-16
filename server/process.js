@@ -313,7 +313,11 @@ function hasNonDispatchIntentText(text) {
 // ignores the actual ask (11-Jul 16:48: buyer sent an image + "Send me location" and got
 // "dispatching ASAP"; Ketu then handled a phone-number change himself). These want an answer or a
 // human, never a dispatch ack — so defer to Ketu instead of firing the canned reply.
-const NON_DISPATCH_REQUEST_RE = /\b(location|address|adress|adres)\b|पता|लोकेशन|send\s*(me\s*)?(the\s*)?(location|address)|share\s*(your\s*)?location|naya\s*(number|no\b|contact|nmbr|numbr)|(number|no\.?|contact|phone|mobile|numbr)\s*(update|change|badal|badlo|sahi|galat|naya|band)|(number|no\.?|contact|phone|mobile)\s*(is\s*)?off\b|(update|change|badal|badlo)\s*(this\s*)?(number|no\.?|contact)|\b(number|contact|phone|mobile|numbr)\b[^]{0,20}\b(update|change|badal|badlo|sahi\s*kar)\b/i
+// Covers: info-requests (location/address), contact/number changes, AND order MODIFICATIONS that
+// arrive with a bill/invoice image — add-an-item ("dal dena ismei", "ye bhi add kar do") and
+// bill/slip REQUESTS ("plz bill", "slip chahiye"). All of these must DEFER, never "dispatching ASAP"
+// (audit 2026-07-16: the clone dispatch-acked "[Image] Dal dena ismei wo piece" and "Plz bill").
+const NON_DISPATCH_REQUEST_RE = /\b(location|address|adress|adres)\b|पता|लोकेशन|send\s*(me\s*)?(the\s*)?(location|address)|share\s*(your\s*)?location|naya\s*(number|no\b|contact|nmbr|numbr)|(number|no\.?|contact|phone|mobile|numbr)\s*(update|change|badal|badlo|sahi|galat|naya|band)|(number|no\.?|contact|phone|mobile)\s*(is\s*)?off\b|(update|change|badal|badlo)\s*(this\s*)?(number|no\.?|contact)|\b(number|contact|phone|mobile|numbr)\b[^]{0,20}\b(update|change|badal|badlo|sahi\s*kar)\b|\bdaa?l\s*(dena|do|dijiye)\b|add\s*(kar|kr)\s*(do|dena|dijiye|na)\b|ye\s*bhi\s*(daa?l|add|lga)|isme\s*(daa?l|add|lga)|ek\s*(aur|or)\b[^]{0,18}\b(piece|pcs|item|add|daa?l)|\b(bill|slip|receipt|invoice)\s*(chahiye|chaiye|bhej|send|do\b|dena|dijiye|de\s*do|plz|please)|\b(plz|please|pls)\s*(bill|slip|invoice)\b/i
 function hasNonDispatchRequestText(text) {
   return NON_DISPATCH_REQUEST_RE.test(text || '')
 }
