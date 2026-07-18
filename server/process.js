@@ -547,6 +547,7 @@ const REPLY_PRICE_PER_OUTPUT_TOKEN = 0.000025  // $25 per 1M output tokens (Opus
 // the old boolean latch did exactly that, making every spaced-out reply pay a full ~₹14
 // cache re-write for the rest of the process lifetime.
 let extendedCacheTtlRetryAt = 0
+let lastBudgetTripAlertAt = 0  // once-per-trip owner alert when the daily budget exhausts
 const USD_TO_INR = 85
 
 /**
@@ -1139,11 +1140,22 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // --- Check: Daily budget ---
   const dailySpentInr = settings.dailySpentUsd * USD_TO_INR
   if (dailySpentInr >= settings.dailyBudgetInr) {
-    await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
-      status: 'SKIPPED',
-      deferReason: 'daily_limit',
-      processingMs: Date.now() - startTime,
-      isMedia: hasMediaOnly,
+    // Budget exhausted — NEVER go silent (2026-07-18: budget tripped 01:30 IST, reset 05:30 IST
+    // (UTC midnight), and 19 buyers — including a collar-defect complaint — got DEAD AIR for 4h;
+    // Ketu discovered it himself next morning). Now: (1) alert Ketu ONCE per trip so he can top
+    // up / raise the cap immediately, (2) send the zero-AI-cost defer line so every buyer is at
+    // least acknowledged and lands in Ketu's court instead of being ignored.
+    if (Date.now() - lastBudgetTripAlertAt > 12 * 3600 * 1000) {
+      lastBudgetTripAlertAt = Date.now()
+      notifyOwner(`⚠️ dk2 daily budget ₹${settings.dailyBudgetInr} khatam — AI replies PAUSED till the 05:30 IST reset. Buyers ab "${settings.deferMessage || 'Ketu will reply shortly sir 🙏'}" receive kar rahe hain (silence nahi). Budget dashboard se badha sakte ho.`).catch(() => {})
+      console.log(`[Budget] TRIPPED at ₹${dailySpentInr.toFixed(0)}/${settings.dailyBudgetInr} — owner alerted, buyers get defer line`)
+    }
+    scheduleDeferReply({
+      whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+      mergedText: mergedText || '[media]', messageIds, logData: {
+        status: 'DEFERRED', deferReason: 'daily_limit',
+        processingMs: Date.now() - startTime, isMedia: hasMediaOnly,
+      }, db,
     })
     return
   }
