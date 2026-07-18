@@ -5,6 +5,34 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Digital Ketu — AI Auto-Reply Dashboard</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>" />
+  <script>
+    // Admin-write shim (2026-07-18 write lockdown): mutating /api/ calls need an admin key.
+    // Attach it from localStorage on every non-GET /api fetch; on the first 401, prompt once,
+    // store, and retry. Read-only dashboard use never prompts.
+    (function () {
+      const orig = window.fetch;
+      window.fetch = async function (input, init) {
+        const url = typeof input === 'string' ? input : (input && input.url) || '';
+        const method = ((init && init.method) || (typeof input === 'object' && input && input.method) || 'GET').toUpperCase();
+        const isApiWrite = url.indexOf('/api/') !== -1 && method !== 'GET' && method !== 'HEAD';
+        if (!isApiWrite) return orig.call(this, input, init);
+        const send = (key) => {
+          const opts = Object.assign({}, init);
+          opts.headers = Object.assign({}, (init && init.headers) || {}, key ? { 'X-DK-Admin-Token': key } : {});
+          return orig.call(window, input, opts);
+        };
+        let res = await send(localStorage.getItem('dk_admin_key') || '');
+        if (res.status === 401) {
+          const entered = window.prompt('Admin key required for this change (ask Claude):');
+          if (entered) {
+            localStorage.setItem('dk_admin_key', entered.trim());
+            res = await send(entered.trim());
+          }
+        }
+        return res;
+      };
+    })();
+  </script>
 </head>
 <body>
   <div id="root"></div>
