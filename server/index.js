@@ -41,6 +41,38 @@ app.use('/api/knowledge/chunks', readGuard)
 app.use('/api/knowledge/correction/*', readGuard)
 app.use('/api/correction', readGuard)
 
+// WRITE LOCKDOWN (Ketu-approved 2026-07-18): mutating admin endpoints were fully public —
+// anyone with the URL could PUT /api/settings (flip isActive off, zero the budget, replace the
+// system prompt) or fire cost bombs (re-embed, ai-discover, exports). Writes now require EITHER
+// the main shared secret OR the admin write token (X-DK-Admin-Token = env ADMIN_WRITE_TOKEN;
+// local copy ~/.dk2_admin_token; rotate = change the env var). GET requests pass through
+// untouched (public reads unchanged — that exposure is tracked separately). The dashboard
+// attaches the header via the fetch shim in dist/index.html (prompts once, localStorage).
+// NOT under this guard: /api/incoming, /api/intervention, /api/correction, /api/ask — the
+// wwbun s2s paths with their own auth; and DELETE /api/knowledge/correction/:id stays on
+// readGuard (the sweep scripts hold only the read token).
+const writeGuard = async (c, next) => {
+  if (c.req.method === 'GET' || c.req.method === 'HEAD' || c.req.method === 'OPTIONS') return next()
+  const settings = await getSettings().catch(() => null)
+  const main = settings?.digitalKetuSecret || process.env.DIGITAL_KETU_SECRET
+  const admin = process.env.ADMIN_WRITE_TOKEN
+  const h = c.req.header('X-Digital-Ketu-Secret') || c.req.header('X-DK-Admin-Token')
+  if ((main && h === main) || (admin && h === admin)) return next()
+  return c.json({ error: 'unauthorized (write)' }, 401)
+}
+for (const p of [
+  '/api/settings',
+  '/api/admin/*',
+  '/api/learning/run', '/api/learning/reset-manual-pairs', '/api/learning/backlog',
+  '/api/learning/history-pull', '/api/learning/toggle',
+  '/api/embeddings/re-embed',
+  '/api/filters', '/api/filters/*',
+  '/api/sync/*',
+  '/api/premium-export/*',
+  '/api/export/*',
+  '/api/knowledge/reply-template/*',
+]) app.use(p, writeGuard)
+
 // --- Health Check ---
 // /api/health does a real DB probe so external monitors (UptimeRobot) see RED when Neon is
 // down — the missing signal that let both outages run for days. Point UptimeRobot here.
