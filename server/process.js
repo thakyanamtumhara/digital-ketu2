@@ -559,6 +559,7 @@ const REPLY_PRICE_PER_OUTPUT_TOKEN = 0.000025  // $25 per 1M output tokens (Opus
 // cache re-write for the rest of the process lifetime.
 let extendedCacheTtlRetryAt = 0
 let lastBudgetTripAlertAt = 0  // once-per-trip owner alert when the daily budget exhausts
+let lastBrainDownAlertAt = 0   // once-per-outage owner alert when the Anthropic API is down (credits/billing)
 const USD_TO_INR = 85
 
 /**
@@ -1979,6 +1980,26 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     if (used1hCache) cacheTouch.at = Date.now()  // 1h static-prompt cache is warm as of now
   } catch (err) {
     console.error(`[Claude Error] ${whatsappNumber}:`, err.message)
+    const em = String(err?.message || '')
+    // AI-BRAIN-DOWN STOPGAP (2026-07-20: the Anthropic credit balance ran out and every buyer got
+    // DEAD AIR). The defer line is a FIXED string sent via wwbun — it needs NO Anthropic call — so
+    // it still works with zero credits. On a credit/billing/auth-suspension error, acknowledge the
+    // buyer with the defer line (thread lands in Ketu's court) and alert Ketu once per outage.
+    const isBrainDown = /credit balance is too low|usage limit|billing|payment required|insufficient|authentication_error|invalid.{0,4}api.?key|\b401\b|\b402\b|\b429\b|overloaded/i.test(em)
+    if (isBrainDown) {
+      if (Date.now() - lastBrainDownAlertAt > 3 * 3600 * 1000) {
+        lastBrainDownAlertAt = Date.now()
+        notifyOwner(`⚠️ dk2 AI DOWN — Anthropic API: "${em.slice(0, 90)}". Buyers ko abhi "${settings.deferMessage || 'Ketu will reply shortly sir 🙏'}" ja raha hai (silence nahi). Credits/payment fix karte hi apne aap wapas chalu ho jayega.`).catch(() => {})
+        console.log(`[BrainDown] ${whatsappNumber} — API down (${em.slice(0, 60)}); owner alerted, buyers get the defer line`)
+      }
+      scheduleDeferReply({
+        whatsappNumber, deferMessage: settings.deferMessage, conversationId,
+        mergedText: mergedText || '[media]', messageIds, logData: {
+          status: 'DEFERRED', deferReason: 'ai_down_billing', processingMs: Date.now() - startTime,
+        }, db,
+      })
+      return
+    }
     await createLog(db, conversationId, mergedText, messageIds, {
       status: 'FAILED',
       deferReason: err.message,
