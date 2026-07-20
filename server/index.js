@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt } from './process.js'
+import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
@@ -157,7 +157,16 @@ app.get('/api/ai-status', async (c) => {
       }
       // probe.ok === true → API answering again → leave down=false (recovered)
     }
-    return c.json({ ok: !down, down, reason, detail, since, probed, lastPaidReplyAt: lastPaid?.createdAt || null, cost: { avgInr: costAlarm.avgInr, ceiling: costAlarm.ceiling, over: costAlarm.over, replies: costAlarm.replies }, checkedAt: new Date().toISOString() })
+    // FALLBACK-ACTIVE: if the OpenAI backup answered a buyer in the last 10 min, Claude/Anthropic is
+    // effectively down but the shop is still replying (on gpt-4o-mini). The reply-call failures are
+    // logged as REPLIED (fallback), so the FAILED-based down-detector above stays quiet — surface the
+    // true state here so the banner shows "on backup" instead of falsely reading all-clear.
+    const onFallback = fallbackState.at > 0 && (Date.now() - fallbackState.at < 10 * 60 * 1000)
+    if (onFallback && !down) {
+      reason = `Claude (Anthropic) is down — running on the OpenAI backup brain (${fallbackState.model || 'gpt-4o-mini'}). Buyers ARE getting replies; top up Anthropic credits to restore full quality.`
+      detail = 'openai_fallback_active'
+    }
+    return c.json({ ok: !down, down, onFallback, brain: onFallback ? (fallbackState.model || 'openai-fallback') : 'claude', reason, detail, since, probed, lastPaidReplyAt: lastPaid?.createdAt || null, cost: { avgInr: costAlarm.avgInr, ceiling: costAlarm.ceiling, over: costAlarm.over, replies: costAlarm.replies }, checkedAt: new Date().toISOString() })
   } catch (e) {
     return c.json({ ok: false, down: true, reason: `Status check failed: ${e.message}`, detail: 'status_error' })
   }
