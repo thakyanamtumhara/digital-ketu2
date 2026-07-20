@@ -1985,20 +1985,14 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     // DEAD AIR). The defer line is a FIXED string sent via wwbun — it needs NO Anthropic call — so
     // it still works with zero credits. On a credit/billing/auth-suspension error, acknowledge the
     // buyer with the defer line (thread lands in Ketu's court) and alert Ketu once per outage.
+    // AI-BRAIN-DOWN (credits/billing/auth): alert Ketu ONCE per outage so he knows to top up — but
+    // do NOT auto-message buyers (Ketu 2026-07-20: "you don't need to send Ketu-will-reply-shortly,
+    // I'm online on WhatsApp handling them myself"). Just log FAILED; he covers the threads.
     const isBrainDown = /credit balance is too low|usage limit|billing|payment required|insufficient|authentication_error|invalid.{0,4}api.?key|\b401\b|\b402\b|\b429\b|overloaded/i.test(em)
-    if (isBrainDown) {
-      if (Date.now() - lastBrainDownAlertAt > 3 * 3600 * 1000) {
-        lastBrainDownAlertAt = Date.now()
-        notifyOwner(`⚠️ dk2 AI DOWN — Anthropic API: "${em.slice(0, 90)}". Buyers ko abhi "${settings.deferMessage || 'Ketu will reply shortly sir 🙏'}" ja raha hai (silence nahi). Credits/payment fix karte hi apne aap wapas chalu ho jayega.`).catch(() => {})
-        console.log(`[BrainDown] ${whatsappNumber} — API down (${em.slice(0, 60)}); owner alerted, buyers get the defer line`)
-      }
-      scheduleDeferReply({
-        whatsappNumber, deferMessage: settings.deferMessage, conversationId,
-        mergedText: mergedText || '[media]', messageIds, logData: {
-          status: 'DEFERRED', deferReason: 'ai_down_billing', processingMs: Date.now() - startTime,
-        }, db,
-      })
-      return
+    if (isBrainDown && Date.now() - lastBrainDownAlertAt > 3 * 3600 * 1000) {
+      lastBrainDownAlertAt = Date.now()
+      notifyOwner(`⚠️ dk2 AI DOWN — Anthropic API: "${em.slice(0, 90)}". Credits/payment fix karte hi apne aap wapas chalu ho jayega.`).catch(() => {})
+      console.log(`[BrainDown] ${whatsappNumber} — API down (${em.slice(0, 60)}); owner alerted (buyers NOT auto-messaged)`)
     }
     await createLog(db, conversationId, mergedText, messageIds, {
       status: 'FAILED',
