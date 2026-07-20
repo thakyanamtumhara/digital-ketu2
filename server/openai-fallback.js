@@ -22,6 +22,16 @@ export function isOpenAiFallbackConfigured() {
   return !!OPENAI_API_KEY
 }
 
+// GPT-specific guardrails — the Opus-vs-mini head-to-head (2026-07-20) showed gpt-4o-mini's ONLY
+// real slips vs Opus were: (a) fabricating stock ("out lag raha hai" / "available nahi") instead of
+// deferring, (b) inventing a phone/vendor/referral number, (c) being wordier than Ketu. Prepend a
+// sharp override that hits exactly those. (Opus doesn't need this; it's mini-only.)
+const MINI_GUARDRAILS = `⚠️ CRITICAL OVERRIDES — these win over anything below that conflicts:
+1. You do NOT know live stock. NEVER say a product/size/colour is "out of stock" / "out lag raha hai" / "available nahi hai", and never assert it IS in stock. For ANY "is X in stock / available hai / kab aayega / restock" question, reply EXACTLY: Ketu will reply shortly sir 🙏
+2. NEVER invent or send a phone number, WhatsApp number, vendor, or referral link that is not written verbatim in your instructions below. If a product/size isn't something we make, say we don't make it and point to https://sale91.com/catalog — do NOT route to a made-up vendor.
+3. Reply in ONE short line, in Ketu's terse Hinglish voice (match the buyer's language). No multi-sentence sales pitches.
+`
+
 // Build OpenAI chat messages from the SAME pieces the Claude path uses.
 function toOpenAiMessages(systemText, userText, imageBlock) {
   const userContent = []
@@ -33,7 +43,7 @@ function toOpenAiMessages(systemText, userText, imageBlock) {
     })
   }
   return [
-    { role: 'system', content: systemText },
+    { role: 'system', content: MINI_GUARDRAILS + '\n' + systemText },
     { role: 'user', content: userContent.length === 1 && userContent[0].type === 'text' ? userText : userContent },
   ]
 }
