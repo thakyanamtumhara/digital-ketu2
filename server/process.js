@@ -1910,7 +1910,12 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   // and inject the result so the model can answer with the real tracking link instead of blank-
   // deferring. Any lookup failure → no block → the old defer behaviour is untouched.
   const TRACKING_INTENT_RE = /\btrack|awb|parcel|shipment|consignment|dispatch|pickup|courier|bhej(a|\s*diya)|\border\b[^]{0,40}(kaha|kahan|status|kab|mila|aaya|receive|pahu)|(kaha|kahan|status)[^]{0,25}\border/i
-  if (!isInstagram && TRACKING_INTENT_RE.test(mergedText || '')) {
+  // COMPLAINT/ANXIETY guard (audit 2026-07-20: Ketu corrected the auto-tracking-link to a DEFER on
+  // "We haven't received anything yet, dispatched or NOT???" and a "send tracker id" — an anxious /
+  // not-received / "problem" tracking message is a COMPLAINT he handles personally, not a case for a
+  // canned link). On these, do NOT inject the lookup block → the normal defer rules apply.
+  const TRACKING_COMPLAINT_RE = /haven.?t\s*(received|got)|not\s*(yet\s*)?(received|delivered|dispatched)|nahi\s*(aaya|aya|mila|mile|pahu|nikla)|abhi\s*tak|dispatched\s*or\s*not|\bproblem\b|kyu?n?\s*(nahi|nhi|late)|\blate\b|\d+\s*din\s*(ho|hue|se)|\?{3,}|still\s*(not|waiting|pending)/i
+  if (!isInstagram && TRACKING_INTENT_RE.test(mergedText || '') && !TRACKING_COMPLAINT_RE.test(mergedText || '')) {
     try {
       const orders = await lookupOrdersByPhone(whatsappNumber)
       const block = formatOrderLookupBlock(orders)
