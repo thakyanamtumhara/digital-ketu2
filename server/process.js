@@ -11,6 +11,7 @@ import { vectorSearch } from './embeddings.js'
 import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } from './transcribe.js'
 import { evaluateIgGate } from './ig-gate.js'
 import { lookupOrdersByPhone, formatOrderLookupBlock } from './order-lookup.js'
+import { openaiReply, isOpenAiFallbackConfigured } from './openai-fallback.js'
 
 // ===========================================
 // Welcome Follow-Up Constants & State
@@ -1937,6 +1938,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   // --- Call Claude API ---
   let aiReply
   let promptTokens, completionTokens, totalTokens, costUsd
+  let usedFallbackBrain = null  // set to the OpenAI model name when the fallback answered
 
   try {
     const userMessages = [{ role: 'user', content: imageBlock ? [imageBlock, { type: 'text', text: userPrompt }] : userPrompt }]
@@ -1981,26 +1983,37 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   } catch (err) {
     console.error(`[Claude Error] ${whatsappNumber}:`, err.message)
     const em = String(err?.message || '')
-    // AI-BRAIN-DOWN STOPGAP (2026-07-20: the Anthropic credit balance ran out and every buyer got
-    // DEAD AIR). The defer line is a FIXED string sent via wwbun — it needs NO Anthropic call — so
-    // it still works with zero credits. On a credit/billing/auth-suspension error, acknowledge the
-    // buyer with the defer line (thread lands in Ketu's court) and alert Ketu once per outage.
-    // AI-BRAIN-DOWN (credits/billing/auth): alert Ketu ONCE per outage so he knows to top up — but
-    // do NOT auto-message buyers (Ketu 2026-07-20: "you don't need to send Ketu-will-reply-shortly,
-    // I'm online on WhatsApp handling them myself"). Just log FAILED; he covers the threads.
+    // AI-BRAIN-DOWN (Anthropic credits/billing/auth suspended). Claude Opus 4.8 is PRIMARY (the more
+    // faithful clone); when it's down, fail over to the OPENAI FALLBACK BRAIN (gpt-4o-mini, reusing
+    // the transcription OPENAI_API_KEY) so the shop keeps replying instead of going dark. Auto-reverts
+    // to Claude the moment credits return. Ketu-approved 2026-07-20 during the Anthropic-credits outage.
     const isBrainDown = /credit balance is too low|usage limit|billing|payment required|insufficient|authentication_error|invalid.{0,4}api.?key|\b401\b|\b402\b|\b429\b|overloaded/i.test(em)
-    if (isBrainDown && Date.now() - lastBrainDownAlertAt > 3 * 3600 * 1000) {
-      lastBrainDownAlertAt = Date.now()
-      notifyOwner(`⚠️ dk2 AI DOWN — Anthropic API: "${em.slice(0, 90)}". Credits/payment fix karte hi apne aap wapas chalu ho jayega.`).catch(() => {})
-      console.log(`[BrainDown] ${whatsappNumber} — API down (${em.slice(0, 60)}); owner alerted (buyers NOT auto-messaged)`)
+    if (isBrainDown) {
+      if (Date.now() - lastBrainDownAlertAt > 3 * 3600 * 1000) {
+        lastBrainDownAlertAt = Date.now()
+        notifyOwner(`⚠️ dk2 Claude down ("${em.slice(0, 60)}") — OpenAI fallback (gpt-4o-mini) chalu hai, buyers ko reply ja raha hai. Anthropic credits fix karte hi Claude wapas.`).catch(() => {})
+        console.log(`[BrainDown] ${whatsappNumber} — Claude down (${em.slice(0, 50)}); trying OpenAI fallback`)
+      }
+      if (isOpenAiFallbackConfigured()) {
+        const fb = await openaiReply({ systemText: systemPrompt, userText: userPrompt, imageBlock })
+        if (fb && fb.reply) {
+          aiReply = fb.reply
+          usedFallbackBrain = fb.model
+          promptTokens = 0; completionTokens = 0; totalTokens = 0
+          costUsd = fb.costUsd
+          console.log(`[Fallback] ${whatsappNumber} — replied via ${fb.model} ($${fb.costUsd.toFixed(4)})`)
+        }
+      }
     }
-    await createLog(db, conversationId, mergedText, messageIds, {
-      status: 'FAILED',
-      deferReason: err.message,
-      knowledgeChunks: allVectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
-      processingMs: Date.now() - startTime,
-    })
-    return
+    if (!aiReply) {
+      await createLog(db, conversationId, mergedText, messageIds, {
+        status: 'FAILED',
+        deferReason: err.message,
+        knowledgeChunks: allVectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
+        processingMs: Date.now() - startTime,
+      })
+      return
+    }
   }
 
   // --- REASONING-LEAK GUARD ---
@@ -2126,6 +2139,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   await createLog(db, conversationId, mergedText, messageIds, {
     status: 'REPLIED',
     aiReply,
+    deferReason: usedFallbackBrain ? `openai_fallback:${usedFallbackBrain}` : undefined,
     knowledgeChunks: allVectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
     similarityScore: bestSimilarity,
     catalogMatch: catalogMatches.length > 0 ? catalogMatches[0].metadata : null,
