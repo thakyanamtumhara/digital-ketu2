@@ -40,6 +40,8 @@ app.use('/api/defer-list/*', readGuard)
 app.use('/api/knowledge/chunks', readGuard)
 app.use('/api/knowledge/correction/*', readGuard)
 app.use('/api/correction', readGuard)
+app.use('/api/stock-debug', readGuard)
+app.use('/api/defer-stats', readGuard)
 
 // WRITE LOCKDOWN (Ketu-approved 2026-07-18): mutating admin endpoints were fully public —
 // anyone with the URL could PUT /api/settings (flip isActive off, zero the budget, replace the
@@ -87,6 +89,47 @@ app.get('/api/health', async (c) => {
 // Liveness only (no DB). Use THIS as Railway's healthcheck path so a brief Neon cold-start
 // hiccup can't trigger a restart loop — it only fails if the process itself is hung.
 app.get('/api/health/live', (c) => c.json({ status: 'alive', service: 'digital-ketu2' }))
+
+// LIVE STOCK FEED debug view (2026-07-21): the exact 📦 block the model receives on a stock-intent
+// message, built from live pc.js + coming-soon sources. Read-token gated. ?raw=1 → structured JSON.
+app.get('/api/stock-debug', async (c) => {
+  try {
+    const { getStockSnapshot, formatStockBlock } = await import('./stock-lookup.js')
+    const snap = await getStockSnapshot()
+    if (c.req.query('raw')) return c.json(snap)
+    return c.text(formatStockBlock(snap) || '(empty snapshot)')
+  } catch (err) {
+    return c.json({ error: err.message }, 502)
+  }
+})
+
+// DEFER SCOREBOARD (2026-07-21, Ketu-approved): "the human requirement of Ketu will keep decreasing
+// until there is a real human requirement." Buckets recent handoffs so progress toward full
+// replacement is a NUMBER. ?days=N (default 7).
+app.get('/api/defer-stats', async (c) => {
+  const days = Math.min(90, Math.max(1, parseInt(c.req.query('days') || '7', 10) || 7))
+  const since = new Date(Date.now() - days * 86400000)
+  const logs = await db.messageLog.findMany({
+    where: { createdAt: { gte: since } },
+    select: { status: true, deferReason: true },
+  })
+  const total = logs.length
+  const replied = logs.filter(l => l.status === 'REPLIED').length
+  const deferred = logs.filter(l => l.status === 'DEFERRED')
+  const buckets = {}
+  for (const l of deferred) {
+    const key = l.deferReason || 'unspecified'
+    buckets[key] = (buckets[key] || 0) + 1
+  }
+  return c.json({
+    days,
+    totalMessages: total,
+    replied,
+    deferred: deferred.length,
+    deferRatePct: total ? Math.round((deferred.length / total) * 1000) / 10 : 0,
+    buckets: Object.fromEntries(Object.entries(buckets).sort((a, b) => b[1] - a[1])),
+  })
+})
 
 // AI DOWN-ALERT for the wwbun operator banner: is the reply brain actually answering, or is
 // something blocking it (Anthropic usage-limit / overload / rate-limit / DB)? A reply-call
