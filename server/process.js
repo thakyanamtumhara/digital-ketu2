@@ -325,6 +325,24 @@ function hasNonDispatchRequestText(text) {
   return NON_DISPATCH_REQUEST_RE.test(text || '')
 }
 
+// BUDGET-CAP CATALOG FALLBACK (2026-07-21, UK buyer 447776833983: "I'm looking for combed cotton
+// bio-washed oversized plain tshirt" got the bare "Ketu will reply shortly" at 8:21pm — NOT because
+// it was an international number, but because the ₹750 daily budget was exhausted by ~7:25pm and
+// EVERY buyer after that gets the free defer line). A clear SHOPPING question (products / rates /
+// details / "looking for X") can still be served a zero-cost deterministic catalog link even when
+// the AI budget is spent. isShoppingInquiry() = looks like shopping AND is NOT a complaint / order /
+// tracking / modification (those still defer to Ketu — only he handles them).
+const SHOPPING_RE = /\b(t[\s-]?shirt|tshirt|tees?|oversize[d]?|polo|hoodie|sweat\s?shirt|cotton|jersey|bio\s*wash|biowash|non\s*bio|true\s*bio|gsm|acid\s*wash|acidwash|drop\s*shoulder|round\s*neck|r\s*neck|rneck|varsity|shorts|kids|sublimation|catalog|catalogue|rate\s*list|price\s*list|rates?|price|details|sample|colou?r|plain|combed|fabric|moq|wholesale|bulk)\b|chahiye|chahie|looking\s*for|requirement|intereste?d|\bwant\b|\bneed\b|banate\s*ho|karte\s*ho|dikha(o|iye)/i
+const BUDGET_ORDER_BLOCK_RE = /\b(order|tracking|track|awb|parcel|dispatch|deliver|delivery|refund|return|complaint|damage[d]?|missing|received|payment|paid|invoice|bill|courier)\b|kahan|nahi\s*aaya|nhi\s*aya/i
+function isShoppingInquiry(text) {
+  if (!text || !text.trim()) return false
+  return SHOPPING_RE.test(text)
+    && !BUDGET_ORDER_BLOCK_RE.test(text)
+    && !hasNonDispatchIntentText(text)
+    && !hasNonDispatchRequestText(text)
+    && !DELAY_COMPLAINT_RE.test(text)
+}
+
 async function hasRecentDelayComplaint(db, conversationId) {
   try {
     const recent = await db.messageLog.findMany({
@@ -1166,10 +1184,19 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       notifyOwner(`⚠️ dk2 daily budget ₹${settings.dailyBudgetInr} khatam — AI replies PAUSED till the 05:30 IST reset. Buyers ab "${settings.deferMessage || 'Ketu will reply shortly sir 🙏'}" receive kar rahe hain (silence nahi). Budget dashboard se badha sakte ho.`).catch(() => {})
       console.log(`[Budget] TRIPPED at ₹${dailySpentInr.toFixed(0)}/${settings.dailyBudgetInr} — owner alerted, buyers get defer line`)
     }
+    // A clear SHOPPING question still gets a zero-cost catalog link (Ketu's point 2026-07-21: "you
+    // could have replied with the catalog link"); complaints / orders / tracking / media still defer.
+    const budgetCatalogReply = isShoppingInquiry(mergedText) && !hasMediaOnly
+      ? 'Sab details, rates aur colours catalog mein hain sir 👉 https://sale91.com/catalog'
+      : null
     scheduleDeferReply({
-      whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+      whatsappNumber,
+      deferMessage: budgetCatalogReply || settings.deferMessage,
+      conversationId: conversation.id,
       mergedText: mergedText || '[media]', messageIds, logData: {
-        status: 'DEFERRED', deferReason: 'daily_limit',
+        status: budgetCatalogReply ? 'REPLIED' : 'DEFERRED',
+        deferReason: budgetCatalogReply ? 'budget_catalog_fallback' : 'daily_limit',
+        costUsd: 0,
         processingMs: Date.now() - startTime, isMedia: hasMediaOnly,
       }, db,
     })
