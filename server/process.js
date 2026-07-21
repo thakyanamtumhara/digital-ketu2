@@ -2046,6 +2046,27 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     return
   }
 
+  // --- MEDIA RE-ASK GUARD ---
+  // (Ketu 2026-07-21, buyer 919910024230 / Rajat: sent a screenshot 3× and got "Screenshot bhej
+  // dijiye" 3× — you can NEVER ask a buyer to send media they just sent.) If this message carried an
+  // image/screenshot and the reply asks the buyer to SEND a screenshot/photo, that's a contradiction
+  // and a loop → defer to Ketu (he can see the media in wwbun) instead. Matches "bhej dijiye/do/dena/
+  // karo", "dobara", "send/share the photo" — but NOT "photos bhej deta hun" (clone offering to send).
+  const MEDIA_REASK_RE = /(screenshot|photo|image|pic(ture)?)\s*(ko\s*)?(dobara|dubara|firse|phir\s*se)|(screenshot|photo|image|pic(ture)?)\s*(bhej|send|share)\s*(dijiye|dijiyega|do\b|dena|de\s*d|karo|kar\s*d)|(send|share)\s*(me\s*)?(the\s*)?(screenshot|photo|image|pic(ture)?)|photo\s*(aayi\s*nahi|nahi\s*aayi)/i
+  if ((imageBlock || imageUrl) && MEDIA_REASK_RE.test(aiReply || '')) {
+    console.warn(`[MediaReask] ${whatsappNumber} — reply asked for a screenshot the buyer already sent; deferring instead of looping. Reply: ${(aiReply || '').slice(0, 80)}`)
+    scheduleDeferReply({
+      whatsappNumber, deferMessage: settings.deferMessage, conversationId,
+      mergedText, messageIds, logData: {
+        status: 'DEFERRED', deferReason: 'media_reask_blocked',
+        aiReply, promptTokens, completionTokens, totalTokens, costUsd,
+        processingMs: Date.now() - startTime,
+      }, db,
+    })
+    await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } }).catch(() => {})
+    return
+  }
+
   // --- Check if Claude detected a conversation ender ---
   if (aiReply.includes('[SKIP]')) {
     await createLog(db, conversationId, mergedText, messageIds, {
