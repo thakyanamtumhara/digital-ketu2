@@ -410,6 +410,12 @@ function isGenericMessage(text) {
   ]
   if (addressKeywords.some(k => normalized.includes(k))) return false
 
+  // LADIES / WOMEN / GIRLS category → real inquiry (run the AI so it answers "not available", instead
+  // of the nudge). Ketu 2026-07-21, buyer 9167442471: first msg "Ladis tshirt hai?" wrongly got "Ask
+  // me if any questions sir?"; Ketu answered "No sir." — a product question must get a product answer.
+  const ladiesKeywords = ['ladies', 'ladis', 'ladie', 'women', 'womens', "women's", 'woman', 'female', 'girls', 'girl', 'ladki', 'ladkiyon', 'zanana']
+  if (ladiesKeywords.some(k => normalized.includes(k))) return false
+
   // Clear ORDER / BUYING intent → real inquiry, never generic (run the AI to guide them, don't nudge)
   const orderIntent = ['order lagana', 'order karna', 'order karni', 'order kar', 'order place', 'place order', 'order krna', 'order chahiye', 'buy karna', 'purchase karna', 'kaise order']
   if (orderIntent.some(k => normalized.includes(k))) return false
@@ -439,7 +445,11 @@ function isGenericMessage(text) {
     'rate list', 'rate card', 'price list', 'catalog', 'catalogue',
     'tshirt', 't shirt', 't-shirt', 'details',
   ]
-  if (words.length <= 4 && genericPhrases.some(p => normalized.includes(p))) return true
+  // A short message that clearly ASKS something ("tshirt hai?", "polo available?", "COD milega?") is
+  // NOT a generic nudge case — let the AI answer it (Ketu 2026-07-21: a first-message question must
+  // get an answer, not "Ask me if any questions sir?").
+  const asksSomething = text.includes('?') || /\bavailable\b|\bmilega\b|\bmilta\b|hai kya|kya hai|do you have|karte ho|banate ho/i.test(normalized)
+  if (words.length <= 4 && genericPhrases.some(p => normalized.includes(p)) && !asksSomething) return true
 
   // 4 words or fewer without a question indicator → generic
   const hasQuestionMark = text.includes('?')
