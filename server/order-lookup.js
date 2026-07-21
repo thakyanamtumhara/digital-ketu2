@@ -74,6 +74,89 @@ export async function lookupOrdersByPhone(whatsappNumber) {
   return out
 }
 
+// ===========================================================================
+// BUYER PROFILE (2026-07-21, Ketu-approved roadmap step: "makes the clone sound like it REMEMBERS
+// a returning buyer"). Injected on EVERY turn (not just tracking intent) — a compact ~60-token
+// line: order count, last order (products + value + date), booking state of the newest order.
+// Same security invariants as the lookup above: buyer's OWN number only, read-only, fail-open
+// (any error → null → no block → behaviour identical to before).
+// ===========================================================================
+
+const PROFILE_CACHE_TTL_MS = 10 * 60 * 1000
+const _profileCache = new Map() // digits → { at, profile }
+
+// od JSONB: {"Product":{"Colour":{"Size":qty}}} → "Product (Colour, Colour)" summary, max 3 products
+function summarizeOd(od) {
+  if (!od || typeof od !== 'object') return null
+  const parts = []
+  for (const product of Object.keys(od).slice(0, 3)) {
+    const colours = od[product] && typeof od[product] === 'object' ? Object.keys(od[product]).slice(0, 3) : []
+    parts.push(colours.length ? `${product} (${colours.join(', ')})` : product)
+  }
+  if (Object.keys(od).length > 3) parts.push('…')
+  return parts.join(' + ') || null
+}
+
+export async function getBuyerProfile(whatsappNumber) {
+  const digits = String(whatsappNumber || '').replace(/\D/g, '').slice(-10)
+  if (digits.length !== 10) return null
+  const hit = _profileCache.get(digits)
+  if (hit && Date.now() - hit.at < PROFILE_CACHE_TTL_MS) return hit.profile
+  const rows = await dbQuery(
+    `SELECT odid, dt, tv, od FROM orders
+     WHERE mn1 LIKE '%${digits}%' OR mn2 LIKE '%${digits}%' OR b::text LIKE '%${digits}%'
+     ORDER BY dt DESC LIMIT 25`
+  )
+  let profile = null
+  if (rows.length) {
+    const last = rows[0]
+    const lastDate = last.dt ? new Date(Number(last.dt)).toISOString().slice(0, 10) : null
+    const lastDays = last.dt ? Math.floor((Date.now() - Number(last.dt)) / 86400000) : null
+    // Booking state only for a RECENT last order (≤14 days) — that's when "kahan tak aaya" matters.
+    let awb = null
+    if (lastDays !== null && lastDays <= 14) {
+      const odidSafe = String(last.odid || '').replace(/[^A-Za-z0-9_~-]/g, '')
+      if (odidSafe) {
+        try {
+          const logs = await dbQuery(
+            `SELECT error_booking FROM booking_logs WHERE id LIKE '${odidSafe}%' ORDER BY created_at DESC LIMIT 3`
+          )
+          awb = (logs.map(l => l.error_booking).find(looksLikeAwb) || '').trim() || null
+        } catch { /* ignore */ }
+      }
+    }
+    profile = {
+      count: rows.length, countCapped: rows.length === 25,
+      lastDate, lastDays,
+      lastSummary: summarizeOd(last.od),
+      lastValue: last.tv ? Math.round(Number(last.tv)) : null,
+      lastAwb: awb, lastTrackUrl: awb ? `https://trq.pages.dev/?${awb}` : null,
+    }
+  } else {
+    profile = { count: 0 }
+  }
+  _profileCache.set(digits, { at: Date.now(), profile })
+  return profile
+}
+
+export function formatBuyerProfileBlock(p) {
+  if (!p) return null
+  if (p.count === 0) {
+    return `👤 BUYER PROFILE (live order system, this buyer's own number): no past website orders found for this number — likely a NEW buyer (or they order under a different number; never assert "aapne kabhi order nahi kiya").`
+  }
+  const bits = [`${p.count}${p.countCapped ? '+' : ''} past website order${p.count > 1 ? 's' : ''}`]
+  if (p.lastDate) {
+    let lastBit = `last: ${p.lastDate}${p.lastDays !== null && p.lastDays <= 60 ? ` (${p.lastDays} din pehle)` : ''}`
+    if (p.lastSummary) lastBit += ` — ${p.lastSummary}`
+    if (p.lastValue) lastBit += `, ₹${p.lastValue.toLocaleString('en-IN')}`
+    bits.push(lastBit)
+  }
+  if (p.lastAwb) bits.push(`newest order BOOKED, tracking: ${p.lastTrackUrl}`)
+  else if (p.lastDays !== null && p.lastDays <= 3) bits.push('newest order NOT yet courier-booked')
+  return `👤 BUYER PROFILE (live order system, this buyer's own number — TRUSTED background): ${bits.join('; ')}.
+HOW TO USE: background context ONLY — makes you sound like you KNOW this buyer (returning buyer ≠ stranger; you may naturally reference their last product when relevant, e.g. "pichhli baar wala 240gsm?"). Do NOT recite this data unprompted, do NOT greet with their order history, NEVER mention a "system/profile/lookup", and complaints/modifications still [DEFER] as usual. Ketu's own thread messages always win.`
+}
+
 // Format for prompt injection. Returns null when there is nothing useful to inject.
 export function formatOrderLookupBlock(orders) {
   if (!orders) return null

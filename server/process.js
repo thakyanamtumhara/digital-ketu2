@@ -10,7 +10,7 @@
 import { vectorSearch } from './embeddings.js'
 import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } from './transcribe.js'
 import { evaluateIgGate } from './ig-gate.js'
-import { lookupOrdersByPhone, formatOrderLookupBlock } from './order-lookup.js'
+import { lookupOrdersByPhone, formatOrderLookupBlock, getBuyerProfile, formatBuyerProfileBlock } from './order-lookup.js'
 import { getStockSnapshot, formatStockBlock } from './stock-lookup.js'
 import { openaiReply, isOpenAiFallbackConfigured } from './openai-fallback.js'
 
@@ -1908,6 +1908,53 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     }
   }
 
+  // BUYER PROFILE (2026-07-21, Ketu-approved roadmap step 2): compact ~60-token background line on
+  // EVERY WhatsApp turn — order count, last order (products + ₹), booking state — so the clone
+  // treats a 20-order regular like a known buyer, not a stranger, and "kahan tak aaya" has an
+  // anchor. Read-only, buyer's own number only, 10-min cache; any failure → no block (fail-open).
+  if (!isInstagram) {
+    try {
+      const profileBlock = formatBuyerProfileBlock(await getBuyerProfile(whatsappNumber))
+      if (profileBlock) userPrompt = profileBlock + '\n\n' + userPrompt
+    } catch (err) {
+      console.error(`[BuyerProfile] ${whatsappNumber} — profile fetch failed (skipping):`, err.message)
+    }
+  }
+
+  // "AAJ KA NOTE" daily-pulse (2026-07-21): one line from Ketu shapes ALL of today's replies.
+  // Valid only for the IST day it was set — stale notes are ignored automatically (no cron).
+  if (settings.dailyNote && settings.dailyNoteSetAt) {
+    const istDay = d => new Date(d).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+    if (istDay(settings.dailyNoteSetAt) === istDay(Date.now())) {
+      userPrompt = `📌 AAJ KA NOTE (from Ketu HIMSELF, applies to ALL replies TODAY — factor it in where relevant, don't recite it verbatim unless it answers the question): ${settings.dailyNote}\n\n${userPrompt}`
+    }
+  }
+
+  // BUYER MEMORY (2026-07-21): durable per-buyer facts — language preference + admin notes.
+  // ~20 tokens, only when a memory row exists. Failure → skip (fail-open).
+  try {
+    const mem = await db.buyerMemory.findUnique({ where: { whatsappNumber } })
+    if (mem && (mem.language || mem.notes)) {
+      const bits = []
+      if (mem.language) bits.push(`this buyer EXPLICITLY asked for ${mem.language.toUpperCase()} in an earlier chat — ALWAYS reply in ${mem.language} (overrides language-matching)`)
+      if (mem.notes) bits.push(`notes from Ketu: ${mem.notes}`)
+      userPrompt = `🧠 BUYER MEMORY (durable facts about THIS buyer): ${bits.join('; ')}.\n\n${userPrompt}`
+    }
+  } catch { /* table may not exist yet on first boot — skip */ }
+
+  // Auto-learn an EXPLICIT language request so it survives across threads (the rulebook already
+  // honors it within-thread; this makes "English please" permanent). Fire-and-forget.
+  const langAsk = /\b(in english|english please|english me(?:in)?\s*(bolo|batao|reply|likho)?|please english|reply in english|only english)\b/i.test(mergedText || '') ? 'english'
+    : /\b(hindi me(?:in)?\s*(bolo|batao|baat|reply|likho)|in hindi|hindi please|reply in hindi)\b/i.test(mergedText || '') ? 'hindi' : null
+  if (langAsk && !isInstagram) {
+    db.buyerMemory.upsert({
+      where: { whatsappNumber },
+      update: { language: langAsk },
+      create: { whatsappNumber, language: langAsk },
+    }).then(() => console.log(`[BuyerMemory] ${whatsappNumber} — language preference saved: ${langAsk}`))
+      .catch(() => {})
+  }
+
   // Vision: tell the model a real photo is attached and how to use it (no hallucinated prices/details).
   if (imageBlock) {
     userPrompt = `📷 The buyer attached a PHOTO (sent with this message). Look at the image carefully. OUTPUT ONLY the final WhatsApp message to send the buyer (first-person, as Om, casual Hinglish) — NEVER narrate or describe the image or your analysis: do NOT write "This is a screenshot of...", "The buyer has built their cart", "they have NOT paid yet", or ANY third-person description / reasoning (that is internal-only); send JUST the message text the buyer should receive.\nFIRST: if the photo is a SCREENSHOT of OUR WEBSITE — an Order Summary / cart / checkout page, or one showing a "Pay Now" / "Order Now" / "Place order" / "Add to cart" button (the buyer has built their order and is showing it / asking how to finish) — they have NOT paid yet, so do NOT say "dispatching" and do NOT defer. Guide them to complete it: "Pay Now button click karke order complete kar lijiye sir, payment ke baad dispatch ho jayega 👉 https://sale91.com". EXCEPTION — if the website screenshot shows the item OUT OF STOCK / "No stock" (or the buyer's text says so), do NOT bounce them back with "website pe hai, order kar lijiye" (it contradicts what they just showed): reply EXACTLY [DEFER] — only Ketu knows real-time stock (POLICY Ketu 2026-07-16: NEVER assert in/out of stock, do NOT say "out lag raha hai"); he handles the stock status + any alternative.\nBUT if the photo is a BILL / TAX INVOICE / order receipt (a FINALISED order — has an Invoice No., Total, "Pay To" bank details — NOT a cart) AND the buyer wants to ADD or CHANGE something ("add this as well", "ye bhi add kar do", "isme ye bhi daal do"), that is an order MODIFICATION → reply EXACTLY [DEFER] (only Ketu can add the item / confirm which product) — do NOT say "dispatching", do NOT acknowledge a dispatch, and do NOT interrogate for product/colour/size when the IMAGE itself shows the item to add ("ye bhi add karva do" + a product photo = the photo IS the answer — read it and defer with it; clone asked "kya add karna hai? product, colour, size bata dijiye" to a photo that showed exactly that, 2026-07-03).\nALSO — if the buyer's TEXT asks for TRACKING ("I want tracking details", "tracking chahiye", "track my order", "order kahan hai", order STATUS) — EVEN when the image is an Order-Confirmed / order page that itself says "dispatching in a few minutes" — reply EXACTLY [DEFER] — UNLESS a "📦 ORDER LOOKUP RESULT" block is present in this request: then answer the plain status/tracking ask FROM that block (short + the tracking link), complaints/no-AWB still [DEFER]. Never answer "dispatching ASAP" to a tracking request.\nORDER-DETAILS SCREENSHOT — if the photo is a LIST / SUMMARY of products + sizes + quantities the buyer is SHARING or confirming (an order breakdown, e.g. "240gsm Black M:5 L:5, White XL:3..."), with NO clear complaint, NO bill/payment markers (no Invoice No / Pay-To), NO cart "Pay Now" button, and NO explicit add/change request, the safest reply is simply "Noted sir 🙏" — nothing else (Ketu 2026-06-16, buyer 8437375306: such a screenshot can mean many things, so a clean "Noted" is the best answer; do NOT route it to the stock sheet / catalog / product page and do NOT say "dispatching" or ask which item).\nSECOND: if the photo shows a POSSIBLE PROBLEM on a garment — stains, marks, chalk lines, holes, loose threads, damage, wrong/odd print, a measuring tape on the garment, or the buyer's text sounds like a complaint/showing an issue ("this is hilarious", "ye kya hai", "dekho isko", "issue", "quality kharab/karap kyu hai", "fade ho gaya", emoji-only disappointment) — they are REPORTING a received-product problem, NOT shopping: reply EXACTLY [DEFER] — even if you can identify the product, a quality-negative caption makes it a complaint, NEVER a product-ID + catalog link (clone answered "Acid wash oversize hai sir 👉 link" to "quality thora karap kyu hai", 2026-07-03) (Ketu inspects defect photos personally — e.g. he identified chalk marks a buyer sent 2026-06-11 while the clone wrongly answered "cream round neck, catalog dekh lijiye"). NON-GARMENT PRODUCT they want us to supply — if the image is a HOME TEXTILE or other non-garment PRODUCT (a bedsheet / chadar, towel, curtain, blanket, or raw fabric / cloth) and the text is asking for it ("aisa bedsheet milega", "ye banaoge", "isa chahiye"), do NOT defer — tell them directly we only make t-shirts: "Hum sirf t-shirts/garments banate hain sir, ye nahi 👉 https://sale91.com/catalog" (Ketu 2026-06-27, buyer 6232320603). ALSO: if the photo is clearly NOT apparel / a garment / a product we could sell (a selfie, a meme, a screenshot of text or chat, a document, a random object), OR if the image is blank / unclear / blurry / you cannot actually make out a garment, reply with EXACTLY [DEFER] and nothing else — do NOT guess.\nPRINTED/BRANDED TEE + COLOUR ASK — a buyer showing a PRINTED or branded tee and asking about its COLOUR ("ei colour ta ki hobe", "ye colour milega?") wants OUR BLANK in that colour, NOT a print service: identify the colour and answer for the blank ("Army green hai sir 👉 [deep-link/HD Photos]") — do NOT reply "print wala nahi banate" to a colour question (clone did; Ketu answered "Yes army green tshirt available" + the product photo, 2026-07-06). Mention printing only if they ask for printing. PHOTO AFTER A BILL — if the recent thread shows a BILL was just sent (with or without a dispatch-ack), a product photo now is NOT a dispatch confirmation: it is usually EVIDENCE (missing/wrong/damaged piece) or an add-item → reply EXACTLY [DEFER]; never "dispatching ASAP" (2026-07-05, buyer 6353441274). OTHERWISE, identify which of our products it is (tshirt / oversized / polo / hoodie / sweatshirt / acid wash / drop shoulder / etc.) ONLY if you are genuinely confident from what you SEE. Reply about THAT product the way Om would: if it clearly matches something we make, say so briefly and send the catalog link https://sale91.com/catalog (use a specific product link only if one is given in the knowledge base above). If you are NOT sure which product it is, do NOT name one — ask "Kaunsa product chahiye sir?" instead of guessing a type (e.g. never say "polo" unless you can clearly see a collar). NEVER assert a FABRIC/KNIT TYPE from a photo ("single jersey", "matty", "pique", "terry") — knit identification from an image is unreliable (clone called a competitor sample "single jersey"; Ketu's answer was "Matty hai", 2026-07-03): for fabric-ID asks on buyer photos (especially competitor samples they want matched), [DEFER] — Ketu identifies fabrics personally. CRITICAL — NOT-MADE GARMENT TYPES: if the pictured garment is a type we do NOT make — a FULL-SLEEVE / long-sleeve T-SHIRT (our only long-sleeve items are sweatshirt / hoodie / drop-shoulder hoodie — there is NO long-sleeve tee), a collared woven "normal shirt", jeans/joggers etc. — say we don't make it: "Is tarah ka nahi banate sir — full-sleeve mein sweatshirt/hoodie hai 👉 https://sale91.com/catalog". NEVER say "ye website pe hai" for a type that isn't in the catalog (clone told a full-sleeve-tee buyer it was on the website; Ketu corrected "Nahi hai is tarah ka", 2026-07-01). If the buyer then NEGATES your identification ("sweatshirt nahi hai vo", "vo X nahi hai") they are CORRECTING you — do not re-push X's link; if what they describe isn't a catalog type, deny it plainly. And if a buyer asks whether we can SUPPLY/match a pictured fabric/garment and you are not CERTAIN it's a catalog product, [DEFER] — do not assert we have it (clone said a fabric photo "sublimation jaisa lag raha hai" and implied we stock it; Ketu said "Nahi", 2026-06-30). NEVER invent a price, GSM, or detail not in the knowledge base, and never claim it is in/out of stock (EXCEPTION: if a "📦 LIVE STOCK DATA" block is present in this request, answer stock questions FROM that block per its rules).\n\n${userPrompt}`
@@ -2068,6 +2115,46 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     })
     await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
     return
+  }
+
+  // --- ENGLISH LANGUAGE GATE (2026-07-21, Ketu-approved roadmap step: "fix with a CODE gate, not
+  // more rules") --- The #1 remaining VOICE slip: the model reverts to Hinglish for a clearly
+  // ENGLISH buyer (14+ repeats in the 2026-07-20 audit despite TWO CRITICAL-tagged prompt rules —
+  // prompt pressure has provably plateaued). Deterministic check: buyer wrote real English (no
+  // Devanagari, zero Hinglish tokens, ≥2 English markers, ≥3 words) but the reply contains Hinglish
+  // → ONE cheap rewrite call (Haiku; OpenAI fallback when Anthropic is down). If the rewrite fails
+  // or still trips, send the ORIGINAL — an imperfect reply beats silence. Never blocks, only fixes.
+  const DEVANAGARI_RE = /[ऀ-ॿ]/
+  const HINGLISH_TOKEN_RE = /\b(hai|hain|nahi|nhi|karo|kariye|karke|lijiye|dijiye|bhejo|bhejiye|bataiye|batao|batana|aap|aapka|aapke|apka|kya|kyu|kyon|mein|milega|milegi|chahiye|wala|wale|wali|bhaiya|abhi|sirf|hoga|hogi|karna|karni|krna|dedo|lelo|dekhiye|kitna|kitne|kitni|kaise|kaha|kahan|jaldi|maal|jayega|jayegi|karwa|karva|bhej|laga|lag|raha|rahi|gaya|gayi)\b/i
+  const ENGLISH_MARKER_RE = /\b(the|is|are|do|does|can|could|will|would|please|want|need|have|has|you|your|what|when|where|how|much|many|price|order|delivery|available|stock|send|share|tell|about|this|that|with|and|for|from|there|any)\b/gi
+  const buyerWords = (mergedText || '').trim().split(/\s+/).filter(Boolean)
+  const buyerIsEnglish = buyerWords.length >= 3
+    && !DEVANAGARI_RE.test(mergedText || '')
+    && !HINGLISH_TOKEN_RE.test(mergedText || '')
+    && ((mergedText || '').match(ENGLISH_MARKER_RE) || []).length >= 2
+  if (buyerIsEnglish && (HINGLISH_TOKEN_RE.test(aiReply || '') || DEVANAGARI_RE.test(aiReply || ''))) {
+    console.warn(`[EnglishGate] ${whatsappNumber} — English buyer got Hinglish reply; rewriting. Original: ${(aiReply || '').slice(0, 90)}`)
+    const rewritePrompt = `Rewrite this WhatsApp reply in natural ENGLISH ONLY — no Hindi/Hinglish words (hai, nahi, kar lijiye, milega, etc.). Same meaning, same terse length. Keep "sir", links, emojis and ₹ prices unchanged. Output ONLY the rewritten message.\n\n${aiReply}`
+    let rewritten = null
+    try {
+      const rw = await anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001', max_tokens: 300,
+        messages: [{ role: 'user', content: rewritePrompt }],
+      })
+      rewritten = (rw.content?.[0]?.text || '').trim()
+      costUsd += ((rw.usage?.input_tokens || 0) * 1 + (rw.usage?.output_tokens || 0) * 5) / 1_000_000
+    } catch (err) {
+      try {
+        const rw = await openaiReply({ systemText: 'You rewrite WhatsApp replies. Output only the rewritten message.', userText: rewritePrompt })
+        if (rw?.reply) { rewritten = rw.reply.trim(); costUsd += rw.costUsd || 0 }
+      } catch { /* both brains failed → keep original */ }
+    }
+    if (rewritten && !HINGLISH_TOKEN_RE.test(rewritten) && !DEVANAGARI_RE.test(rewritten) && rewritten.length <= (aiReply.length * 2 + 80)) {
+      aiReply = rewritten
+      console.log(`[EnglishGate] ${whatsappNumber} — rewrite OK: ${aiReply.slice(0, 90)}`)
+    } else {
+      console.warn(`[EnglishGate] ${whatsappNumber} — rewrite failed/still Hinglish; sending original`)
+    }
   }
 
   // --- Final cooldown re-check before sending (intervention race) ---

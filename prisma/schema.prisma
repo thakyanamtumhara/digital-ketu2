@@ -159,8 +159,24 @@ model Settings {
   // System prompt (managed via code — auto-syncs on every deploy)
   systemPrompt        String?                       // Claude system prompt — synced from process.js on deploy
   promptUpdatedAt     DateTime?                     // when system prompt was last synced from code
+  // "Aaj ka note" daily-pulse (2026-07-21): one line from Ketu that shapes ALL of today's replies
+  // ("aaj godam 2 baje band", "Holi hai, parso dispatch"). Ignored automatically after the IST day.
+  dailyNote           String?
+  dailyNoteSetAt      DateTime?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
+}
+
+// --- Per-buyer durable memory (2026-07-21, Ketu-approved: "per-buyer memory looks okay... just
+// look at the costing"). ONLY durable facts that never go stale — language preference (auto-set
+// when a buyer explicitly asks "English please"), plus optional admin notes. NEVER stock. ---
+
+model BuyerMemory {
+  whatsappNumber String    @id
+  language       String?   // "english" | "hindi" — explicit buyer request, survives across threads
+  notes          String?   // admin-set durable facts ("VIP, Ketu quoted ₹190/pc bulk")
+  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime  @default(now())
 }
 
 // --- Self-Learning: Manual Reply Pairs (collected when AI is OFF) ---

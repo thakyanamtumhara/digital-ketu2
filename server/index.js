@@ -42,6 +42,8 @@ app.use('/api/knowledge/correction/*', readGuard)
 app.use('/api/correction', readGuard)
 app.use('/api/stock-debug', readGuard)
 app.use('/api/defer-stats', readGuard)
+app.use('/api/daily-note', readGuard)
+app.use('/api/buyer-memory/*', readGuard)
 
 // WRITE LOCKDOWN (Ketu-approved 2026-07-18): mutating admin endpoints were fully public —
 // anyone with the URL could PUT /api/settings (flip isActive off, zero the budget, replace the
@@ -73,6 +75,8 @@ for (const p of [
   '/api/premium-export/*',
   '/api/export/*',
   '/api/knowledge/reply-template/*',
+  '/api/daily-note',
+  '/api/buyer-memory/*',
 ]) app.use(p, writeGuard)
 
 // --- Health Check ---
@@ -101,6 +105,51 @@ app.get('/api/stock-debug', async (c) => {
   } catch (err) {
     return c.json({ error: err.message }, 502)
   }
+})
+
+// "AAJ KA NOTE" daily-pulse (2026-07-21): one line from Ketu that shapes ALL of today's replies —
+// "aaj godam 2 baje band", "Holi hai, parso dispatch". Auto-expires at IST midnight (injection
+// checks the IST day, no cron needed). POST {note} sets, DELETE clears, GET shows (read = public
+// GET passthrough on writeGuard, same as /api/settings).
+app.post('/api/daily-note', async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  const note = String(body.note || '').trim().slice(0, 300)
+  if (!note) return c.json({ error: 'note required' }, 400)
+  await db.settings.update({ where: { id: 'default' }, data: { dailyNote: note, dailyNoteSetAt: new Date() } })
+  cachedSettings = null; settingsCacheExpiry = 0 // take effect immediately, not up to 60s later
+  return c.json({ ok: true, note })
+})
+app.delete('/api/daily-note', async (c) => {
+  await db.settings.update({ where: { id: 'default' }, data: { dailyNote: null, dailyNoteSetAt: null } })
+  cachedSettings = null; settingsCacheExpiry = 0
+  return c.json({ ok: true })
+})
+app.get('/api/daily-note', async (c) => {
+  const s = await db.settings.findUnique({ where: { id: 'default' }, select: { dailyNote: true, dailyNoteSetAt: true } })
+  return c.json(s || {})
+})
+
+// BUYER MEMORY admin notes (2026-07-21): durable per-buyer facts ("VIP, Ketu quoted ₹190/pc").
+// Language preference is auto-written by the pipeline; this endpoint is for the notes field.
+app.post('/api/buyer-memory/:number', async (c) => {
+  const number = String(c.req.param('number') || '').replace(/\D/g, '').slice(-10)
+  if (number.length !== 10) return c.json({ error: 'need a 10-digit number' }, 400)
+  const body = await c.req.json().catch(() => ({}))
+  const data = {}
+  if ('notes' in body) data.notes = body.notes ? String(body.notes).slice(0, 500) : null
+  if ('language' in body) data.language = body.language ? String(body.language).toLowerCase() : null
+  if (!Object.keys(data).length) return c.json({ error: 'nothing to set' }, 400)
+  const row = await db.buyerMemory.upsert({
+    where: { whatsappNumber: number },
+    update: data,
+    create: { whatsappNumber: number, ...data },
+  })
+  return c.json(row)
+})
+app.get('/api/buyer-memory/:number', async (c) => {
+  const number = String(c.req.param('number') || '').replace(/\D/g, '').slice(-10)
+  const row = await db.buyerMemory.findUnique({ where: { whatsappNumber: number } })
+  return c.json(row || {})
 })
 
 // DEFER SCOREBOARD (2026-07-21, Ketu-approved): "the human requirement of Ketu will keep decreasing
