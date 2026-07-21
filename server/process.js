@@ -339,6 +339,49 @@ async function hasRecentDelayComplaint(db, conversationId) {
   }
 }
 
+// A CONTENT-LESS affirmation / acknowledgment — "haan", "ha", "ok", "theek hai", "ha bata deti hu".
+// No product, question, order detail, or instruction — just a "yes / I'll tell you" that carries
+// nothing for the AI to act on. (Distinct from isGenericMessage, which also flags greetings; this
+// is specifically the mid-conversation ack that belongs to whoever the buyer is replying TO.)
+const ACK_TOKENS = new Set([
+  'haan', 'han', 'ha', 'haa', 'hn', 'ji', 'jee', 'jii', 'ok', 'okay', 'okey', 'okk', 'k', 'kk',
+  'thik', 'theek', 'tk', 'sahi', 'yes', 'yeah', 'yep', 'yup', 'hmm', 'hm', 'acha', 'accha', 'achha',
+  'achaa', 'done', 'fine', 'bata', 'bta', 'batati', 'deti', 'dunga', 'dungi', 'du', 'dena', 'denge',
+  'hu', 'hun', 'hoon', 'h', 'hai', 'hain', 'he',
+])
+function isBareAck(text) {
+  if (!text || !text.trim()) return false
+  const stripped = text.toLowerCase().replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
+  if (!stripped) return false
+  return stripped.split(' ').every(t => ACK_TOKENS.has(t))
+}
+
+// Was the most recent OUTBOUND in this thread a MANUAL reply by Ketu (not the AI/defer line)? Used
+// to keep the clone OUT of a conversation Ketu is personally handling. (Ketu 2026-07-21, buyer
+// 7276733830: mid-way through his MANUAL delivery-complaint handling, the buyer sent a bare "Haa" —
+// answering HIM — and the clone re-opened an add-item interrogation "Jo add karna hai bata dijiye".
+// The 10-min intervention cooldown had lapsed, 22 min on; but a bare ack right after Ketu's own
+// message is still HIS flow, indefinitely, until someone says something substantive.)
+async function ketuRepliedLast(db, conversationId) {
+  try {
+    const recent = await db.messageLog.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'desc' },
+      take: 12,
+      select: { status: true, deferReason: true, createdAt: true },
+    })
+    for (const r of recent) {
+      const manual = r.deferReason === 'manual_reply'
+      const aiSpoke = r.status === 'REPLIED'
+      if (manual) return (Date.now() - new Date(r.createdAt).getTime()) < 12 * 3600 * 1000 // his flow, if recent
+      if (aiSpoke) return false // the AI spoke last, not Ketu
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
 // Fetch a buyer's image and return a Claude vision content block (or null on any failure).
 // Used so the clone can SEE a product photo and reply about it, instead of deferring.
 async function fetchImageBlock(mediaUrl) {
@@ -1160,6 +1203,22 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       deferReason: 'cooldown',
       processingMs: Date.now() - startTime,
     })
+    return
+  }
+
+  // --- Check: bare affirmation while KETU is personally handling this thread → stay silent ---
+  // (Ketu 2026-07-21, buyer 7276733830: mid-way through his MANUAL delivery-complaint handling the
+  // buyer sent a bare "Haa" — answering HIM — and the clone re-opened an add-item interrogation
+  // "Jo add karna hai bata dijiye, product colour size likh dijiye". A content-less "haan/ok/theek/
+  // bata deti hu" right after Ketu's own manual reply belongs to HIS flow — the AI must not jump in.
+  // Two conditions so it's safe: the message carries nothing to answer AND Ketu spoke last.) Only
+  // for TEXT (no media — a photo may be the add-item detail Ketu asked for).
+  if (!imageMediaUrl && !documentMediaUrl && !hasMediaOnly && isBareAck(mergedText) && await ketuRepliedLast(db, conversation.id)) {
+    await createLog(db, conversation.id, mergedText || '', messageIds, {
+      status: 'SKIPPED', deferReason: 'bare_ack_in_manual_flow',
+      processingMs: Date.now() - startTime,
+    })
+    console.log(`[Restraint] ${whatsappNumber} — bare ack during Ketu's active manual thread; staying silent`)
     return
   }
 
