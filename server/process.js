@@ -371,97 +371,43 @@ async function fetchImageBlock(mediaUrl) {
 // ===========================================
 // Message Classification (generic vs real question)
 // ===========================================
+// REDESIGN 2026-07-21 (Ketu: "cleaner redesign"). The old keyword-allowlist kept mis-nudging real
+// first-message questions the list didn't foresee ("Joggers required", "boxy fit in stock?", "Price",
+// "Can you deliver sample in Hyderabad", "Kids polo me 32 size he kya", "I want to order" — a 55-msg
+// corpus of wrongly-nudged messages). Flip the logic: strip away greeting / honorific / ack / filler /
+// emoji / punctuation / digit tokens, and nudge (return true) ONLY when NOTHING substantive is left —
+// a bare "hi", "hello sir", "ok thanks", "..", "🙏". Anything with a real word (product, question,
+// intent, resource, address, order — anything NOT on the filler list) → return false so the AI
+// answers it. Fewer misses, one rule instead of nine allowlists.
+const GENERIC_FILLER = new Set([
+  // greetings
+  'hi', 'hii', 'hiii', 'hiiii', 'hiiiii', 'hello', 'helo', 'hellow', 'hllo', 'helloo', 'hellooo', 'hlo', 'hlw',
+  'hey', 'heyy', 'heyya', 'hy', 'hye', 'hyy', 'hola', 'yo', 'hallo', 'helloji', 'hii',
+  'namaste', 'namaskar', 'namaskaar', 'namste', 'namastey', 'namaskarji',
+  'gm', 'gud', 'mrng', 'morning', 'afternoon', 'evening', 'night', 'greetings',
+  // honorifics / address terms
+  'sir', 'ji', 'jii', 'bhai', 'bhaiya', 'bhaisaab', 'bhaisahab', 'bhaisaahab', 'boss', 'bro', 'brother',
+  'sahab', 'saheb', 'sahib', 'madam', 'maam', 'mam', 'maim', 'dear', 'g', 'bhaijaan', 'ustad',
+  // acks / courtesy / fillers
+  'ok', 'okay', 'okey', 'okie', 'oky', 'k', 'kk', 'thik', 'theek', 'thk', 'tk', 'done', 'fine', 'right', 'alright',
+  'hmm', 'hm', 'hmmm', 'hmmmm', 'acha', 'accha', 'achha', 'achaa', 'oh', 'ohh', 'ohk', 'ohkay',
+  'haan', 'han', 'hn', 'ha', 'haa', 'yes', 'yep', 'yup', 'yeah', 'ya', 'yaa', 'yess',
+  'thanks', 'thank', 'thankyou', 'thanku', 'thnx', 'thx', 'ty', 'tysm', 'tq', 'shukriya', 'dhanyawad',
+  'great', 'nice', 'cool', 'good', 'super', 'welcome', 'sure', 'please', 'pls', 'plz', 'plzz', 'plss', 'kindly',
+  // filler glue — safe because any REAL "X hai?" / "thank you" keeps its content word (X); these only
+  // strip the leftover so a pure ack ("thik hai sir", "thank you") collapses to empty and nudges.
+  'you', 'u', 'hai', 'hain', 'he', 'h',
+])
+
 function isGenericMessage(text) {
   if (!text || !text.trim()) return true
-  const normalized = text.trim().toLowerCase()
-    .replace(/[.!?,।🙏👋]+/g, '')
-    .trim()
-    .replace(/\s+(sir|ji|bhai|bhaiya|boss|bro|sahab|saheb|g)$/i, '')
-    .trim()
-
-  // Names a SPECIFIC product → real inquiry, never generic (so the welcome-followup runs the AI
-  // and sends that product's link, instead of the "any questions?" nudge). Bare "tshirt" stays generic.
-  const productKeywords = [
-    'sublimation', 'oversize', 'oversized', 'acid wash', 'acidwash', 'acid-wash',
-    'polo', 'hoodie', 'hoddie', 'sweatshirt', 'sweat shirt', 'boxy', 'box fit', 'boxfit',
-    'round neck', 'roundneck', 'rneck', 'r neck', 'drop shoulder', 'dropshoulder', 'drop-shoulder',
-    'varsity', 'jacket', 'shorts', 'biowash', 'bio wash', 'true bio', 'non bio',
-    'romper', 'kids', 'regular fit',
-  ]
-  if (productKeywords.some(k => normalized.includes(k))) return false
-
-  // Specific RESOURCE requests → real request, NOT generic, so the welcome-followup runs the AI and
-  // sends the actual resource link (size chart / HD photos / videos) instead of the "any questions?" nudge.
-  const resourceKeywords = [
-    'size chart', 'sizechart', 'size guide', 'size list',
-    'photo', 'photos', 'pics', 'picture', 'pictures', 'images', 'image',
-    'video', 'videos', 'hd photo', 'hd photos', 'sample photo',
-  ]
-  if (resourceKeywords.some(k => normalized.includes(k))) return false
-
-  // ADDRESS / LOCATION / VISIT asks → real request (2026-07-18, buyer 6395510043: first message
-  // "Hi sir address" was classified generic — 3 words, no question word — and got the "Ask me if
-  // any questions sir?" nudge; Ketu had to send the address manually). Any address-ish word makes
-  // it a real inquiry so the AI answers with the address block.
-  const addressKeywords = [
-    'address', 'adress', 'addres', 'location', 'लोकेशन', 'पता',
-    'godam', 'godown', 'warehouse', 'shop kaha', 'store kaha', 'dukan kaha', 'dukaan kaha',
-    'visit', 'aana hai', 'aa sakta', 'aa sakte', 'pickup',
-  ]
-  if (addressKeywords.some(k => normalized.includes(k))) return false
-
-  // LADIES / WOMEN / GIRLS category → real inquiry (run the AI so it answers "not available", instead
-  // of the nudge). Ketu 2026-07-21, buyer 9167442471: first msg "Ladis tshirt hai?" wrongly got "Ask
-  // me if any questions sir?"; Ketu answered "No sir." — a product question must get a product answer.
-  const ladiesKeywords = ['ladies', 'ladis', 'ladie', 'women', 'womens', "women's", 'woman', 'female', 'girls', 'girl', 'ladki', 'ladkiyon', 'zanana']
-  if (ladiesKeywords.some(k => normalized.includes(k))) return false
-
-  // Clear ORDER / BUYING intent → real inquiry, never generic (run the AI to guide them, don't nudge)
-  const orderIntent = ['order lagana', 'order karna', 'order karni', 'order kar', 'order place', 'place order', 'order krna', 'order chahiye', 'buy karna', 'purchase karna', 'kaise order']
-  if (orderIntent.some(k => normalized.includes(k))) return false
-
-  // Dispatch / order-action / tracking requests → real (the AI will DEFER to Ketu), never the generic "any questions?" nudge
-  const orderAction = ['dispatch', 'nikal do', 'nikal di', 'nikal dijiye', 'nikal dena', 'nikaal', 'tracking', 'track kar']
-  if (orderAction.some(k => normalized.includes(k))) return false
-
-  // Known greetings
-  const greetingPatterns = [
-    'hi', 'hello', 'hey', 'hii', 'hiii', 'hiiii',
-    'helo', 'hllo', 'helloo', 'hellooo',
-    'namaste', 'namaskar', 'namaskaar',
-    'good morning', 'good afternoon', 'good evening',
-    'gm', 'morning', 'evening', 'hy', 'hye', 'hola', 'yo',
-  ]
-  if (greetingPatterns.includes(normalized)) return true
-
-  // Generic catalog/detail requests — ONLY if message is short (≤4 words)
-  // Longer messages like "I want samples of oversized tshirts and regular tshirts"
-  // are real inquiries even if they contain "tshirt" or "details"
-  const words = normalized.split(/\s+/).filter(w => w.length > 0)
-  const genericPhrases = [
-    'share catalog', 'share catalogue', 'send catalog', 'send catalogue',
-    'share details', 'send details', 'catalog share', 'catalogue share',
-    'catalog bhejo', 'catalogue bhejo', 'details bhejo', 'catalog send',
-    'rate list', 'rate card', 'price list', 'catalog', 'catalogue',
-    'tshirt', 't shirt', 't-shirt', 'details',
-  ]
-  // A short message that clearly ASKS something ("tshirt hai?", "polo available?", "COD milega?") is
-  // NOT a generic nudge case — let the AI answer it (Ketu 2026-07-21: a first-message question must
-  // get an answer, not "Ask me if any questions sir?").
-  const asksSomething = text.includes('?') || /\bavailable\b|\bmilega\b|\bmilta\b|hai kya|kya hai|do you have|karte ho|banate ho/i.test(normalized)
-  if (words.length <= 4 && genericPhrases.some(p => normalized.includes(p)) && !asksSomething) return true
-
-  // 4 words or fewer without a question indicator → generic
-  const hasQuestionMark = text.includes('?')
-  const questionWords = [
-    'what', 'how', 'when', 'where', 'which', 'why', 'can', 'do', 'is', 'are',
-    'kya', 'kaise', 'kab', 'kaha', 'kaun', 'kitna', 'kitne', 'kitni', 'konsa', 'konsi',
-  ]
-  const hasQuestionWord = questionWords.some(qw => words.includes(qw) || normalized.startsWith(qw))
-
-  if (words.length <= 4 && !hasQuestionMark && !hasQuestionWord) return true
-
-  return false
+  // Keep only letters (any script) + spaces — drops emoji, punctuation and digit runs, so "🙏",
+  // "..", "!!" and a bare "9910024230" collapse to empty (a content-less opener → nudge).
+  const stripped = text.toLowerCase().replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
+  if (!stripped) return true
+  // Nudge ONLY if EVERY remaining word is greeting / honorific / ack / filler. One real word → AI answers.
+  const substantive = stripped.split(' ').filter(w => w && !GENERIC_FILLER.has(w))
+  return substantive.length === 0
 }
 
 // Default system prompt (used when dashboard systemPrompt field is empty)
