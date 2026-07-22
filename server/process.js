@@ -2236,7 +2236,13 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   // and a loop → defer to Ketu (he can see the media in wwbun) instead. Matches "bhej dijiye/do/dena/
   // karo", "dobara", "send/share the photo" — but NOT "photos bhej deta hun" (clone offering to send).
   const MEDIA_REASK_RE = /(screenshot|photo|image|pic(ture)?)\s*(ko\s*)?(dobara|dubara|firse|phir\s*se)|(screenshot|photo|image|pic(ture)?)\s*(bhej|send|share)\s*(dijiye|dijiyega|do\b|dena|de\s*d|karo|kar\s*d)|(send|share)\s*(me\s*)?(the\s*)?(screenshot|photo|image|pic(ture)?)|photo\s*(aayi\s*nahi|nahi\s*aayi)/i
-  if ((imageBlock || imageUrl) && MEDIA_REASK_RE.test(aiReply || '')) {
+  // The buyer "sent a photo" if a real image downloaded OR their message is just a photo PLACEHOLDER
+  // (the image failed to download — the media-race). BOTH mean a re-ask ("bhej dijiye") loops them
+  // (Ketu 2026-07-22, buyer 919910024230/Rajat: a "[product photo]" whose image never downloaded got
+  // "Screenshot bhej dijiye" 3× in a row — the guard missed it because imageBlock was null). Ketu can
+  // see the photo in wwbun, so defer instead of asking again.
+  const buyerSentPhoto = imageBlock || imageUrl || /\[(product\s*photo|image|photo|pic(ture)?|screenshot)\]/i.test(mergedText || '')
+  if (buyerSentPhoto && MEDIA_REASK_RE.test(aiReply || '')) {
     console.warn(`[MediaReask] ${whatsappNumber} — reply asked for a screenshot the buyer already sent; deferring instead of looping. Reply: ${(aiReply || '').slice(0, 80)}`)
     scheduleDeferReply({
       whatsappNumber, deferMessage: settings.deferMessage, conversationId,
