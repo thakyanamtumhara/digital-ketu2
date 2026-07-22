@@ -349,6 +349,21 @@ const THANKS_RE = /\b(thank\s*(you|u)?|thanks|thankyou|thnx|thx|tysm|shukriya|dh
 // 2026-07-22, buyers 9666137147 "sublimation ke saath suggestion de sakte ho kiske paas" and
 // 8310762115 "cropped, changes in size" both wrongly got the catalog); these need Ketu's referral /
 // real judgment, so on budget-cap they DEFER to him.
+// Pure conversation-ender — the WHOLE message is just "ok / done / thik hai / hmm / acha / noted".
+// No product/question/order content — the buyer is closing the chat, no reply needed. (Distinct
+// from THANKS, which gets a warm "Welcome sir".) Excludes greetings (those OPEN a chat → nudge).
+const ENDER_TOKENS = new Set([
+  'ok', 'okay', 'okey', 'okk', 'okkk', 'k', 'kk', 'done', 'thik', 'theek', 'thk', 'tk', 'hmm', 'hm',
+  'hmmm', 'acha', 'accha', 'achha', 'achaa', 'ji', 'jii', 'noted', 'great', 'nice', 'cool', 'fine',
+  'sure', 'super', 'perfect', 'right', 'good', 'gud', 'okie', 'oky', 'thike', 'thikhai',
+  'hai', 'hain', 'he',
+])
+function isPureEnder(text) {
+  if (!text || !text.trim()) return false
+  const stripped = text.toLowerCase().replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
+  if (!stripped) return false
+  return stripped.split(' ').every(t => ENDER_TOKENS.has(t))
+}
 const COD_RE = /\b(cod|c\.o\.d)\b|cash\s*on\s*deliver/i
 const CUSTOM_PRINT_RE = /custom|customi[sz]|\bprinting\b|\bprint(ed|ing)?\b|embroider|\blogo\b|suggestion|suggest\b|kaun\s*(karta|karega)|kis(ke|se)\s*p?aa?s|\bcrop(ped)?\b|change[sd]?\s*(in\s*)?size|size\s*(change|me\s*change)/i
 
@@ -369,8 +384,9 @@ function budgetFreeReply(text, hasMediaOnly) {
   if (COD_RE.test(t)) return 'Cash on delivery available hai sir 🙏 Website pe order karte waqt courier/address option mein select kar lijiye 👉 https://sale91.com'
   // Known not-made item (and no made product alongside) → "nahi banate" + Indiamart, NOT the catalog.
   if (NOT_MADE_RE.test(t) && !PRODUCT_NOUN_RE.test(t)) return 'Ye nahi banate sir, Indiamart pe search kar lijiye 🙏'
-  // Clear shopping question → the catalog link.
-  if (isShoppingInquiry(t)) return 'Sab details, rates aur colours catalog mein hain sir 👉 https://sale91.com/catalog'
+  // Clear shopping question → affirm + catalog (Ketu 2026-07-22 preferred "Ji haan, ek baar catalog
+  // check kar lijiye" over a flat "sab details catalog mein hain" for buyer 923123839894).
+  if (isShoppingInquiry(t)) return 'Ji haan sir 🙏 ek baar catalog check kar lijiye, sab rates aur colours wahan hain 👉 https://sale91.com/catalog'
   // Bare greeting / content-less opener → a greeting that keeps the door open (language-matched).
   if (isGenericMessage(t)) {
     const english = /^[\x00-\x7F]*$/.test(t) && !/namaste|namaskar/i.test(t)
@@ -1214,6 +1230,20 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       })
       return
     }
+  }
+
+  // --- Check: pure conversation-ender ("ok" / "done" / "thik hai") → skip silently ---
+  // (Ketu 2026-07-22: a bare "Okay"/"Ok" is the END of the chat — no reply needed. Opus [SKIP]s
+  // these; the cheaper backup models replied "Ketu will reply shortly" instead. Enforce it in code:
+  // brain-independent, works on budget-cap too, and saves an AI call.) Thanks is handled separately
+  // (gets "Welcome sir"); media/order-enders excluded (isPureEnder is text-only, all-ender tokens).
+  if (isPureEnder(mergedText)) {
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'SKIPPED', deferReason: 'conversation_ender_deterministic',
+      processingMs: Date.now() - startTime,
+    })
+    console.log(`[Ender] ${whatsappNumber} — bare "${mergedText.trim().slice(0, 20)}" is a conversation ender; skipping`)
+    return
   }
 
   // --- Check: Daily budget ---
