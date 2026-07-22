@@ -333,6 +333,38 @@ function hasNonDispatchRequestText(text) {
 // the AI budget is spent. isShoppingInquiry() = looks like shopping AND is NOT a complaint / order /
 // tracking / modification (those still defer to Ketu — only he handles them).
 const SHOPPING_RE = /\b(t[\s-]?shirt|tshirt|tees?|oversize[d]?|polo|hoodie|sweat\s?shirt|cotton|jersey|bio\s*wash|biowash|non\s*bio|true\s*bio|gsm|acid\s*wash|acidwash|drop\s*shoulder|round\s*neck|r\s*neck|rneck|varsity|shorts|kids|sublimation|catalog|catalogue|rate\s*list|price\s*list|rates?|price|details|sample|colou?r|plain|combed|fabric|moq|wholesale|bulk)\b|chahiye|chahie|looking\s*for|requirement|intereste?d|\bwant\b|\bneed\b|banate\s*ho|karte\s*ho|dikha(o|iye)/i
+// KNOWN not-made items — bottom-wear (except shorts) + outerwear jackets etc. On budget-cap these
+// must get "nahi banate" (Ketu's verified answer + Indiamart routing), NOT a catalog link that
+// wrongly implies we sell them (Ketu 2026-07-22, buyer 8903716175: "Do you have track pants?" got
+// deferred because the ₹750 budget was spent; his manual reply was "No sir. We do not"). Checked
+// BEFORE the shopping/catalog fallback. Shorts are ours, so excluded.
+const NOT_MADE_RE = /track\s*-?pant|trackpant|\blower(s)?\b|pajama|pyjama|trouser|\bjeans\b|jogger|palazzo|blazer|denim\s*jacket|varsity\s*jacket|cargo\s*pant|night\s*pant|full[\s-]*pant|\bpants\b/i
+// Made-product NOUNS only (no verbs) — used to tell a PURE not-made ask ("lower chahiye") from a
+// mixed one ("track pant aur tshirt", which should still get the catalog for the tshirt part).
+const PRODUCT_NOUN_RE = /\b(t[\s-]?shirt|tshirt|tees?|oversize[d]?|polo|hoodie|sweat\s?shirt|round\s*neck|r\s*neck|rneck|drop\s*shoulder|acid\s*wash|acidwash|sublimation|shorts|kids)\b/i
+const THANKS_RE = /\b(thank\s*(you|u)?|thanks|thankyou|thnx|thx|tysm|shukriya|dhanyawad|dhanyavad)\b/i
+
+// Zero-cost deterministic reply for the budget-cap path (AI is OFF once the daily budget is spent).
+// Handles the OBVIOUS cases so trivial/answerable messages don't get the bare "Ketu will reply
+// shortly" (Ketu 2026-07-22: "Hello" and "Thank you" (buyer 6792190042) and "Do you have track
+// pants?" (8903716175) all got the defer line at 12am-3am because the budget was spent). Returns
+// null → let it defer (complaints / orders / tracking / anything needing real judgment stay Ketu's).
+function budgetFreeReply(text, hasMediaOnly) {
+  if (hasMediaOnly || !text || !text.trim()) return null
+  const t = text.trim()
+  // Pure thanks / conversation-ender → a warm ack, never a defer.
+  if (THANKS_RE.test(t) && !PRODUCT_NOUN_RE.test(t) && t.split(/\s+/).length <= 4) return 'Welcome sir 🙏'
+  // Known not-made item (and no made product alongside) → "nahi banate" + Indiamart, NOT the catalog.
+  if (NOT_MADE_RE.test(t) && !PRODUCT_NOUN_RE.test(t)) return 'Ye nahi banate sir, Indiamart pe search kar lijiye 🙏'
+  // Clear shopping question → the catalog link.
+  if (isShoppingInquiry(t)) return 'Sab details, rates aur colours catalog mein hain sir 👉 https://sale91.com/catalog'
+  // Bare greeting / content-less opener → a greeting that keeps the door open (language-matched).
+  if (isGenericMessage(t)) {
+    const english = /^[\x00-\x7F]*$/.test(t) && !/namaste|namaskar/i.test(t)
+    return english ? 'Hello sir 🙏 please tell me what you need' : 'Namaste sir 🙏 bataiye kya chahiye'
+  }
+  return null
+}
 const BUDGET_ORDER_BLOCK_RE = /\b(order|tracking|track|awb|parcel|dispatch|deliver|delivery|refund|return|complaint|damage[d]?|missing|received|payment|paid|invoice|bill|courier)\b|kahan|nahi\s*aaya|nhi\s*aya/i
 function isShoppingInquiry(text) {
   if (!text || !text.trim()) return false
@@ -1184,18 +1216,18 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       notifyOwner(`⚠️ dk2 daily budget ₹${settings.dailyBudgetInr} khatam — AI replies PAUSED till the 05:30 IST reset. Buyers ab "${settings.deferMessage || 'Ketu will reply shortly sir 🙏'}" receive kar rahe hain (silence nahi). Budget dashboard se badha sakte ho.`).catch(() => {})
       console.log(`[Budget] TRIPPED at ₹${dailySpentInr.toFixed(0)}/${settings.dailyBudgetInr} — owner alerted, buyers get defer line`)
     }
-    // A clear SHOPPING question still gets a zero-cost catalog link (Ketu's point 2026-07-21: "you
-    // could have replied with the catalog link"); complaints / orders / tracking / media still defer.
-    const budgetCatalogReply = isShoppingInquiry(mergedText) && !hasMediaOnly
-      ? 'Sab details, rates aur colours catalog mein hain sir 👉 https://sale91.com/catalog'
-      : null
+    // Zero-cost deterministic answers even when the AI budget is spent, so obvious/answerable
+    // messages (greeting, thanks, known not-made item, clear shopping question) still get served
+    // instead of everyone getting the bare defer. Complaints / orders / tracking / media / anything
+    // needing real judgment → null → still defer to Ketu (only he handles those).
+    const budgetReply = budgetFreeReply(mergedText, hasMediaOnly)
     scheduleDeferReply({
       whatsappNumber,
-      deferMessage: budgetCatalogReply || settings.deferMessage,
+      deferMessage: budgetReply || settings.deferMessage,
       conversationId: conversation.id,
       mergedText: mergedText || '[media]', messageIds, logData: {
-        status: budgetCatalogReply ? 'REPLIED' : 'DEFERRED',
-        deferReason: budgetCatalogReply ? 'budget_catalog_fallback' : 'daily_limit',
+        status: budgetReply ? 'REPLIED' : 'DEFERRED',
+        deferReason: budgetReply ? 'budget_free_reply' : 'daily_limit',
         costUsd: 0,
         processingMs: Date.now() - startTime, isMedia: hasMediaOnly,
       }, db,
