@@ -44,6 +44,7 @@ app.use('/api/stock-debug', readGuard)
 app.use('/api/defer-stats', readGuard)
 app.use('/api/daily-note', readGuard)
 app.use('/api/buyer-memory/*', readGuard)
+app.use('/api/monthly-spend', readGuard)
 
 // WRITE LOCKDOWN (Ketu-approved 2026-07-18): mutating admin endpoints were fully public —
 // anyone with the URL could PUT /api/settings (flip isActive off, zero the budget, replace the
@@ -150,6 +151,29 @@ app.get('/api/buyer-memory/:number', async (c) => {
   const number = String(c.req.param('number') || '').replace(/\D/g, '').slice(-10)
   const row = await db.buyerMemory.findUnique({ where: { whatsappNumber: number } })
   return c.json(row || {})
+})
+
+// MONTHLY AI-SPEND (2026-07-22, Ketu-requested header stat): "last month's investment in chatting".
+// Sums logged costUsd over IST calendar months — previous month + current month-to-date. Slightly
+// undercounts true spend (cache keep-alive pings and gate costs on replied turns increment
+// dailySpentUsd without their own log rows) but tracks the trend faithfully.
+app.get('/api/monthly-spend', async (c) => {
+  const USD_INR = 85
+  const istNow = new Date(Date.now() + 5.5 * 3600 * 1000)
+  const y = istNow.getUTCFullYear(), m = istNow.getUTCMonth() // current IST month
+  // IST month start = UTC month start minus 5h30 offset
+  const istMonthStartUtc = (yy, mm) => new Date(Date.UTC(yy, mm, 1) - 5.5 * 3600 * 1000)
+  const curStart = istMonthStartUtc(y, m)
+  const prevStart = istMonthStartUtc(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1)
+  const [prev, cur] = await Promise.all([
+    db.messageLog.aggregate({ where: { createdAt: { gte: prevStart, lt: curStart } }, _sum: { costUsd: true }, _count: { _all: true } }),
+    db.messageLog.aggregate({ where: { createdAt: { gte: curStart } }, _sum: { costUsd: true }, _count: { _all: true } }),
+  ])
+  const label = d => new Date(d.getTime() + 5.5 * 3600 * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+  return c.json({
+    prevMonth: { label: label(prevStart), inr: Math.round((prev._sum.costUsd || 0) * USD_INR), messages: prev._count._all },
+    currentMonth: { label: label(curStart), inr: Math.round((cur._sum.costUsd || 0) * USD_INR), messages: cur._count._all },
+  })
 })
 
 // DEFER SCOREBOARD (2026-07-21, Ketu-approved): "the human requirement of Ketu will keep decreasing
