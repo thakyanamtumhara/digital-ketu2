@@ -145,20 +145,28 @@ export function formatStockBlock(snapshot) {
   if (!snapshot || !snapshot.inStock) return null
   const lines = []
   lines.push(`📦 LIVE STOCK DATA (source: website's own live price table + incoming-production feed, as of ${istTime(snapshot.fetchedAt)} IST — TRUSTED, answer stock questions FROM this):`)
-  lines.push('IN STOCK — orderable on the website RIGHT NOW (product: colours [sizes]):')
+  lines.push('IN STOCK — orderable on the website RIGHT NOW. Each colour lists ONLY its genuinely-available sizes (out-of-stock sizes already removed) — trust these exactly (product: colours [available sizes]):')
   for (const product in snapshot.inStock) {
     const colours = snapshot.inStock[product]
     if (!colours || typeof colours !== 'object') continue
-    const colourNames = Object.keys(colours)
-    if (colourNames.length === 0) continue
-    // If every colour has the same size set, print it once; else per-colour.
-    const sizeSets = colourNames.map(c => Object.keys(colours[c] || {}).join(','))
-    const uniform = sizeSets.every(s => s === sizeSets[0])
-    if (uniform) {
-      lines.push(`- ${product}: ${colourNames.join(', ')} [${sizeSets[0]}]`)
-    } else {
-      lines.push(`- ${product}: ${colourNames.map((c, i) => `${c} [${sizeSets[i]}]`).join(', ')}`)
+    const oosForProduct = (snapshot.oos && snapshot.oos[product]) || {}
+    // Net-available per colour = catalog sizes MINUS this colour's out-of-stock sizes. The raw
+    // table lists every size a colour CAN have; the OOS overlay says which are out right now.
+    // Subtract here so the model never reconciles two lists — that mismatch made it wrongly tag
+    // one colour's out-size onto another (it told a buyer "Maroon 46 out" because OTHER colours'
+    // 46 was out). Group colours that share the same available-size set onto one segment.
+    const bySet = {}
+    for (const c of Object.keys(colours)) {
+      const out = String(oosForProduct[c] || '').split(',').map(s => s.trim()).filter(Boolean)
+      const avail = Object.keys(colours[c] || {}).filter(s => !out.includes(s))
+      if (!avail.length) continue // fully out for this colour → don't list it under IN STOCK
+      const key = avail.join(',')
+      if (!bySet[key]) bySet[key] = []
+      bySet[key].push(c)
     }
+    const setKeys = Object.keys(bySet)
+    if (!setKeys.length) continue
+    lines.push(`- ${product}: ${setKeys.map(k => `${bySet[k].join(', ')} [${k}]`).join('; ')}`)
   }
   const oosProducts = Object.keys(snapshot.oos || {})
   if (oosProducts.length) {
@@ -188,6 +196,6 @@ export function formatStockBlock(snapshot) {
       lines.push(`- ${key.replace('|', ' — ')}: ${eta === 0 ? 'arriving any day' : eta === 1 ? '~1 din' : `~${eta} din`}`)
     }
   }
-  lines.push('HOW TO ANSWER FROM THIS DATA: (1) asked colour/size IS in the IN STOCK list and NOT in OUT OF STOCK → "available hai sir" + order link. (2) It IS in OUT OF STOCK → "abhi out of stock hai sir"; if a matching COMING SOON row exists add "~N din mein aa jayega"; suggest 1-2 alternatives — ONLY colours/sizes that are genuinely orderable (use each OUT-OF-STOCK entry\'s "still available:" sizes; NEVER suggest a size/colour listed as out; if the buyer asked for a SPECIFIC size, suggest only colours that have THAT size available). (3) Product/colour NOT confidently identifiable in this data (naming doubt, variant doubt) → [DEFER] as usual. NEVER state quantities. If Ketu said something different in this thread, HIS word wins.')
+  lines.push('HOW TO ANSWER FROM THIS DATA: each colour in IN STOCK already shows its EXACT orderable sizes — if the asked size appears next to that colour, it IS available; colours are INDEPENDENT, so NEVER say a size is out for one colour just because another colour has it out (e.g. do not claim Maroon 46 is out because Navy/Royal Blue 46 are out). Only call a size out if it is missing from that colour\'s IN STOCK sizes or explicitly in OUT OF STOCK for that exact colour. (1) asked colour/size IS in the IN STOCK list and NOT in OUT OF STOCK → "available hai sir" + order link. (2) It IS in OUT OF STOCK → "abhi out of stock hai sir"; if a matching COMING SOON row exists add "~N din mein aa jayega"; suggest 1-2 alternatives — ONLY colours/sizes that are genuinely orderable (use each OUT-OF-STOCK entry\'s "still available:" sizes; NEVER suggest a size/colour listed as out; if the buyer asked for a SPECIFIC size, suggest only colours that have THAT size available). (3) Product/colour NOT confidently identifiable in this data (naming doubt, variant doubt) → [DEFER] as usual. NEVER state quantities. If Ketu said something different in this thread, HIS word wins.')
   return lines.join('\n')
 }
