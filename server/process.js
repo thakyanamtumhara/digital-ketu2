@@ -338,11 +338,19 @@ const SHOPPING_RE = /\b(t[\s-]?shirt|tshirt|tees?|oversize[d]?|polo|hoodie|sweat
 // wrongly implies we sell them (Ketu 2026-07-22, buyer 8903716175: "Do you have track pants?" got
 // deferred because the ₹750 budget was spent; his manual reply was "No sir. We do not"). Checked
 // BEFORE the shopping/catalog fallback. Shorts are ours, so excluded.
-const NOT_MADE_RE = /track\s*-?pant|trackpant|\blower(s)?\b|pajama|pyjama|trouser|\bjeans\b|jogger|palazzo|blazer|denim\s*jacket|varsity\s*jacket|cargo\s*pant|night\s*pant|full[\s-]*pant|\bpants\b/i
+const NOT_MADE_RE = /track\s*-?pant|trackpant|\blower(s)?\b|pajama|pyjama|trouser|\bjeans\b|jogger|palazzo|blazer|denim\s*jacket|varsity\s*jacket|cargo\s*pant|night\s*pant|full[\s-]*pant|\bpants\b|\bsando\b|sandow|\bsendo\b|baniyan|baniyaan|\bvest\b|tank\s*top|\bganji\b/i
 // Made-product NOUNS only (no verbs) — used to tell a PURE not-made ask ("lower chahiye") from a
 // mixed one ("track pant aur tshirt", which should still get the catalog for the tshirt part).
 const PRODUCT_NOUN_RE = /\b(t[\s-]?shirt|tshirt|tees?|oversize[d]?|polo|hoodie|sweat\s?shirt|round\s*neck|r\s*neck|rneck|drop\s*shoulder|acid\s*wash|acidwash|sublimation|shorts|kids)\b/i
 const THANKS_RE = /\b(thank\s*(you|u)?|thanks|thankyou|thnx|thx|tysm|shukriya|dhanyawad|dhanyavad)\b/i
+// COD question → a real deterministic answer (Ketu 2026-07-22, buyer 8848602563: "cash on
+// delivery?" got the bare defer; Ketu answered COD IS available, via the website's courier-address
+// option). CUSTOMIZATION / PRINTING / "suggest me someone" → must NOT get a catalog link (Ketu
+// 2026-07-22, buyers 9666137147 "sublimation ke saath suggestion de sakte ho kiske paas" and
+// 8310762115 "cropped, changes in size" both wrongly got the catalog); these need Ketu's referral /
+// real judgment, so on budget-cap they DEFER to him.
+const COD_RE = /\b(cod|c\.o\.d)\b|cash\s*on\s*deliver/i
+const CUSTOM_PRINT_RE = /custom|customi[sz]|\bprinting\b|\bprint(ed|ing)?\b|embroider|\blogo\b|suggestion|suggest\b|kaun\s*(karta|karega)|kis(ke|se)\s*p?aa?s|\bcrop(ped)?\b|change[sd]?\s*(in\s*)?size|size\s*(change|me\s*change)/i
 
 // Zero-cost deterministic reply for the budget-cap path (AI is OFF once the daily budget is spent).
 // Handles the OBVIOUS cases so trivial/answerable messages don't get the bare "Ketu will reply
@@ -354,6 +362,11 @@ function budgetFreeReply(text, hasMediaOnly) {
   const t = text.trim()
   // Pure thanks / conversation-ender → a warm ack, never a defer.
   if (THANKS_RE.test(t) && !PRODUCT_NOUN_RE.test(t) && t.split(/\s+/).length <= 4) return 'Welcome sir 🙏'
+  // CUSTOMIZATION / PRINTING / "suggest me someone" → these need Ketu's referral or judgment (he
+  // refers printing to a partner, decides custom-size/crop). NEVER a catalog link — DEFER to him.
+  if (CUSTOM_PRINT_RE.test(t)) return null
+  // COD question → the real answer (Ketu: COD IS available, via the website's courier-address option).
+  if (COD_RE.test(t)) return 'Cash on delivery available hai sir 🙏 Website pe order karte waqt courier/address option mein select kar lijiye 👉 https://sale91.com'
   // Known not-made item (and no made product alongside) → "nahi banate" + Indiamart, NOT the catalog.
   if (NOT_MADE_RE.test(t) && !PRODUCT_NOUN_RE.test(t)) return 'Ye nahi banate sir, Indiamart pe search kar lijiye 🙏'
   // Clear shopping question → the catalog link.
