@@ -79,6 +79,7 @@ for (const p of [
   '/api/knowledge/reply-template/*',
   '/api/daily-note',
   '/api/buyer-memory/*',
+  '/api/fidelity/send-digest',
 ]) app.use(p, writeGuard)
 
 // --- Health Check ---
@@ -159,8 +160,7 @@ app.get('/api/buyer-memory/:number', async (c) => {
 // to CORRECT/replace it. This endpoint computes that + extracts the day's divergence pairs (AI reply
 // → Ketu's manual reply within 25min on the same conversation) so the daily audit loop can find,
 // judge, and fix them without Ketu hunting for bad replies himself. Lightweight (no promptSent).
-app.get('/api/fidelity', async (c) => {
-  const days = Math.min(30, Math.max(1, parseInt(c.req.query('days') || '1', 10) || 1))
+async function computeFidelity(days) {
   const since = new Date(Date.now() - days * 86400000)
   const logs = await db.messageLog.findMany({
     where: { createdAt: { gte: since } },
@@ -191,12 +191,53 @@ app.get('/api/fidelity', async (c) => {
     }
   }
   pairs.sort((a, b) => new Date(b.t) - new Date(a.t))
-  return c.json({
+  return {
     days, paidReplies, interventions: pairs.length,
     interventionRatePct: paidReplies ? Math.round((pairs.length / paidReplies) * 1000) / 10 : 0,
     pairs,
-  })
+  }
+}
+app.get('/api/fidelity', async (c) => {
+  const days = Math.min(30, Math.max(1, parseInt(c.req.query('days') || '1', 10) || 1))
+  return c.json(await computeFidelity(days))
 })
+
+// DAILY CLONE-FIDELITY DIGEST to Ketu's WhatsApp (2026-07-23, self-driving loop). Server-side so it
+// ALWAYS fires (independent of any Claude session): once per IST day at ~9am, WhatsApp Ketu the
+// last 24h fidelity % + the divergences (where he corrected the clone) so he never has to hunt for
+// bad replies. Skips silently if messaging isn't configured. lastFidelityDigestDay guards once/day.
+let lastFidelityDigestDay = null
+async function sendFidelityDigest(force = false) {
+  const istNow = new Date(Date.now() + 5.5 * 3600 * 1000)
+  const istDay = istNow.toISOString().slice(0, 10)
+  if (!force) {
+    if (istNow.getUTCHours() !== 9) return
+    if (lastFidelityDigestDay === istDay) return
+  }
+  lastFidelityDigestDay = istDay
+  try {
+    const f = await computeFidelity(1)
+    const fidelity = f.paidReplies ? (100 - f.interventionRatePct).toFixed(1) : '100'
+    let msg = `🤖 Digital Ketu — daily report\nClone fidelity (24h): ${fidelity}% — aap ne ${f.interventions}/${f.paidReplies} replies pe step-in kiya.`
+    if (f.pairs.length === 0) {
+      msg += `\n\n✅ Koi divergence nahi — clone ne sab aap jaisa handle kiya 🎉`
+    } else {
+      msg += `\n\nJahan clone aap jaisa nahi bola (${f.pairs.length}):`
+      for (const p of f.pairs.slice(0, 6)) {
+        msg += `\n\n• Buyer: ${p.buyer.slice(0, 70)}\n  Clone: ${p.ai.slice(0, 70)}\n  Aap: ${p.ketu.slice(0, 70)}`
+      }
+      if (f.pairs.length > 6) msg += `\n\n…+${f.pairs.length - 6} aur.`
+    }
+    await notifyOwner(msg)
+    console.log(`[FidelityDigest] sent — ${fidelity}% fidelity, ${f.interventions} divergences`)
+  } catch (err) {
+    console.error('[FidelityDigest] failed:', err.message)
+  }
+}
+setInterval(() => sendFidelityDigest(), 20 * 60 * 1000) // check every 20min; sends once at 9am IST
+app.post('/api/fidelity/send-digest', async (c) => { await sendFidelityDigest(true); return c.json({ ok: true }) })
+
+// MONTHLY AI-SPEND (2026-07-22, Ketu-requested header stat): "last month's investment in chatting".
 
 // MONTHLY AI-SPEND (2026-07-22, Ketu-requested header stat): "last month's investment in chatting".
 // Sums logged costUsd over IST calendar months — previous month + current month-to-date. Slightly
