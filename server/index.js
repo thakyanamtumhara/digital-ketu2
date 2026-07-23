@@ -45,6 +45,7 @@ app.use('/api/defer-stats', readGuard)
 app.use('/api/daily-note', readGuard)
 app.use('/api/buyer-memory/*', readGuard)
 app.use('/api/monthly-spend', readGuard)
+app.use('/api/fidelity', readGuard)
 
 // WRITE LOCKDOWN (Ketu-approved 2026-07-18): mutating admin endpoints were fully public —
 // anyone with the URL could PUT /api/settings (flip isActive off, zero the budget, replace the
@@ -151,6 +152,50 @@ app.get('/api/buyer-memory/:number', async (c) => {
   const number = String(c.req.param('number') || '').replace(/\D/g, '').slice(-10)
   const row = await db.buyerMemory.findUnique({ where: { whatsappNumber: number } })
   return c.json(row || {})
+})
+
+// CLONE-FIDELITY AUDIT (2026-07-23, Ketu-approved self-driving loop). The truest "how close is the
+// clone to Ketu" signal = the INTERVENTION rate: how often the AI replied and Ketu then stepped in
+// to CORRECT/replace it. This endpoint computes that + extracts the day's divergence pairs (AI reply
+// → Ketu's manual reply within 25min on the same conversation) so the daily audit loop can find,
+// judge, and fix them without Ketu hunting for bad replies himself. Lightweight (no promptSent).
+app.get('/api/fidelity', async (c) => {
+  const days = Math.min(30, Math.max(1, parseInt(c.req.query('days') || '1', 10) || 1))
+  const since = new Date(Date.now() - days * 86400000)
+  const logs = await db.messageLog.findMany({
+    where: { createdAt: { gte: since } },
+    select: { conversationId: true, status: true, deferReason: true, buyerMessage: true, aiReply: true, costUsd: true, createdAt: true },
+    orderBy: { createdAt: 'asc' },
+  })
+  const byConv = {}
+  for (const l of logs) (byConv[l.conversationId] ||= []).push(l)
+  const pairs = []
+  let paidReplies = 0
+  for (const l of logs) if (l.status === 'REPLIED' && (l.costUsd || 0) > 0) paidReplies++
+  for (const cid in byConv) {
+    const arr = byConv[cid]
+    for (let i = 0; i < arr.length - 1; i++) {
+      const ai = arr[i], nxt = arr[i + 1]
+      if (ai.status === 'REPLIED' && (ai.costUsd || 0) > 0 && nxt.deferReason === 'manual_reply') {
+        const gapMin = (new Date(nxt.createdAt) - new Date(ai.createdAt)) / 60000
+        if (gapMin >= 0 && gapMin < 25) {
+          pairs.push({
+            t: ai.createdAt,
+            brain: /gpt-4\.1-mini/.test(ai.deferReason || '') ? 'mini' : /openai_fallback/.test(ai.deferReason || '') ? 'gpt4.1' : 'opus',
+            buyer: (ai.buyerMessage || '').replace(/\s+/g, ' ').slice(0, 220),
+            ai: (ai.aiReply || '').replace(/\s+/g, ' ').slice(0, 220),
+            ketu: (nxt.aiReply || '').replace(/\s+/g, ' ').slice(0, 260),
+          })
+        }
+      }
+    }
+  }
+  pairs.sort((a, b) => new Date(b.t) - new Date(a.t))
+  return c.json({
+    days, paidReplies, interventions: pairs.length,
+    interventionRatePct: paidReplies ? Math.round((pairs.length / paidReplies) * 1000) / 10 : 0,
+    pairs,
+  })
 })
 
 // MONTHLY AI-SPEND (2026-07-22, Ketu-requested header stat): "last month's investment in chatting".
