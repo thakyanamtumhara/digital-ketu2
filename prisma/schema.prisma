@@ -175,8 +175,28 @@ model BuyerMemory {
   whatsappNumber String    @id
   language       String?   // "english" | "hindi" — explicit buyer request, survives across threads
   notes          String?   // admin-set durable facts ("VIP, Ketu quoted ₹190/pc bulk")
+  followupAt     DateTime? // last proactive follow-up sent (shortlist mode) — max one per 30 days
   updatedAt      DateTime  @updatedAt
   createdAt      DateTime  @default(now())
+}
+
+// Proactive follow-up SHORTLIST mode (2026-07-24, Ketu-approved pilot): drafts the clone proposes,
+// Ketu approves with a one-tap reply ("1" / "1 2" / "skip") in his owner chat before anything is
+// sent. Nothing ever goes to a buyer without his yes.
+
+model FollowupDraft {
+  id             String    @id @default(cuid())
+  whatsappNumber String
+  senderName     String?
+  context        String    // what the buyer asked (for Ketu's shortlist line)
+  draft          String    // the exact follow-up text that will be sent on approval
+  itemNo         Int       // today's shortlist number Ketu replies with
+  status         String    @default("pending") // pending | sent | skipped | expired
+  createdAt      DateTime  @default(now())
+  sentAt         DateTime?
+
+  @@index([status])
+  @@index([createdAt])
 }
 
 // --- Self-Learning: Manual Reply Pairs (collected when AI is OFF) ---

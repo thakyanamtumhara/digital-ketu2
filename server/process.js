@@ -2563,7 +2563,7 @@ async function sendReplyViaInstagram(igsid, message) {
 // Send reply via wwbun API
 // ===========================================
 
-async function sendReplyViaWwbun(whatsappNumber, message) {
+export async function sendReplyViaWwbun(whatsappNumber, message) {
   // 'ig:' keys flow through wwbun like any number since 2026-07-07 — wwbun's
   // send-ai-reply branches on the prefix and does the Graph send + store + emit,
   // so IG replies appear in the operator's threads. (sendReplyViaInstagram below

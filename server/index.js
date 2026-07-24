@@ -6,6 +6,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
+import { scanFollowupCandidates, handleOwnerShortlistReply } from './followup.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
 import { transcribeAudio, transcribeAudioDebug, isTranscriptionConfigured, getTranscriptionProvider, getTranscriptionHealth } from './transcribe.js'
 import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
@@ -240,6 +241,13 @@ async function sendFidelityDigest(force = false) {
   }
 }
 setInterval(() => sendFidelityDigest(), 20 * 60 * 1000) // check every 20min; sends once at 9am IST
+
+// FOLLOW-UP SHORTLIST scanner (2026-07-24): every 2h during IST business hours, propose quiet
+// shoppers (18-20h since their last message) to Ketu for one-tap approval. Rules-only, ₹0 cost.
+setInterval(() => {
+  const istHour = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours()
+  if (istHour >= 9 && istHour < 21) scanFollowupCandidates(db).catch(() => {})
+}, 2 * 60 * 60 * 1000)
 app.post('/api/fidelity/send-digest', async (c) => { await sendFidelityDigest(true); return c.json({ ok: true }) })
 
 // MONTHLY AI-SPEND (2026-07-22, Ketu-requested header stat): "last month's investment in chatting".
@@ -758,6 +766,11 @@ app.post('/api/ask', async (c) => {
     if (!text || !text.trim()) {
       return c.json({ answer: "I couldn't read that — please send text or a clearer voice note." })
     }
+
+    // FOLLOW-UP SHORTLIST approval (2026-07-24): if Ketu is replying to a pending shortlist
+    // ("1", "1 2", "sab", "skip"), act on it and confirm — else fall through to the assistant.
+    const shortlistResult = await handleOwnerShortlistReply(db, text)
+    if (shortlistResult) return c.json({ answer: shortlistResult })
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
