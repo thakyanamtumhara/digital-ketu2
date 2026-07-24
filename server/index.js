@@ -160,7 +160,7 @@ app.get('/api/buyer-memory/:number', async (c) => {
 // to CORRECT/replace it. This endpoint computes that + extracts the day's divergence pairs (AI reply
 // → Ketu's manual reply within 25min on the same conversation) so the daily audit loop can find,
 // judge, and fix them without Ketu hunting for bad replies himself. Lightweight (no promptSent).
-async function computeFidelity(days) {
+async function computeFidelity(days, maxGapMin = 25) {
   const since = new Date(Date.now() - days * 86400000)
   const logs = await db.messageLog.findMany({
     where: { createdAt: { gte: since } },
@@ -178,7 +178,7 @@ async function computeFidelity(days) {
       const ai = arr[i], nxt = arr[i + 1]
       if (ai.status === 'REPLIED' && (ai.costUsd || 0) > 0 && nxt.deferReason === 'manual_reply') {
         const gapMin = (new Date(nxt.createdAt) - new Date(ai.createdAt)) / 60000
-        if (gapMin >= 0 && gapMin < 25) {
+        if (gapMin >= 0 && gapMin < maxGapMin) {
           pairs.push({
             t: ai.createdAt,
             brain: /gpt-4\.1-mini/.test(ai.deferReason || '') ? 'mini' : /openai_fallback/.test(ai.deferReason || '') ? 'gpt4.1' : 'opus',
@@ -199,7 +199,12 @@ async function computeFidelity(days) {
 }
 app.get('/api/fidelity', async (c) => {
   const days = Math.min(30, Math.max(1, parseInt(c.req.query('days') || '1', 10) || 1))
-  return c.json(await computeFidelity(days))
+  // maxGapMin: 25 (default) = tight likely-corrections; pass e.g. 960 to ALSO see Ketu's late
+  // (away-day) replies — those are a MIX of real corrections and mere catch-ups, so wide-gap
+  // pairs need human/audit judgment (Fable-5 finding 2026-07-24: 32 of 94 interventions in a
+  // 5-day window were >25min and invisible to the daily metric).
+  const maxGapMin = Math.min(16 * 60, Math.max(5, parseInt(c.req.query('maxGapMin') || '25', 10) || 25))
+  return c.json(await computeFidelity(days, maxGapMin))
 })
 
 // DAILY CLONE-FIDELITY DIGEST to Ketu's WhatsApp (2026-07-23, self-driving loop). Server-side so it
