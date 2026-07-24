@@ -47,6 +47,7 @@ app.use('/api/daily-note', readGuard)
 app.use('/api/buyer-memory/*', readGuard)
 app.use('/api/monthly-spend', readGuard)
 app.use('/api/fidelity', readGuard)
+app.use('/api/followups', readGuard)
 
 // WRITE LOCKDOWN (Ketu-approved 2026-07-18): mutating admin endpoints were fully public —
 // anyone with the URL could PUT /api/settings (flip isActive off, zero the budget, replace the
@@ -278,6 +279,19 @@ app.get('/api/monthly-spend', async (c) => {
     prevMonth: { label: label(prevStart), inr: Math.round((prev._sum.costUsd || 0) * USD_INR), messages: prev._count._all },
     currentMonth: { label: label(curStart), inr: Math.round((cur._sum.costUsd || 0) * USD_INR), messages: cur._count._all },
   })
+})
+
+// FOLLOW-UP SHORTLIST outcomes (2026-07-24): recent drafts + statuses so the watch loop can see
+// whether Ketu approved/ignored proposals without DB access. Read-token gated.
+app.get('/api/followups', async (c) => {
+  const days = Math.min(30, Math.max(1, parseInt(c.req.query('days') || '7', 10) || 7))
+  const drafts = await db.followupDraft.findMany({
+    where: { createdAt: { gte: new Date(Date.now() - days * 86400000) } },
+    orderBy: { createdAt: 'desc' }, take: 50,
+  })
+  const counts = {}
+  for (const d of drafts) counts[d.status] = (counts[d.status] || 0) + 1
+  return c.json({ days, counts, drafts })
 })
 
 // DEFER SCOREBOARD (2026-07-21, Ketu-approved): "the human requirement of Ketu will keep decreasing
