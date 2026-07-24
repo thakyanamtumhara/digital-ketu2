@@ -244,10 +244,15 @@ setInterval(() => sendFidelityDigest(), 20 * 60 * 1000) // check every 20min; se
 
 // FOLLOW-UP SHORTLIST scanner (2026-07-24): every 2h during IST business hours, propose quiet
 // shoppers (18-20h since their last message) to Ketu for one-tap approval. Rules-only, ₹0 cost.
-setInterval(() => {
+const followupTick = () => {
   const istHour = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCHours()
   if (istHour >= 9 && istHour < 21) scanFollowupCandidates(db).catch(() => {})
-}, 2 * 60 * 60 * 1000)
+}
+setInterval(followupTick, 2 * 60 * 60 * 1000)
+// First scan ~10min after boot — frequent deploys restart the 2h timer, which on a busy ship-day
+// meant the scanner never reached a tick at all (observed 2026-07-24: 4 deploys, zero scans).
+// The FollowupDraft 3-day dup-guard makes boot-time scans safe to repeat.
+setTimeout(followupTick, 10 * 60 * 1000)
 app.post('/api/fidelity/send-digest', async (c) => { await sendFidelityDigest(true); return c.json({ ok: true }) })
 
 // MONTHLY AI-SPEND (2026-07-22, Ketu-requested header stat): "last month's investment in chatting".
