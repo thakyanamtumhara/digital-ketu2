@@ -290,9 +290,26 @@ app.get('/api/followups', async (c) => {
     where: { createdAt: { gte: new Date(Date.now() - days * 86400000) } },
     orderBy: { createdAt: 'desc' }, take: 50,
   })
+  // Enrich PENDING drafts with the real WhatsApp-window status (hours since the BUYER's last
+  // message, not since the draft was made) and AUTO-EXPIRE any whose 24h window has closed — Ketu
+  // can't reply past 24h, so those must stop showing in the panel (2026-07-26).
+  const pendingNums = [...new Set(drafts.filter(d => d.status === 'pending').map(d => d.whatsappNumber))]
+  const convos = pendingNums.length ? await db.buyerConversation.findMany({
+    where: { whatsappNumber: { in: pendingNums } }, select: { whatsappNumber: true, lastMessageAt: true },
+  }) : []
+  const lastBy = Object.fromEntries(convos.map(c => [c.whatsappNumber, c.lastMessageAt]))
+  const toExpire = []
+  const enriched = drafts.map(d => {
+    if (d.status !== 'pending') return d
+    const last = lastBy[d.whatsappNumber]
+    const ageH = last ? (Date.now() - new Date(last).getTime()) / 3600000 : 99
+    if (ageH >= 23) { toExpire.push(d.id); return { ...d, status: 'expired', windowLeftH: 0 } }
+    return { ...d, windowLeftH: Math.round(Math.max(0, 24 - ageH) * 10) / 10 }
+  })
+  if (toExpire.length) await db.followupDraft.updateMany({ where: { id: { in: toExpire } }, data: { status: 'expired' } }).catch(() => {})
   const counts = {}
-  for (const d of drafts) counts[d.status] = (counts[d.status] || 0) + 1
-  return c.json({ days, counts, drafts })
+  for (const d of enriched) counts[d.status] = (counts[d.status] || 0) + 1
+  return c.json({ days, counts, drafts: enriched })
 })
 
 // Approve/skip ONE shortlist draft from the wwbun panel (Ketu 2026-07-26: the WhatsApp shortlist

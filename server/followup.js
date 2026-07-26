@@ -67,8 +67,10 @@ function buildDraft(buyerText) {
 export async function scanFollowupCandidates(db) {
   try {
     const now = Date.now()
-    const bandStart = new Date(now - 20 * 3600 * 1000)
-    const bandEnd = new Date(now - 18 * 3600 * 1000)
+    // Quiet 12-16h (was 18-20h): leaves Ketu ~8-12h of the WhatsApp 24h window to review + approve
+    // in wwbun, instead of the ~4-6h that mostly expired before he ever saw it.
+    const bandStart = new Date(now - 16 * 3600 * 1000)
+    const bandEnd = new Date(now - 12 * 3600 * 1000)
     const sentToday = await db.followupDraft.count({
       where: { createdAt: { gte: new Date(now - 24 * 3600 * 1000) } },
     })
