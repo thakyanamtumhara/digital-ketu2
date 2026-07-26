@@ -48,7 +48,9 @@ app.use('/api/buyer-memory/*', readGuard)
 app.use('/api/monthly-spend', readGuard)
 app.use('/api/fidelity', readGuard)
 app.use('/api/followups', readGuard)
-app.use('/api/model', readGuard)
+// NOTE: /api/model GET is deliberately NOT under readGuard — it exposes only model NAMES (no buyer
+// data), and readGuard (no method check) would otherwise reject the POST switch's admin token before
+// writeGuard sees it. POST /api/model stays writeGuard-gated below (main secret OR admin token).
 
 // WRITE LOCKDOWN (Ketu-approved 2026-07-18): mutating admin endpoints were fully public —
 // anyone with the URL could PUT /api/settings (flip isActive off, zero the budget, replace the
