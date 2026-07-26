@@ -2232,7 +2232,9 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   // The reply brain occasionally dumps its internal chain-of-thought into the buyer message
   // ("Wait - ... Let me reconsider ... This is a RAW WHATSAPP ORDER ... the buyer shared a photo").
   // Never let that reach a buyer. If the reply looks like leaked reasoning, defer to Ketu instead.
-  const _leakMarkers = /\bWait\s*[-—,:]|Let me (reconsider|think|re-?check)|RAW WHATSAPP ORDER|the buyer (shared|is asking|wants|gave)|the previous context|which means (Regular Fit|the buyer)|\bRoute to website\b|this is a size breakdown|\bI should (reply|defer|reconsider|send)/i
+  // XML think/reasoning tags first (Opus 5 with thinking disabled can occasionally emit these) — must
+  // never reach a buyer, and this makes them defer + count toward the reasoning-leak signal.
+  const _leakMarkers = /<\/?think(ing)?>|<\/?reasoning>|\bWait\s*[-—,:]|Let me (reconsider|think|re-?check)|RAW WHATSAPP ORDER|the buyer (shared|is asking|wants|gave)|the previous context|which means (Regular Fit|the buyer)|\bRoute to website\b|this is a size breakdown|\bI should (reply|defer|reconsider|send)/i
   const _wc = (aiReply || '').trim().split(/\s+/).filter(Boolean).length
   const _paras = ((aiReply || '').match(/\n\s*\n/g) || []).length
   // Block ONLY on an explicit chain-of-thought marker, or an EXTREME length dump (>120 words —

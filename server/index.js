@@ -269,9 +269,6 @@ setTimeout(followupTick, 10 * 60 * 1000)
 // reverts, and once reverted it never re-enables Opus 5 on its own. Baseline captured 2026-07-26:
 // Opus 4.8 avg ~40 output-tokens / 74 chars (median 35/63, p90 75/154).
 const REPLY_MODEL_BASELINE_AVG_TOK = 40
-// HIGH-CONFIDENCE leak markers only — things that never appear in a real terse Hinglish reply but do
-// in a reasoning leak. Deliberately excludes ambiguous phrases ("let me", "wait") to avoid false reverts.
-const LEAK_RE = /<\/?think(ing)?>|<\/?reasoning>|\bthe buyer (has|is|wants|sent|didn'?t|shared|built)\b|^\s*(analysis|reasoning|thinking)\s*:/im
 let opus5GuardBusy = false
 const opus5Guard = async () => {
   if (opus5GuardBusy) return
@@ -280,30 +277,50 @@ const opus5Guard = async () => {
     const settings = await db.settings.findUnique({ where: { id: 'default' } })
     const current = resolveReplyModel(settings)
     if (current === REPLY_MODEL_INFO.default) return // on the tuned baseline → nothing to guard
-    // Sample only replies made SINCE the switch (and at most the last 3h) so old 4.8 replies never count.
-    const setAt = settings?.replyModelSetAt ? new Date(settings.replyModelSetAt).getTime() : 0
-    const since = new Date(Math.max(setAt, Date.now() - 3 * 3600 * 1000))
-    const sample = await db.messageLog.findMany({
-      where: { status: 'REPLIED', costUsd: { gt: 0 }, aiReply: { not: null }, createdAt: { gte: since } },
-      orderBy: { createdAt: 'desc' }, take: 30,
-      select: { aiReply: true, completionTokens: true },
+    // Look back to the SWITCH time (no 3h cap — a quiet night must still accumulate signal). Generous
+    // fallback if the timestamp is missing. replyModelSetAt already excludes older baseline replies.
+    const setAt = settings?.replyModelSetAt ? new Date(settings.replyModelSetAt).getTime() : (Date.now() - 12 * 3600 * 1000)
+    const since = new Date(setAt)
+
+    // SIGNAL 1 (primary, works even on low traffic) — the leak/ramble DEFERRAL spike. dk2's inline guard
+    // catches a leaking OR >120-word reply BEFORE it's sent and logs it DEFERRED/reasoning_leak_blocked.
+    // So the true "Opus 5 misbehaving" signal is a spike in THOSE deferrals, not the sent replies. On the
+    // tuned 4.8 baseline this is ~0/day, so a handful since the switch is clearly the new model failing.
+    const leakDeferrals = await db.messageLog.count({
+      where: { status: 'DEFERRED', deferReason: 'reasoning_leak_blocked', createdAt: { gte: since } },
     })
-    if (sample.length < 8) { console.log(`[ModelGuard] ${current}: only ${sample.length} new replies — waiting for more signal`); return }
+
+    // SIGNAL 2 (secondary) — chattiness of GENUINE model replies. completionTokens>0 excludes the
+    // OpenAI-fallback rows (gpt-4o-mini logs REPLIED with 0 tokens during a Claude outage — they must
+    // never be judged as Opus 5, and their 0 tokens would otherwise mask real chattiness).
+    const genuineCount = await db.messageLog.count({
+      where: { status: 'REPLIED', costUsd: { gt: 0 }, completionTokens: { gt: 0 }, createdAt: { gte: since } },
+    })
+    const sample = await db.messageLog.findMany({
+      where: { status: 'REPLIED', costUsd: { gt: 0 }, completionTokens: { gt: 0 }, createdAt: { gte: since } },
+      orderBy: { createdAt: 'desc' }, take: 30,
+      select: { completionTokens: true },
+    })
     const toks = sample.map(s => s.completionTokens || 0)
-    const avgTok = Math.round(toks.reduce((a, b) => a + b, 0) / toks.length)
-    const longFrac = toks.filter(t => t > 150).length / toks.length
-    const leakHit = sample.find(s => LEAK_RE.test(s.aiReply || ''))
-    const tooChatty = avgTok >= 90 || longFrac >= 0.4 // >2.2x baseline avg, or many long ramblers
-    if (leakHit || tooChatty) {
-      const reason = leakHit
-        ? `reasoning LEAK into a buyer message ("${(leakHit.aiReply || '').slice(0, 60)}…")`
-        : `too chatty (avg ${avgTok} output-tokens vs ${REPLY_MODEL_BASELINE_AVG_TOK} baseline, ${Math.round(longFrac * 100)}% long replies)`
+    const avgTok = toks.length ? Math.round(toks.reduce((a, b) => a + b, 0) / toks.length) : 0
+    const longFrac = toks.length ? toks.filter(t => t > 200).length / toks.length : 0
+
+    // Conservative triggers — MILD chattiness is Ketu's call, only CLEAR failure reverts:
+    const leakFrac = (leakDeferrals + genuineCount) ? leakDeferrals / (leakDeferrals + genuineCount) : 0
+    const leakSpike = leakDeferrals >= 4 && leakFrac >= 0.2    // ≥4 leaks AND ≥20% of all AI outcomes (systematic, not a stray)
+    const chatty = sample.length >= 8 && avgTok >= 90          // sustained ~2.2x+ baseline length
+    const rambling = sample.length >= 12 && longFrac >= 0.5    // majority of a solid sample >200 tok
+    if (leakSpike || chatty || rambling) {
+      const reason = leakSpike
+        ? `${leakDeferrals} leaked/over-long replies blocked since switch (reasoning-leak deferrals)`
+        : chatty ? `too chatty (avg ${avgTok} output-tokens vs ${REPLY_MODEL_BASELINE_AVG_TOK} baseline, n=${sample.length})`
+          : `rambling (${Math.round(longFrac * 100)}% of ${sample.length} replies over 200 tokens)`
       await db.settings.update({ where: { id: 'default' }, data: { replyModel: REPLY_MODEL_INFO.default, replyModelSetAt: new Date() } })
       cachedSettings = null; settingsCacheExpiry = 0
       console.log(`[ModelGuard] AUTO-REVERT ${current} → ${REPLY_MODEL_INFO.default}: ${reason}`)
-      await notifyOwner(`🧠 ${current} ko wapas Opus 4.8 kar diya — ${leakHit ? 'reply ke andar ki soch (thinking) leak ho rahi thi' : `reply zyada lambe ho rahe the (avg ${avgTok} tok vs ${REPLY_MODEL_BASELINE_AVG_TOK})`}. Shop safe, 4.8 pe chal raha hai. Subah detail dekh lena 🙏`).catch(() => {})
+      await notifyOwner(`🧠 ${current} ko wapas Opus 4.8 kar diya — ${leakSpike ? 'reply ke andar ki soch/bahut lambe reply block ho rahe the (' + leakDeferrals + ' baar)' : `reply zyada lambe ho rahe the (avg ${avgTok} tok vs ${REPLY_MODEL_BASELINE_AVG_TOK})`}. Shop safe, 4.8 pe chal raha hai. Subah detail dekh lena 🙏`).catch(() => {})
     } else {
-      console.log(`[ModelGuard] ${current} holding fine: n=${sample.length} avgTok=${avgTok} (baseline ${REPLY_MODEL_BASELINE_AVG_TOK}) long=${Math.round(longFrac * 100)}%`)
+      console.log(`[ModelGuard] ${current} holding fine: leakDeferrals=${leakDeferrals} replies=${sample.length} avgTok=${avgTok} (baseline ${REPLY_MODEL_BASELINE_AVG_TOK}) long>200=${Math.round(longFrac * 100)}%`)
     }
   } catch (e) {
     console.error('[ModelGuard] error:', e.message)
