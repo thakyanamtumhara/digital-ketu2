@@ -268,7 +268,7 @@ setTimeout(followupTick, 10 * 60 * 1000)
 // purpose: MILD chattiness is left running (that's Ketu's evaluation to make); only a clear failure
 // reverts, and once reverted it never re-enables Opus 5 on its own. Baseline captured 2026-07-26:
 // Opus 4.8 avg ~40 output-tokens / 74 chars (median 35/63, p90 75/154).
-const REPLY_MODEL_BASELINE_AVG_TOK = 40
+const REPLY_MODEL_BASELINE_AVG_TOK = 43 // Opus 5 measured overnight (26-Jul); ≈4.8's 40 — the terse-reply yardstick a future experiment is judged against
 let opus5GuardBusy = false
 const opus5Guard = async () => {
   if (opus5GuardBusy) return
@@ -405,12 +405,17 @@ app.post('/api/followups/action', async (c) => {
 // unvalidated/broken model). Switching is instant + reversible in one tap; every model runs
 // thinking:disabled to stay terse (mandatory on Opus 5, which thinks-on by default).
 let modelsListCache = { at: 0, ids: [] }
-async function liveOpusModelIds() {
+// Scan the WHOLE Claude line, not just Opus — so a brand-new Fable / Mythos / Sonnet / a whole new
+// "mode" also lights the badge (Ketu 2026-07-27: "if any new model comes, will it always show?").
+// The SWITCH stays Opus-tier allow-listed (see POST) because non-Opus models aren't drop-in — e.g.
+// Fable 5 costs 2x and REJECTS thinking:disabled, so it'd break the terse reply path until adapted.
+// Detection ≠ enablement: a new model is SHOWN so Ketu knows, then Claude verifies + enables it.
+async function liveClaudeModelIds() {
   if (Date.now() - modelsListCache.at < 2 * 3600 * 1000 && modelsListCache.ids.length) return modelsListCache.ids
   try {
     const ids = []
     for await (const m of anthropic.models.list({ limit: 100 })) {
-      if (typeof m.id === 'string' && m.id.startsWith('claude-opus')) ids.push(m.id)
+      if (typeof m.id === 'string' && m.id.startsWith('claude-')) ids.push(m.id)
     }
     modelsListCache = { at: Date.now(), ids }
     return ids
@@ -419,8 +424,14 @@ async function liveOpusModelIds() {
     return modelsListCache.ids // stale is fine; never break the panel over a models-list hiccup
   }
 }
-// Opus models we deliberately DON'T offer (older than the tuned baseline) — so they never show as "new".
-const OPUS_IGNORE = new Set(['claude-opus-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-opus-4-0', 'claude-opus-4', 'claude-3-opus'])
+// EVERY model that exists TODAY (any family) — so only a genuinely NEW launch shows as detected.
+// Update this when a model here is retired or a new one is added to the switch allow-list.
+const KNOWN_MODELS = new Set([
+  'claude-fable-5', 'claude-mythos-5', 'claude-mythos-preview',
+  'claude-opus-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-opus-4-0', 'claude-opus-4', 'claude-3-opus',
+  'claude-sonnet-5', 'claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-sonnet-4-0', 'claude-3-7-sonnet', 'claude-3-5-sonnet', 'claude-3-sonnet',
+  'claude-haiku-4-5', 'claude-3-5-haiku', 'claude-3-haiku',
+])
 // /v1/models returns some ids DATED (claude-opus-4-5-20251101) and some as bare aliases
 // (claude-opus-5). Strip a trailing -YYYYMMDD / @YYYYMMDD so both compare on the same base —
 // else old dated models leak into detectedNew as false "brand-new" launches.
@@ -430,7 +441,7 @@ app.get('/api/model', async (c) => {
   const current = resolveReplyModel(settings)
   const { allow, labels } = REPLY_MODEL_INFO
   const curIdx = allow.indexOf(current)
-  const liveIds = await liveOpusModelIds()
+  const liveIds = await liveClaudeModelIds()
   const liveBases = liveIds.map(baseId)
   const available = allow.map((id, i) => ({
     id, label: labels[id] || id, current: id === current,
@@ -438,8 +449,9 @@ app.get('/api/model', async (c) => {
     live: liveIds.length ? liveBases.includes(id) : true,
   }))
   const newerAvailable = available.filter(m => m.newer && m.live)
-  // Brand-new Opus that we haven't allow-listed yet (a FUTURE launch) → surface so Ketu pings me to enable it.
-  const known = new Set([...allow, ...OPUS_IGNORE])
+  // ANY brand-new Claude model (any family) not yet known → surface so Ketu sees the launch and pings
+  // me to verify + enable it. This is how a future Fable/Mythos/Opus-5.1/new-mode model shows up.
+  const known = new Set([...allow, ...KNOWN_MODELS])
   const detectedNew = [...new Set(liveIds.filter(id => !known.has(baseId(id))).map(baseId))]
   return c.json({
     current, currentLabel: labels[current] || current,
@@ -3085,8 +3097,8 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "promptUpdatedAt" TIMESTAMP(3)`)
     // Add details JSON column to SyncLog for training history
     await db.$executeRawUnsafe(`ALTER TABLE "SyncLog" ADD COLUMN IF NOT EXISTS "details" JSONB`)
-    // Switchable buyer-reply brain (2026-07-26) — defaults to the tuned Opus 4.8 baseline
-    await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "replyModel" TEXT NOT NULL DEFAULT 'claude-opus-4-8'`)
+    // Switchable buyer-reply brain (2026-07-26) — Opus 5 is the baseline since 27-Jul (fresh installs only; the live row is set explicitly)
+    await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "replyModel" TEXT NOT NULL DEFAULT 'claude-opus-5'`)
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "replyModelSetAt" TIMESTAMP(3)`)
     // Always sync: code (process.js) is the single source of truth for system prompt
     const settings = await db.settings.findUnique({ where: { id: 'default' } })

@@ -647,7 +647,11 @@ const REPLY_PRICE_PER_OUTPUT_TOKEN = 0.000025  // $25 per 1M output tokens (Opus
 // thinks-on-by-default and would otherwise reply longer/chattier and drift from Ketu's terse
 // tuned voice (verified 2026-07-26: disabled=31tok terse, default-on=84tok chatty).
 const REPLY_MODEL_ALLOW = ['claude-opus-5', 'claude-opus-4-8', 'claude-opus-4-7']
-const REPLY_MODEL_DEFAULT = 'claude-opus-4-8'  // tuned baseline; Opus 5 is opt-in via wwbun
+// Opus 5 is the trusted baseline (Ketu kept it 2026-07-27 after a clean overnight trial: avg 43
+// output-tok vs 4.8's 40, 96.5% fidelity, 0 leaks). Being the default means the self-protect guard no
+// longer watches it (a trusted model isn't guarded, same as 4.8 was) — the guard now protects the NEXT
+// experiment and reverts TO Opus 5. 4.8 / 4.7 stay selectable from wwbun.
+const REPLY_MODEL_DEFAULT = 'claude-opus-5'
 const REPLY_MODEL_LABELS = { 'claude-opus-5': 'Opus 5', 'claude-opus-4-8': 'Opus 4.8', 'claude-opus-4-7': 'Opus 4.7' }
 export function resolveReplyModel(settings) {
   const m = settings && settings.replyModel
