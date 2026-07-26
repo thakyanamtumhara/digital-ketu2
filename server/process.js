@@ -636,6 +636,24 @@ const PRICE_PER_OUTPUT_TOKEN = 0.000005  // $5 per 1M output tokens
 // Sonnet 4.6 rates for the main buyer reply (smarter clone, better rule-following)
 const REPLY_PRICE_PER_INPUT_TOKEN = 0.000005   // $5 per 1M input tokens (Opus 4.8)
 const REPLY_PRICE_PER_OUTPUT_TOKEN = 0.000025  // $25 per 1M output tokens (Opus 4.8)
+
+// ── Switchable reply model ──────────────────────────────────────────────────
+// The buyer-reply brain is a Settings value Ketu flips from wwbun — so we can move
+// to a new Claude Opus the day it ships without a code deploy. ALLOW-list only Opus-tier
+// models (all $5/$25 — same cost, so the price constants above stay valid): a bad/garbage
+// model id can NEVER reach the reply path and kill the shop. Newer-model detection compares
+// against this list's newest entry vs Anthropic's live /v1/models.
+// ⚠️ Every model here is called with thinking:{type:'disabled'} — REQUIRED for Opus 5, which
+// thinks-on-by-default and would otherwise reply longer/chattier and drift from Ketu's terse
+// tuned voice (verified 2026-07-26: disabled=31tok terse, default-on=84tok chatty).
+const REPLY_MODEL_ALLOW = ['claude-opus-5', 'claude-opus-4-8', 'claude-opus-4-7']
+const REPLY_MODEL_DEFAULT = 'claude-opus-4-8'  // tuned baseline; Opus 5 is opt-in via wwbun
+const REPLY_MODEL_LABELS = { 'claude-opus-5': 'Opus 5', 'claude-opus-4-8': 'Opus 4.8', 'claude-opus-4-7': 'Opus 4.7' }
+export function resolveReplyModel(settings) {
+  const m = settings && settings.replyModel
+  return REPLY_MODEL_ALLOW.includes(m) ? m : REPLY_MODEL_DEFAULT
+}
+export const REPLY_MODEL_INFO = { allow: REPLY_MODEL_ALLOW, default: REPLY_MODEL_DEFAULT, labels: REPLY_MODEL_LABELS }
 // 1-hour prompt-cache TTL (Anthropic beta). Genuine AI replies here cluster within an hour
 // (42/43 gaps <60min) but are often >5min apart, so a 1h cache hits far more than the default
 // 5-min. If the beta is ever rejected, this flips false and we fall back to the 5-min ephemeral
@@ -2132,6 +2150,9 @@ Answer with ONLY one word: REPLY or SILENT.` }],
 
   try {
     const userMessages = [{ role: 'user', content: imageBlock ? [imageBlock, { type: 'text', text: userPrompt }] : userPrompt }]
+    // Buyer-reply brain — switchable from wwbun (Settings.replyModel), allow-listed to Opus-tier.
+    // thinking:disabled keeps EVERY model terse (mandatory on Opus 5, which thinks-on by default).
+    const replyModel = resolveReplyModel(settings)
     let response
     let used1hCache = false
     // Try the 1-hour cache TTL first (bigger savings with spaced traffic); on error fall back to
@@ -2139,7 +2160,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     if (Date.now() >= extendedCacheTtlRetryAt) {
       try {
         response = await anthropic.messages.create(
-          { model: 'claude-opus-4-8', max_tokens: 500, system: buildSystemBlocks(true), messages: userMessages },
+          { model: replyModel, max_tokens: 500, thinking: { type: 'disabled' }, system: buildSystemBlocks(true), messages: userMessages },
           { headers: { 'anthropic-beta': 'extended-cache-ttl-2025-04-11' } }
         )
         used1hCache = true
@@ -2150,7 +2171,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     }
     if (!response) {
       response = await anthropic.messages.create({
-        model: 'claude-opus-4-8', max_tokens: 500, system: buildSystemBlocks(false), messages: userMessages,
+        model: replyModel, max_tokens: 500, thinking: { type: 'disabled' }, system: buildSystemBlocks(false), messages: userMessages,
       })
     }
 

@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt } from './process.js'
+import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt, resolveReplyModel, REPLY_MODEL_INFO } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { scanFollowupCandidates, handleOwnerShortlistReply, actOnDraft } from './followup.js'
@@ -48,6 +48,7 @@ app.use('/api/buyer-memory/*', readGuard)
 app.use('/api/monthly-spend', readGuard)
 app.use('/api/fidelity', readGuard)
 app.use('/api/followups', readGuard)
+app.use('/api/model', readGuard)
 
 // WRITE LOCKDOWN (Ketu-approved 2026-07-18): mutating admin endpoints were fully public —
 // anyone with the URL could PUT /api/settings (flip isActive off, zero the budget, replace the
@@ -83,6 +84,7 @@ for (const p of [
   '/api/buyer-memory/*',
   '/api/fidelity/send-digest',
   '/api/followups/action',
+  '/api/model',
 ]) app.use(p, writeGuard)
 
 // --- Health Check ---
@@ -318,6 +320,63 @@ app.post('/api/followups/action', async (c) => {
   const { id, action } = await c.req.json().catch(() => ({}))
   if (!id || !['send', 'skip'].includes(action)) return c.json({ error: 'need id + action (send|skip)' }, 400)
   return c.json(await actOnDraft(db, id, action))
+})
+
+// ── REPLY-MODEL SWITCHER (2026-07-26, Ketu) ──────────────────────────────────
+// The buyer-reply brain is switchable from wwbun so Ketu can move to a new Claude Opus the day it
+// ships — he found out Opus 5 launched 2 days late. GET reports the current model, the allow-listed
+// options, and whether Anthropic's live /v1/models has something NEWER (drives the header badge, so he
+// never misses a launch again). POST switches (admin-gated, allow-list ONLY: a brand-new unlisted
+// model must be verified + enabled in code first — a careless tap can never point the shop at an
+// unvalidated/broken model). Switching is instant + reversible in one tap; every model runs
+// thinking:disabled to stay terse (mandatory on Opus 5, which thinks-on by default).
+let modelsListCache = { at: 0, ids: [] }
+async function liveOpusModelIds() {
+  if (Date.now() - modelsListCache.at < 2 * 3600 * 1000 && modelsListCache.ids.length) return modelsListCache.ids
+  try {
+    const ids = []
+    for await (const m of anthropic.models.list({ limit: 100 })) {
+      if (typeof m.id === 'string' && m.id.startsWith('claude-opus')) ids.push(m.id)
+    }
+    modelsListCache = { at: Date.now(), ids }
+    return ids
+  } catch (e) {
+    console.error('[Model] /v1/models fetch failed:', e.message)
+    return modelsListCache.ids // stale is fine; never break the panel over a models-list hiccup
+  }
+}
+// Opus models we deliberately DON'T offer (older than the tuned baseline) — so they never show as "new".
+const OPUS_IGNORE = new Set(['claude-opus-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-opus-4-0', 'claude-opus-4', 'claude-3-opus-20240229'])
+app.get('/api/model', async (c) => {
+  const settings = await getSettings()
+  const current = resolveReplyModel(settings)
+  const { allow, labels } = REPLY_MODEL_INFO
+  const curIdx = allow.indexOf(current)
+  const liveIds = await liveOpusModelIds()
+  const available = allow.map((id, i) => ({
+    id, label: labels[id] || id, current: id === current,
+    newer: curIdx >= 0 && i < curIdx,               // earlier in the allow-list = newer than current
+    live: liveIds.length ? liveIds.includes(id) : true,
+  }))
+  const newerAvailable = available.filter(m => m.newer && m.live)
+  // Brand-new Opus that we haven't allow-listed yet (a FUTURE launch) → surface so Ketu pings me to enable it.
+  const known = new Set([...allow, ...OPUS_IGNORE])
+  const detectedNew = liveIds.filter(id => !known.has(id))
+  return c.json({
+    current, currentLabel: labels[current] || current,
+    available, newerAvailable, detectedNew,
+    badge: newerAvailable.length > 0 || detectedNew.length > 0,
+  })
+})
+app.post('/api/model', async (c) => {
+  const { model } = await c.req.json().catch(() => ({}))
+  if (!REPLY_MODEL_INFO.allow.includes(model)) {
+    return c.json({ error: 'model not allow-listed — a new model must be verified + enabled in code first', allow: REPLY_MODEL_INFO.allow }, 400)
+  }
+  await db.settings.update({ where: { id: 'default' }, data: { replyModel: model } })
+  cachedSettings = null; settingsCacheExpiry = 0 // take effect on the very next reply, not up to 60s later
+  console.log(`[Model] reply brain switched → ${model}`)
+  return c.json({ ok: true, model, label: REPLY_MODEL_INFO.labels[model] || model })
 })
 
 // DEFER SCOREBOARD (2026-07-21, Ketu-approved): "the human requirement of Ketu will keep decreasing
@@ -2947,6 +3006,8 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "promptUpdatedAt" TIMESTAMP(3)`)
     // Add details JSON column to SyncLog for training history
     await db.$executeRawUnsafe(`ALTER TABLE "SyncLog" ADD COLUMN IF NOT EXISTS "details" JSONB`)
+    // Switchable buyer-reply brain (2026-07-26) — defaults to the tuned Opus 4.8 baseline
+    await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "replyModel" TEXT NOT NULL DEFAULT 'claude-opus-4-8'`)
     // Always sync: code (process.js) is the single source of truth for system prompt
     const settings = await db.settings.findUnique({ where: { id: 'default' } })
     if (settings) {
