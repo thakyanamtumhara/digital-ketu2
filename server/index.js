@@ -259,6 +259,61 @@ setInterval(followupTick, 2 * 60 * 60 * 1000)
 // meant the scanner never reached a tick at all (observed 2026-07-24: 4 deploys, zero scans).
 // The FollowupDraft 3-day dup-guard makes boot-time scans safe to repeat.
 setTimeout(followupTick, 10 * 60 * 1000)
+
+// ── NON-BASELINE MODEL SELF-PROTECT GUARD (2026-07-26) ───────────────────────
+// When the buyer brain is switched OFF the tuned Opus 4.8 baseline (Ketu trying Opus 5), dk2 watches
+// its OWN replies and auto-reverts to 4.8 on a CLEAR failure — a reasoning leak into a buyer message,
+// or replies gone much longer than Ketu's terse style. Runs server-side so the shop is protected 24/7
+// with NO open Claude session / laptop (answers Ketu's "can I close it?" — yes). Conservative on
+// purpose: MILD chattiness is left running (that's Ketu's evaluation to make); only a clear failure
+// reverts, and once reverted it never re-enables Opus 5 on its own. Baseline captured 2026-07-26:
+// Opus 4.8 avg ~40 output-tokens / 74 chars (median 35/63, p90 75/154).
+const REPLY_MODEL_BASELINE_AVG_TOK = 40
+// HIGH-CONFIDENCE leak markers only — things that never appear in a real terse Hinglish reply but do
+// in a reasoning leak. Deliberately excludes ambiguous phrases ("let me", "wait") to avoid false reverts.
+const LEAK_RE = /<\/?think(ing)?>|<\/?reasoning>|\bthe buyer (has|is|wants|sent|didn'?t|shared|built)\b|^\s*(analysis|reasoning|thinking)\s*:/im
+let opus5GuardBusy = false
+const opus5Guard = async () => {
+  if (opus5GuardBusy) return
+  opus5GuardBusy = true
+  try {
+    const settings = await db.settings.findUnique({ where: { id: 'default' } })
+    const current = resolveReplyModel(settings)
+    if (current === REPLY_MODEL_INFO.default) return // on the tuned baseline → nothing to guard
+    // Sample only replies made SINCE the switch (and at most the last 3h) so old 4.8 replies never count.
+    const setAt = settings?.replyModelSetAt ? new Date(settings.replyModelSetAt).getTime() : 0
+    const since = new Date(Math.max(setAt, Date.now() - 3 * 3600 * 1000))
+    const sample = await db.messageLog.findMany({
+      where: { status: 'REPLIED', costUsd: { gt: 0 }, aiReply: { not: null }, createdAt: { gte: since } },
+      orderBy: { createdAt: 'desc' }, take: 30,
+      select: { aiReply: true, completionTokens: true },
+    })
+    if (sample.length < 8) { console.log(`[ModelGuard] ${current}: only ${sample.length} new replies — waiting for more signal`); return }
+    const toks = sample.map(s => s.completionTokens || 0)
+    const avgTok = Math.round(toks.reduce((a, b) => a + b, 0) / toks.length)
+    const longFrac = toks.filter(t => t > 150).length / toks.length
+    const leakHit = sample.find(s => LEAK_RE.test(s.aiReply || ''))
+    const tooChatty = avgTok >= 90 || longFrac >= 0.4 // >2.2x baseline avg, or many long ramblers
+    if (leakHit || tooChatty) {
+      const reason = leakHit
+        ? `reasoning LEAK into a buyer message ("${(leakHit.aiReply || '').slice(0, 60)}…")`
+        : `too chatty (avg ${avgTok} output-tokens vs ${REPLY_MODEL_BASELINE_AVG_TOK} baseline, ${Math.round(longFrac * 100)}% long replies)`
+      await db.settings.update({ where: { id: 'default' }, data: { replyModel: REPLY_MODEL_INFO.default, replyModelSetAt: new Date() } })
+      cachedSettings = null; settingsCacheExpiry = 0
+      console.log(`[ModelGuard] AUTO-REVERT ${current} → ${REPLY_MODEL_INFO.default}: ${reason}`)
+      await notifyOwner(`🧠 ${current} ko wapas Opus 4.8 kar diya — ${leakHit ? 'reply ke andar ki soch (thinking) leak ho rahi thi' : `reply zyada lambe ho rahe the (avg ${avgTok} tok vs ${REPLY_MODEL_BASELINE_AVG_TOK})`}. Shop safe, 4.8 pe chal raha hai. Subah detail dekh lena 🙏`).catch(() => {})
+    } else {
+      console.log(`[ModelGuard] ${current} holding fine: n=${sample.length} avgTok=${avgTok} (baseline ${REPLY_MODEL_BASELINE_AVG_TOK}) long=${Math.round(longFrac * 100)}%`)
+    }
+  } catch (e) {
+    console.error('[ModelGuard] error:', e.message)
+  } finally {
+    opus5GuardBusy = false
+  }
+}
+setInterval(opus5Guard, 30 * 60 * 1000) // every 30 min
+setTimeout(opus5Guard, 12 * 60 * 1000)  // first check ~12 min after boot (survives frequent deploys)
+
 app.post('/api/fidelity/send-digest', async (c) => { await sendFidelityDigest(true); return c.json({ ok: true }) })
 
 // MONTHLY AI-SPEND (2026-07-22, Ketu-requested header stat): "last month's investment in chatting".
@@ -380,7 +435,7 @@ app.post('/api/model', async (c) => {
   if (!REPLY_MODEL_INFO.allow.includes(model)) {
     return c.json({ error: 'model not allow-listed — a new model must be verified + enabled in code first', allow: REPLY_MODEL_INFO.allow }, 400)
   }
-  await db.settings.update({ where: { id: 'default' }, data: { replyModel: model } })
+  await db.settings.update({ where: { id: 'default' }, data: { replyModel: model, replyModelSetAt: new Date() } })
   cachedSettings = null; settingsCacheExpiry = 0 // take effect on the very next reply, not up to 60s later
   console.log(`[Model] reply brain switched → ${model}`)
   return c.json({ ok: true, model, label: REPLY_MODEL_INFO.labels[model] || model })
@@ -3015,6 +3070,7 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
     await db.$executeRawUnsafe(`ALTER TABLE "SyncLog" ADD COLUMN IF NOT EXISTS "details" JSONB`)
     // Switchable buyer-reply brain (2026-07-26) — defaults to the tuned Opus 4.8 baseline
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "replyModel" TEXT NOT NULL DEFAULT 'claude-opus-4-8'`)
+    await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "replyModelSetAt" TIMESTAMP(3)`)
     // Always sync: code (process.js) is the single source of truth for system prompt
     const settings = await db.settings.findUnique({ where: { id: 'default' } })
     if (settings) {
