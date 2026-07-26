@@ -414,8 +414,13 @@ async function liveClaudeModelIds() {
   if (Date.now() - modelsListCache.at < 2 * 3600 * 1000 && modelsListCache.ids.length) return modelsListCache.ids
   try {
     const ids = []
+    // NAME-BLIND (Ketu 2026-07-27: "a completely different new name — will we notice?"). Take EVERY id
+    // /v1/models returns for this account — no name pattern. That endpoint only lists models this key
+    // can actually use, so anything here not in KNOWN_MODELS is a genuinely new launch, whatever it's
+    // called (claude-nova, a new line, a rename). The only thing we can't see is a model Anthropic hasn't
+    // yet enabled for this account — but it couldn't be used until then anyway.
     for await (const m of anthropic.models.list({ limit: 100 })) {
-      if (typeof m.id === 'string' && m.id.startsWith('claude-')) ids.push(m.id)
+      if (typeof m.id === 'string' && m.id) ids.push(m.id)
     }
     modelsListCache = { at: Date.now(), ids }
     return ids
