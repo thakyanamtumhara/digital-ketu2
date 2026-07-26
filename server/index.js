@@ -6,7 +6,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
-import { scanFollowupCandidates, handleOwnerShortlistReply } from './followup.js'
+import { scanFollowupCandidates, handleOwnerShortlistReply, actOnDraft } from './followup.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
 import { transcribeAudio, transcribeAudioDebug, isTranscriptionConfigured, getTranscriptionProvider, getTranscriptionHealth } from './transcribe.js'
 import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
@@ -82,6 +82,7 @@ for (const p of [
   '/api/daily-note',
   '/api/buyer-memory/*',
   '/api/fidelity/send-digest',
+  '/api/followups/action',
 ]) app.use(p, writeGuard)
 
 // --- Health Check ---
@@ -292,6 +293,14 @@ app.get('/api/followups', async (c) => {
   const counts = {}
   for (const d of drafts) counts[d.status] = (counts[d.status] || 0) + 1
   return c.json({ days, counts, drafts })
+})
+
+// Approve/skip ONE shortlist draft from the wwbun panel (Ketu 2026-07-26: the WhatsApp shortlist
+// can't always reach him — 24h window / scrolls away — so approval lives in wwbun too). Admin-gated.
+app.post('/api/followups/action', async (c) => {
+  const { id, action } = await c.req.json().catch(() => ({}))
+  if (!id || !['send', 'skip'].includes(action)) return c.json({ error: 'need id + action (send|skip)' }, 400)
+  return c.json(await actOnDraft(db, id, action))
 })
 
 // DEFER SCOREBOARD (2026-07-21, Ketu-approved): "the human requirement of Ketu will keep decreasing

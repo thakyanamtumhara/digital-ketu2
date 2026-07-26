@@ -129,6 +129,39 @@ export async function scanFollowupCandidates(db) {
   }
 }
 
+// Send/skip a SINGLE draft (used by both the wwbun panel buttons and the WhatsApp reply path).
+export async function actOnDraft(db, id, action) {
+  const d = await db.followupDraft.findUnique({ where: { id } })
+  if (!d) return { ok: false, msg: 'not found' }
+  if (d.status !== 'pending') return { ok: false, status: d.status, msg: `already ${d.status}` }
+  if (action === 'skip') {
+    await db.followupDraft.update({ where: { id }, data: { status: 'skipped' } })
+    return { ok: true, status: 'skipped' }
+  }
+  const convo = await db.buyerConversation.findUnique({
+    where: { whatsappNumber: d.whatsappNumber }, select: { id: true, lastMessageAt: true },
+  })
+  const ageH = convo?.lastMessageAt ? (Date.now() - new Date(convo.lastMessageAt).getTime()) / 3600000 : 99
+  if (ageH >= 23) { // WhatsApp free window closed — never a paid template
+    await db.followupDraft.update({ where: { id }, data: { status: 'expired' } })
+    return { ok: false, status: 'expired', msg: '24h window closed' }
+  }
+  const sent = await sendReplyViaWwbun(d.whatsappNumber, d.draft)
+  if (!sent) return { ok: false, msg: 'send failed' }
+  await db.followupDraft.update({ where: { id }, data: { status: 'sent', sentAt: new Date() } })
+  await db.buyerMemory.upsert({
+    where: { whatsappNumber: d.whatsappNumber },
+    update: { followupAt: new Date() },
+    create: { whatsappNumber: d.whatsappNumber, followupAt: new Date() },
+  }).catch(() => {})
+  if (convo?.id) {
+    await db.messageLog.create({
+      data: { conversationId: convo.id, buyerMessage: '[proactive follow-up]', messageIds: [], status: 'REPLIED', deferReason: 'followup_sent', aiReply: d.draft, costUsd: 0 },
+    }).catch(() => {})
+  }
+  return { ok: true, status: 'sent' }
+}
+
 // ---------------------------------------------------------------------------
 // APPROVAL — called from the /api/ask owner channel BEFORE the general-assistant reply.
 // Returns a confirmation string if the text was a shortlist action, else null (fall through).
