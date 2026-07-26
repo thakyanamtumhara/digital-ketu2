@@ -346,22 +346,27 @@ async function liveOpusModelIds() {
   }
 }
 // Opus models we deliberately DON'T offer (older than the tuned baseline) — so they never show as "new".
-const OPUS_IGNORE = new Set(['claude-opus-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-opus-4-0', 'claude-opus-4', 'claude-3-opus-20240229'])
+const OPUS_IGNORE = new Set(['claude-opus-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-opus-4-0', 'claude-opus-4', 'claude-3-opus'])
+// /v1/models returns some ids DATED (claude-opus-4-5-20251101) and some as bare aliases
+// (claude-opus-5). Strip a trailing -YYYYMMDD / @YYYYMMDD so both compare on the same base —
+// else old dated models leak into detectedNew as false "brand-new" launches.
+const baseId = id => String(id).replace(/[-@]\d{8}$/, '')
 app.get('/api/model', async (c) => {
   const settings = await getSettings()
   const current = resolveReplyModel(settings)
   const { allow, labels } = REPLY_MODEL_INFO
   const curIdx = allow.indexOf(current)
   const liveIds = await liveOpusModelIds()
+  const liveBases = liveIds.map(baseId)
   const available = allow.map((id, i) => ({
     id, label: labels[id] || id, current: id === current,
     newer: curIdx >= 0 && i < curIdx,               // earlier in the allow-list = newer than current
-    live: liveIds.length ? liveIds.includes(id) : true,
+    live: liveIds.length ? liveBases.includes(id) : true,
   }))
   const newerAvailable = available.filter(m => m.newer && m.live)
   // Brand-new Opus that we haven't allow-listed yet (a FUTURE launch) → surface so Ketu pings me to enable it.
   const known = new Set([...allow, ...OPUS_IGNORE])
-  const detectedNew = liveIds.filter(id => !known.has(id))
+  const detectedNew = [...new Set(liveIds.filter(id => !known.has(baseId(id))).map(baseId))]
   return c.json({
     current, currentLabel: labels[current] || current,
     available, newerAvailable, detectedNew,
