@@ -24,6 +24,10 @@ const INTEREST_RE = /\b(t[\s-]?shirt|tshirt|tees?|oversize[d]?|polo|hoodie|sweat
 const QTY_RE = /\b(\d{2,5})\s*(pcs?|pieces?|pis|pes|t[\s-]?shirts?|nos)\b/i
 // Hard exclusions — complaint / order / payment / tracking threads are NEVER followed up.
 const EXCLUDE_RE = /\b(order|tracking|track|awb|parcel|dispatch|deliver|refund|return|complaint|payment|paid|invoice|bill|courier|damage)\b|nahi\s*aaya|kahan|shikayat|galat/i
+// Don't propose a follow-up to a buyer who wanted something we DON'T make (Ketu skipped a "crop tops"
+// proposal 2026-07-26 — we don't make them, so there's nothing to re-engage them on). Mirrors the
+// not-made list from the reply rulebook. Also skip printing/customization asks (Ketu's referral job).
+const NOT_MADE_FU_RE = /crop\s*top|\blower(s)?\b|\bjeans\b|jogger|track\s*-?pant|trouser|pajama|pyjama|palazzo|blazer|\bjacket|denim|sando|sandow|baniyan|\bvest\b|ganji|full\s*sleeve|night\s*(suit|pant)|\bshirt\b(?!\s*(t|tee))|custom|printing|\bprint(ed|ing)?\b|embroider/i
 const ENDER_TOKENS = new Set(['ok', 'okay', 'okey', 'k', 'thik', 'theek', 'hai', 'thanks', 'thank', 'you', 'thankyou', 'thanku', 'hmm', 'hm', 'acha', 'accha', 'done', 'great', 'nice', 'good', 'ji', 'sir', 'bhai', 'welcome', 'yes', 'haan', 'ha'])
 function isEnderish(text) {
   const s = (text || '').toLowerCase().replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
@@ -103,6 +107,7 @@ export async function scanFollowupCandidates(db) {
       if (logs.some(l => l.deferReason === 'manual_reply')) continue        // Ketu is on this thread
       if (logs.some(l => l.status === 'DEFERRED')) continue                  // open handoff — his court
       if (EXCLUDE_RE.test(buyerText)) continue                               // order/complaint thread
+      if (NOT_MADE_FU_RE.test(buyerText)) continue                           // wanted something we don't make / print job
       if (!INTEREST_RE.test(buyerText)) continue                             // no shopping interest
       if (isEnderish(last.buyerMessage)) continue                            // they closed the chat
       // Serious-buyer preference: quantity mentioned ranks first
