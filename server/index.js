@@ -317,6 +317,7 @@ const opus5Guard = async () => {
           : `rambling (${Math.round(longFrac * 100)}% of ${sample.length} replies over 200 tokens)`
       await db.settings.update({ where: { id: 'default' }, data: { replyModel: REPLY_MODEL_INFO.default, replyModelSetAt: new Date() } })
       cachedSettings = null; settingsCacheExpiry = 0
+      forceCacheRewarm()
       console.log(`[ModelGuard] AUTO-REVERT ${current} → ${REPLY_MODEL_INFO.default}: ${reason}`)
       await notifyOwner(`🧠 ${current} ko wapas Opus 4.8 kar diya — ${leakSpike ? 'reply ke andar ki soch/bahut lambe reply block ho rahe the (' + leakDeferrals + ' baar)' : `reply zyada lambe ho rahe the (avg ${avgTok} tok vs ${REPLY_MODEL_BASELINE_AVG_TOK})`}. Shop safe, 4.8 pe chal raha hai. Subah detail dekh lena 🙏`).catch(() => {})
     } else {
@@ -471,6 +472,7 @@ app.post('/api/model', async (c) => {
   }
   await db.settings.update({ where: { id: 'default' }, data: { replyModel: model, replyModelSetAt: new Date() } })
   cachedSettings = null; settingsCacheExpiry = 0 // take effect on the very next reply, not up to 60s later
+  forceCacheRewarm()  // the old model's warm cache is useless to the new one — re-warm on the next tick
   console.log(`[Model] reply brain switched → ${model}`)
   return c.json({ ok: true, model, label: REPLY_MODEL_INFO.labels[model] || model })
 })
@@ -2998,6 +3000,13 @@ app.get('/*', serveStatic({ path: './dist/index.html' }))
 // purpose (one morning write beats pinging all night). ZERO effect on reply behaviour: no rule,
 // model, or flow change — pure cache-economics.
 let lastPrewarmIstDay = ''
+// Called whenever the reply model changes: caches are model-scoped, so the previously-warm entry is
+// dead weight for the new model. Clearing both flags makes the next 5-min tick do one pre-warm write
+// for the NEW model, so buyers read from cache instead of each paying a cold write.
+function forceCacheRewarm() {
+  cacheTouch.at = 0
+  lastPrewarmIstDay = ''
+}
 async function cacheKeepAlive() {
   try {
     const istNow = new Date(Date.now() + 5.5 * 3600 * 1000)
@@ -3022,9 +3031,14 @@ async function cacheKeepAlive() {
       select: { content: true },
     })
     if (styleGuideChunk?.content) staticPrompt += `\n\nOM'S COMMUNICATION STYLE:\n${styleGuideChunk.content}`
+    // MUST be the same model + thinking setting as the reply path: prompt caches are MODEL-SCOPED, so
+    // pinging a different model warms a cache no reply can read, and every reply then pays a full
+    // cold write (~₹25-35) instead of a ₹1.5 read. That is exactly what happened when the brain was
+    // switched to Opus 5 while this ping still said 4.8 — per-reply cost jumped ~6x (₹3.5 → ₹23).
     const res = await anthropic.messages.create({
-      model: 'claude-opus-4-8',
+      model: resolveReplyModel(settings),
       max_tokens: 1,
+      thinking: { type: 'disabled' },
       system: [{ type: 'text', text: staticPrompt, cache_control: { type: 'ephemeral', ttl: '1h' } }],
       messages: [{ role: 'user', content: 'ping' }],
     })
