@@ -2063,7 +2063,13 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   // "We haven't received anything yet, dispatched or NOT???" and a "send tracker id" — an anxious /
   // not-received / "problem" tracking message is a COMPLAINT he handles personally, not a case for a
   // canned link). On these, do NOT inject the lookup block → the normal defer rules apply.
-  const TRACKING_COMPLAINT_RE = /haven.?t\s*(received|got)|not\s*(yet\s*)?(received|delivered|dispatched)|nahi\s*(aaya|aya|mila|mile|pahu|nikla)|abhi\s*tak|dispatched\s*or\s*not|\bproblem\b|kyu?n?\s*(nahi|nhi|late)|\blate\b|\d+\s*din\s*(ho|hue|se)|\?{3,}|still\s*(not|waiting|pending)/i
+  // 2026-07-27 (Ketu-approved): "dispatched or not" was dropped from this guard. It is NEUTRAL
+  // phrasing — a polite "please confirm if our order has dispatched or not?" is a plain STATUS
+  // question, and Ketu answered exactly that with the tracking link (2026-07-26) while the guard
+  // was deferring it. The 2026-07-20 message he DID want deferred ("We haven't received anything
+  // yet, dispatched or NOT???") is still caught here by "haven't received" + "???", so his
+  // correction stands. Genuine anxiety markers below are unchanged — complaints still defer.
+  const TRACKING_COMPLAINT_RE = /haven.?t\s*(received|got)|not\s*(yet\s*)?(received|delivered|dispatched)|nahi\s*(aaya|aya|mila|mile|pahu|nikla)|abhi\s*tak|\bproblem\b|kyu?n?\s*(nahi|nhi|late)|\blate\b|\d+\s*din\s*(ho|hue|se)|\?{3,}|still\s*(not|waiting|pending)/i
   if (!isInstagram && TRACKING_INTENT_RE.test(mergedText || '') && !TRACKING_COMPLAINT_RE.test(mergedText || '')) {
     try {
       const orders = await lookupOrdersByPhone(whatsappNumber)
