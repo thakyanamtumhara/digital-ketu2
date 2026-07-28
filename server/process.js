@@ -1659,7 +1659,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   if (shouldFollowUp) {
-    console.log(`[Followup] ${whatsappNumber} — new/returning buyer, scheduling 1-min followup (wwbun sent welcome)`)
+    console.log(`[Followup] ${whatsappNumber} — new/returning buyer, scheduling followup (${isInstagram ? 'IG: 12s, wwbun sends NO welcome' : 'WA: 1-min, wwbun sent welcome'})`)
 
     // Schedule 3-minute delayed follow-up
     const followupTimer = setTimeout(async () => {
@@ -1711,7 +1711,15 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       } catch (err) {
         console.error(`[Followup Error] ${whatsappNumber}:`, err.message)
       }
-    }, WELCOME_FOLLOWUP_DELAY_MS)
+    // Instagram: wwbun STOPPED sending the IG welcome (wwbun 1c8e7cf today), so on Instagram
+    // this timer is no longer a follow-up TO a greeting - it IS the buyer's only reply, and it
+    // was waiting 60s for a message that will never be sent. Measured today: first-contact IG
+    // buyers waited 78-87s for their first answer, versus 16-22s for every later message in the
+    // same thread. 12s rather than 0: the fresh-cooldown re-check inside this callback is what
+    // stops the clone replying on top of Ketu, and it fired today (ig:1461594668569 - Ketu
+    // replied manually 12.9s after scheduling). WhatsApp keeps the full 60s; it really does get
+    // a welcome template first.
+    }, isInstagram ? 12000 : WELCOME_FOLLOWUP_DELAY_MS)
 
     pendingWelcomeFollowups.set(whatsappNumber, {
       timer: followupTimer,
