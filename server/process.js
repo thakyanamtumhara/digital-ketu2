@@ -2487,12 +2487,11 @@ Answer with ONLY one word: REPLY or SILENT.` }],
         console.log(`[IG] ${whatsappNumber} — 24h messaging window expired, suppressing send`)
         return
       }
-      // First reply of an IG conversation carries the automation disclosure.
-      const priorReplied = await db.messageLog.findFirst({
-        where: { conversationId, status: 'REPLIED' },
-        select: { id: true },
-      })
-      if (!priorReplied) aiReply = `${aiReply} — (auto-reply)`
+      // The first IG reply used to get a " — (auto-reply)" tag appended here. Removed 2026-07-28:
+      // Ketu — "Instagram DMs must behave the same as a WhatsApp message" — and WhatsApp replies
+      // carry no such tag. It also contradicted the IG addendum written the same day ("Never
+      // announce yourself as a bot, an assistant or an auto-reply"): the prompt banned the phrase
+      // while this code stapled it onto the buyer's very first impression.
     } catch (err) {
       console.error(`[IG] ${whatsappNumber} — pre-send guard error (sending anyway):`, err.message)
     }
