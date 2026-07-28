@@ -814,12 +814,12 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // INSTAGRAM COST GATE ('ig:' conversations ONLY — WhatsApp flow is untouched)
   // ============================================================
   // Pure-JS/DB tier decision BEFORE any paid AI/embedding call:
-  //   ZERO  → silent skip (emoji/media/greeting)      NUDGE → one canned pointer per 24h
-  //   CAPS  → 10/user/day + 100 global/day AI replies  AI    → fall through to the full pipeline
-  // Welcome-eligible (new/7+day) IG buyers BYPASS the gate and take the exact
-  // WhatsApp welcome path below: wwbun sends the /welcome template, dk2 schedules
-  // the 3-min "any questions?" follow-up (Ketu 2026-07-07: "match the exact same
-  // kind of chatting"). The gate disciplines REPEAT casual chatters only.
+  //   ZERO  → silent skip (emoji-only / '[media]' markers / story replies / bare greeting)
+  //   CAPS  → 25/user/day + 100 global/day AI replies
+  //   AI    → EVERYTHING else falls through to the full pipeline, same as WhatsApp
+  // The NUDGE tier (canned pointer for anything without a buyer keyword) was deleted
+  // 2026-07-28 — see the measurement in ig-gate.js. Instagram now only skips messages
+  // that carry no question at all; every real message is answered like a WhatsApp one.
   if (isInstagram && !isWelcomeEligible) {
     // Cooldown FIRST — the gate's canned replies bypassed it, so Ketu's manual reply did not
     // hold the clone back on Instagram the way it does on WhatsApp (Ketu 2026-07-28, Aakash
@@ -1850,7 +1850,7 @@ const IG_SYSTEM_ADDENDUM = `
 
 INSTAGRAM DM MODE — this buyer is messaging on INSTAGRAM, not WhatsApp:
 - Talk EXACTLY as you do on WhatsApp — same voice, same warmth, a normal conversation (Ketu 2026-07-28: "behave just like a digital Ketu ... keep replying on Insta like a normal conversation"). Never announce yourself as a bot, an assistant or an auto-reply, and never say "Ye Sale91 ka auto-assistant hai". This is the business account's inbox rather than Ketu's personal chat, but that changes nothing about how you sound. Same products, prices, and knowledge rules as above.
-- Keep replies to 2 short sentences MAX. This counts PROSE only — a link on its own line does not count (same carve-out as the FORMAT rule above).
+- Length: keep your OWN free-form prose to 2 short sentences. This never applies to a MANDATED FIXED OUTPUT the rules above tell you to send in full — above all the VISIT / ADDRESS block, which goes out COMPLETE on Instagram exactly as on WhatsApp: both visiting-hour lines + the maps link + the 'ask for TSHIRT WALA GODAM' note + 7048954134 + the 5-10 minute line. A half address block is a WRONG answer, not a short one. Links on their own line never count toward any length.
 - ANSWER EVERY QUESTION THE BUYER ASKED. Brevity NEVER justifies dropping one. Instagram buyers routinely stack two asks into one line with no punctuation — "Can I visit on your store and check fabric quality Office kidhar h apka Oversized" is a VISIT ask AND an OVERSIZE product ask. Sending only the address block there is a half-answer (Ketu flagged exactly this reply, 2026-07-28). If a visit/address ask arrives together with a product/rate/GSM/fit ask, send the full visit block AND the product answer with its catalog link on its own line. If honouring every ask needs a third short sentence, take it — a complete answer beats a short one.
 - LINK LAYOUT (CRITICAL — Instagram renders a DM as one runaway paragraph, so links crammed into a sentence come out unreadable): every link goes on its OWN line, always the full https:// form, never a bare domain. If the reply carries MORE THAN ONE link, put a BLANK line between the link blocks — link first, then its 2-4 word label with 👆, exactly like this shape:
 https://sale91.com/catalog/p/oversize-240gsm
@@ -1977,7 +1977,12 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
   // loop (Ketu never sees it, so no correction can ever be born from it). High-signal intents
   // (returns/refunds, dispatch/pickup/tracking, delivery, shop hours, explicit ask-for-Ketu/call)
   // bypass the gate deterministically: the full flow may still [DEFER], but never pure silence.
-  const FORCE_REPLY_RE = /\breturn\b|\brefund\b|\bexchange\b|wapas|वापस|\bdispatch|porter|pickup|\btrack|deliver|पहुंच|pahu?nch(a|e|eg)?|\b(shop|store|duk[a]?an|godam|warehouse|office)\b[^]{0,25}\b(clos|band|khul|open|tim|kab)|\b(kab|kitne)\b[^]{0,15}\b(khul|band|close|open)|\bketu\b|\bowner\b|\bmalik\b|baat\s*kar(a|wa)?\s*(o|do|ne|na)|\bcall\s*(kar|kr)/i
+  // "Where is your company located" was answered with a canned pointer and its repeat ("Apka
+  // company Kaha hai") got total silence, so Ketu sent the address by hand (Ira, 2026-07-28
+  // 17:07/17:08). None of the address phrasings below matched this regex, so removing the
+  // Instagram nudge tier alone would still have left them to the Haiku silence gate. A buyer
+  // asking where we are is never chatter — on either platform.
+  const FORCE_REPLY_RE = /\breturn\b|\brefund\b|\bexchange\b|wapas|वापस|\bdispatch|porter|pickup|\btrack|deliver|पहुंच|pahu?nch(a|e|eg)?|\b(shop|store|duk[a]?an|godam|warehouse|office)\b[^]{0,25}\b(clos|band|khul|open|tim|kab)|\b(kab|kitne)\b[^]{0,15}\b(khul|band|close|open)|\baddress\b|\blocation\b|\blocated\b|\bkaha[ni]?\b|\bkahan\b|\bkidhar\b|\bkidar\b|kha\s*se\b|कहाँ|कहां|किधर|\bvisit\b|\bpata\b|\bketu\b|\bowner\b|\bmalik\b|baat\s*kar(a|wa)?\s*(o|do|ne|na)|\bcall\s*(kar|kr)/i
   const forcedReply = FORCE_REPLY_RE.test(mergedText || '')
   if (forcedReply) console.log(`[Restraint] ${whatsappNumber} — force-reply intent, gate bypassed`)
 

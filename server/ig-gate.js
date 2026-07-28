@@ -5,19 +5,18 @@
 //
 // Tiers (checked in order):
 //   ZERO  → no reply, no AI (emoji-only, '[media]' markers, story replies, bare greetings)
-//   BUYER → full AI pipeline (buyer-intent keyword present, or an established AI conversation)
-//   NUDGE → everything else: ONE canned pointer per conversation per 24h, then silent
-//   CAPS  → BUYER tier is still capped: per-user 10 AI replies/day + global IG 100/day (IST)
+//   AI    → EVERYTHING ELSE. Same treatment a WhatsApp message gets (Ketu 2026-07-28).
+//   CAPS  → the AI tier is still capped: per-user 25 AI replies/day + global IG 100/day (IST)
 //
 // This module only DECIDES — the caller (process.js) performs the send + MessageLog write.
 
-// Ketu 2026-07-28: "behave just like a digital Ketu ... keep replying on Insta like a normal
-// conversation". So this reads like him, not like a bot announcing itself — the old
-// "Ye Sale91 ka auto-assistant hai" opener was clearly wrong. Still ZERO-cost canned text.
-const IG_NUDGE_TEXT = 'Ji sir 🙏 bataiye kya chahiye? Rate aur design sab catalog mein hain 👇\n\nhttps://sale91.com/catalog'
 const IG_CAP_TEXT = 'Ji sir 🙏 aapka message mil gaya — thodi der mein yahin reply karte hain.'
 
-const IG_PER_USER_DAILY_AI_CAP = 10
+// Per-user cap raised 10 → 25 to match REPLY_DAILY_CAP in process.js, which is NOT Instagram-
+// gated and therefore already applies here. A genuine buyer working through sizes, colours and
+// rates burns 10 turns easily, and hitting a cap mid-conversation reads as us going silent.
+// The global 100/day ceiling is unchanged and is what actually bounds the spend.
+const IG_PER_USER_DAILY_AI_CAP = 25
 const IG_GLOBAL_DAILY_AI_CAP = 100
 const IG_24H_MS = 24 * 60 * 60 * 1000
 
@@ -105,8 +104,23 @@ export async function evaluateIgGate({ db, conversationId, mergedText, messages 
     return { action: 'skip', reason: 'ig_zero_tier' }
   }
 
-  // --- BUYER tier: intent keyword OR established buyer (a prior REAL AI reply — totalTokens>0
-  // so the canned nudge itself can never "establish" a conversation and defeat the gate) ---
+  // --- NUDGE TIER DELETED 2026-07-28 (Ketu: "All the Instagram messages should be considered
+  // as WhatsApp messages and should get the same kind of reply") ---
+  // It gated real answers behind an ALLOW-LIST of buyer keywords, so any ordinary English
+  // question that happened to use none of them was answered with a canned pointer instead.
+  // Measured over Instagram's first 9.2 hours live: 8 messages fell to this tier across 3
+  // buyers, and 7 of the 8 were genuine business questions — "Where is your company located"
+  // (Ira, twice — the second ask got total silence), "What would the minimum quantity be?",
+  // "Hello Contact number", and a quality complaint "Ek wash me ye halat he t shirt ka" that
+  // missed only because he typed "t shirt" with a space. All 3 buyers then had to be answered
+  // by Ketu by hand. Widening the keyword list on the same day did not save it: replaying those
+  // 8 messages against the widened list still nudged 6 of 8. An allow-list cannot enumerate how
+  // people ask things — that is the design flaw, not a tuning problem.
+  // It also saved nothing worth having: an IG answer costs $0.0333 (₹2.93), within 4% of a
+  // WhatsApp answer, so the tier protected ₹2.93 of chatter while blocking ₹23 of real answers.
+  // Spend stays bounded by the caps below, the ZERO tier above (emoji/media/bare greeting), and
+  // the global daily budget in process.js.
+  // hasBuyerIntent()/BUYER_INTENT_KEYWORDS are kept ONLY to label the reason for the logs.
   let established = null
   try {
     established = await db.messageLog.findFirst({
@@ -115,20 +129,6 @@ export async function evaluateIgGate({ db, conversationId, mergedText, messages 
     })
   } catch (err) {
     console.error('[IG Gate] established-buyer lookup failed (treating as new):', err.message)
-  }
-
-  if (!hasBuyerIntent(mergedText) && !established) {
-    // --- NUDGE tier: one canned pointer per conversation per 24h, then silent ---
-    const recentNudge = await db.messageLog.findFirst({
-      where: {
-        conversationId,
-        deferReason: { in: ['ig_nudge', 'ig_cap_nudge'] },
-        createdAt: { gte: new Date(Date.now() - IG_24H_MS) },
-      },
-      select: { id: true },
-    })
-    if (recentNudge) return { action: 'skip', reason: 'ig_ambiguous_silent' }
-    return { action: 'canned', reason: 'ig_nudge', cannedText: IG_NUDGE_TEXT }
   }
 
   // --- CAPS (checked BEFORE any paid AI call): per-user 10/day + global IG 100/day, IST ---
@@ -158,5 +158,8 @@ export async function evaluateIgGate({ db, conversationId, mergedText, messages 
     return { action: 'canned', reason: 'ig_cap_nudge', cannedText: IG_CAP_TEXT }
   }
 
-  return { action: 'ai', reason: established ? 'ig_established_buyer' : 'ig_buyer_intent' }
+  return {
+    action: 'ai',
+    reason: established ? 'ig_established_buyer' : (hasBuyerIntent(mergedText) ? 'ig_buyer_intent' : 'ig_open_tier'),
+  }
 }
