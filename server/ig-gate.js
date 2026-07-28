@@ -11,7 +11,10 @@
 //
 // This module only DECIDES — the caller (process.js) performs the send + MessageLog write.
 
-const IG_NUDGE_TEXT = "Namaste! Ye Sale91 ka auto-assistant hai 🙏 Rate/order ke liye yahin 'PRICE' likh dijiye — turant jawab milega. Catalog 👉 https://sale91.com/catalog"
+// Ketu 2026-07-28: "behave just like a digital Ketu ... keep replying on Insta like a normal
+// conversation". So this reads like him, not like a bot announcing itself — the old
+// "Ye Sale91 ka auto-assistant hai" opener was clearly wrong. Still ZERO-cost canned text.
+const IG_NUDGE_TEXT = 'Ji sir 🙏 bataiye kya chahiye? Rate aur design sab catalog mein hain 👇\n\nhttps://sale91.com/catalog'
 const IG_CAP_TEXT = 'Ji sir 🙏 aapka message mil gaya — thodi der mein yahin reply karte hain.'
 
 const IG_PER_USER_DAILY_AI_CAP = 10
