@@ -2792,9 +2792,47 @@ export async function notifySkippedViaWwbun(whatsappNumber) {
 // Used by the cost-ceiling alarm so a runaway per-reply cost surfaces to him automatically instead
 // of him having to watch the chart. OWNER_WHATSAPP overridable via env; falls back to his number.
 const OWNER_WHATSAPP = process.env.OWNER_WHATSAPP || '918527150400'
+// Owner alerts went dark on 2026-07-27 13:29 IST and nobody knew for a day. Every send failed
+// with Meta [131047] "24-hour window expired" — Ketu's last INBOUND message to the business
+// number was 26-Jul 12:03, so the free-form window shut and stayed shut. 13 consecutive
+// failures. Casualties included "COD sync: Delhivery login expired", "MAIN phone ka CHARGER
+// LAGAO" and the daily fidelity report. The failure is invisible from here: wwbun acks the
+// send and the actual Graph call fails later in a detached task, so this function saw success.
+//
+// So alerts no longer depend on that window. Telegram has no 24h rule and is the channel the
+// rest of Ketu's automation already alerts him on. Both are attempted; Telegram is what
+// actually gets through while the WhatsApp window is closed. Never throws — an alerting path
+// must not be able to break the caller.
+async function notifyOwnerTelegram(message) {
+  const token = process.env.TELEGRAM_BOT_TOKEN
+  const chatId = process.env.TELEGRAM_CHAT_ID
+  if (!token || !chatId) return false
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(10000),
+      body: JSON.stringify({ chat_id: chatId, text: message, disable_web_page_preview: true }),
+    })
+    if (!res.ok) {
+      console.error('[notifyOwner] telegram failed:', res.status, (await res.text().catch(() => '')).slice(0, 120))
+      return false
+    }
+    return true
+  } catch (err) {
+    console.error('[notifyOwner] telegram error:', err.message)
+    return false
+  }
+}
+
 export async function notifyOwner(message) {
-  if (!OWNER_WHATSAPP) return null
-  return sendReplyViaWwbun(OWNER_WHATSAPP, message)
+  const tg = await notifyOwnerTelegram(message)
+  if (!OWNER_WHATSAPP) return tg ? { viaTelegram: true } : null
+  const wa = await sendReplyViaWwbun(OWNER_WHATSAPP, message).catch(err => {
+    console.error('[notifyOwner] whatsapp error:', err.message)
+    return null
+  })
+  return wa || (tg ? { viaTelegram: true } : null)
 }
 
 // ===========================================
