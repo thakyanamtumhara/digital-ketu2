@@ -2212,7 +2212,11 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   // honors it within-thread; this makes "English please" permanent). Fire-and-forget.
   const langAsk = /\b(in english|english please|english me(?:in)?\s*(bolo|batao|reply|likho)?|please english|reply in english|only english)\b/i.test(mergedText || '') ? 'english'
     : /\b(hindi me(?:in)?\s*(bolo|batao|baat|reply|likho)|in hindi|hindi please|reply in hindi)\b/i.test(mergedText || '') ? 'hindi' : null
-  if (langAsk && !isInstagram) {
+  // Instagram included (Ketu 2026-07-28: "IG DMs must behave the same as a WhatsApp message"). The
+  // memory READ above was never IG-gated, so an IG buyer's "English please" was being read but never
+  // written — remembered on WhatsApp, forgotten on Instagram. The row is keyed by the ig:<igsid>
+  // handle, which is just as unique as a phone number, so nothing else changes.
+  if (langAsk) {
     db.buyerMemory.upsert({
       where: { whatsappNumber },
       update: { language: langAsk },
