@@ -26,6 +26,10 @@ const BUYER_INTENT_KEYWORDS = [
   'price', 'rate', 'order', 'moq', 'bulk', 'gsm', 'wholesale', 'sample', 'cod',
   'delivery', 'shipping', 'stock', 'size', 'colour', 'color', 'tshirt', 't-shirt',
   'hoodie', 'kitna', 'kitne', 'kimat', 'keemat', 'daam', 'chahiye',
+  // An MOQ question phrased in plain English matched NOTHING above, so a real buyer got the
+  // canned nudge instead of an answer (Ketu 2026-07-28, Aakash: "What would the minimum
+  // quantity be?"). These are unambiguous buying signals — casual chatters do not use them.
+  'minimum', 'quantity', 'qty', 'pcs', 'piece', 'kitni',
   'कीमत', 'कितना', 'कितने', 'ऑर्डर', 'थोक',
 ]
 

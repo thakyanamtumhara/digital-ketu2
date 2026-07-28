@@ -821,6 +821,28 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // the 3-min "any questions?" follow-up (Ketu 2026-07-07: "match the exact same
   // kind of chatting"). The gate disciplines REPEAT casual chatters only.
   if (isInstagram && !isWelcomeEligible) {
+    // Cooldown FIRST — the gate's canned replies bypassed it, so Ketu's manual reply did not
+    // hold the clone back on Instagram the way it does on WhatsApp (Ketu 2026-07-28, Aakash
+    // ig:3062869430722791: he replied 11:54:06, the buyer asked "What would the minimum
+    // quantity be?", and 43s later the gate fired a canned nudge on top of him). The full
+    // cooldown check below at the WhatsApp stage is never reached, because every gate branch
+    // returns before it. Same fresh DB read as that check, for the same race reason.
+    const igCooldown = await db.buyerConversation.findUnique({
+      where: { whatsappNumber },
+      select: { cooldownUntil: true },
+    })
+    if (igCooldown?.cooldownUntil && new Date() < new Date(igCooldown.cooldownUntil)) {
+      await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
+        status: 'COOLDOWN',
+        deferReason: 'cooldown',
+        processingMs: Date.now() - startTime,
+        isMedia: hasMediaOnly,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+      })
+      console.log(`[IG Gate] ${whatsappNumber} — Ketu is on this thread, holding`)
+      return
+    }
+
     const gate = await evaluateIgGate({ db, conversationId: conversation.id, mergedText, messages })
 
     if (gate.action === 'skip') {
