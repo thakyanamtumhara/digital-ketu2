@@ -61,8 +61,28 @@ app.use('/api/followups', readGuard)
 // untouched (public reads unchanged — that exposure is tracked separately). The dashboard
 // attaches the header via the fetch shim in dist/index.html (prompts once, localStorage).
 // NOT under this guard: /api/incoming, /api/intervention, /api/correction, /api/ask — the
-// wwbun s2s paths with their own auth; and DELETE /api/knowledge/correction/:id stays on
-// readGuard (the sweep scripts hold only the read token).
+// wwbun s2s paths, which carry their own X-Digital-Ketu-Secret check (see s2sGuard below);
+// and DELETE /api/knowledge/correction/:id stays on readGuard (the sweep scripts hold only
+// the read token).
+
+// The two INGEST paths were completely unauthenticated until 2026-07-28. That was survivable
+// while only WhatsApp fed them; it stopped being survivable the moment Instagram went public,
+// because /api/incoming is the front door to the whole pipeline. A forged POST could burn the
+// shared ₹1000 daily budget (~₹2.93 per generated answer, charged BEFORE the send, so it burns
+// even when the outbound fails) and could drive real outbound messages to real people.
+// wwbun sends the shared secret on all three forwards as of wwbun 4674eef.
+// Fail-OPEN if the secret is unset, so a missing env var can never silence the clone.
+const s2sGuard = async (c, next) => {
+  const settings = await getSettings().catch(() => null)
+  const secret = settings?.digitalKetuSecret || process.env.DIGITAL_KETU_SECRET
+  if (secret && c.req.header('X-Digital-Ketu-Secret') !== secret) {
+    console.warn(`[s2s] REJECTED unauthenticated ${c.req.method} ${new URL(c.req.url).pathname}`)
+    return c.json({ error: 'unauthorized' }, 401)
+  }
+  return next()
+}
+app.use('/api/incoming', s2sGuard)
+app.use('/api/intervention', s2sGuard)
 const writeGuard = async (c, next) => {
   if (c.req.method === 'GET' || c.req.method === 'HEAD' || c.req.method === 'OPTIONS') return next()
   const settings = await getSettings().catch(() => null)
