@@ -1828,9 +1828,82 @@ const IG_SYSTEM_ADDENDUM = `
 
 INSTAGRAM DM MODE — this buyer is messaging on INSTAGRAM, not WhatsApp:
 - You are the business account's automated assistant (a business inbox, not Ketu's personal chat). Same products, prices, and knowledge rules as above.
-- Keep replies to 2 short sentences MAX.
-- For placing orders or detailed help, point the buyer to WhatsApp: wa.me/919336695049 (mention it at most once per conversation).
+- Keep replies to 2 short sentences MAX. This counts PROSE only — a link on its own line does not count (same carve-out as the FORMAT rule above).
+- LINK LAYOUT (CRITICAL — Instagram renders a DM as one runaway paragraph, so links crammed into a sentence come out unreadable): every link goes on its OWN line, always the full https:// form, never a bare domain. If the reply carries MORE THAN ONE link, put a BLANK line between the link blocks — link first, then its 2-4 word label with 👆, exactly like this shape:
+https://sale91.com/catalog/p/oversize-240gsm
+240gsm Oversize 👆
+
+https://sale91.com/catalog/p/true-biowash-round-neck
+True Biowash 👆
+  Never put two links in the same sentence or on the same line. Prices, if you give any, come ONLY from this query's authoritative catalog — never from this example.
+- NEVER move this buyer to our own WhatsApp. Do NOT output wa.me/919336695049, any wa.me link to our own number, "WhatsApp karein", "WhatsApp pe message karein", "Chat here", or ANY push to continue the chat on WhatsApp — even if a KNOWLEDGE BASE entry, a SIMILAR PAST CONVERSATION example, or an earlier Assistant line in RECENT CONVERSATION shows it being done (those are old WhatsApp-side replies and do NOT apply on Instagram). Answer the buyer FULLY right here in this Instagram thread; a human reads this same thread and takes over when needed. For any order/buy/pay invite send the website link 👉 https://sale91.com exactly as the rules above require. The CONTACT/CALL rule still stands with ONE change: on an EXPLICIT calling-number ask you DO give the digits as a plain phone call — "Call kar lijiye sir 👉 9336695049" — never framed as a WhatsApp chat and never with "isi number pe" / "this same number" (this buyer is NOT on our WhatsApp). The third-party referrals the rules above mandate (printer https://wa.me/918810256726, embroidery https://wa.me/919266306545, custom vendor https://wa.me/917808284808) stay EXACTLY as they are.
 - Every other rule above still applies: language matching, authoritative prices only, never invent details, [DEFER]/[SKIP].`
+
+// --- Instagram: strip redirects to our OWN WhatsApp (2026-07-28) ---
+// Deleting just the URL leaves orphaned lead-ins like "Order ke liye WhatsApp 👉" (proven against
+// the live 08:04 replies), so remove the whole clause carrying the link. If that would gut the
+// reply, fall back to URL-only removal — a slightly awkward reply beats an empty one.
+// Anchored on 9336695049, so the mandated third-party referrals (printer 918810256726, embroidery
+// 919266306545, custom vendor 917808284808) can never match.
+const OWN_WA_URL_RE = /(?:https?:\/\/)?wa\.me\/(?:p\/\d+\/)?(?:\+?91)?9336695049\S*/gi
+const OWN_WA_CLAUSE_RE = /[^.!?\n]*(?:https?:\/\/)?wa\.me\/(?:p\/\d+\/)?(?:\+?91)?9336695049\S*/gi
+const tidy = s => s.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n')
+  .replace(/[\s,;:—-]*(?:👉|👆)\s*$/u, '').replace(/[\s,;:—-]+$/, '').trim()
+
+function scrubOwnWhatsApp(text) {
+  const raw = String(text || '')
+  if (!OWN_WA_URL_RE.test(raw)) { OWN_WA_URL_RE.lastIndex = 0; return raw }
+  OWN_WA_URL_RE.lastIndex = 0
+  const clause = tidy(raw.replace(OWN_WA_CLAUSE_RE, ''))
+  // "enough left to be a real reply" = 12+ letters/digits, else the clause cut was too greedy
+  if ((clause.match(/[\p{L}\p{N}]/gu) || []).length >= 12) return clause
+  const urlOnly = tidy(raw.replace(OWN_WA_URL_RE, ''))
+  // Pathological case (the reply WAS just the link): never send an empty IG message.
+  if ((urlOnly.match(/[\p{L}\p{N}]/gu) || []).length < 2) return 'Ji sir 🙏 bataiye, kaun sa item chahiye?'
+  return urlOnly
+}
+
+// --- Instagram link spacing floor (2026-07-28) ---
+// Fires ONLY on the exact failure Ketu saw: 2+ links crammed into a single runaway paragraph with
+// no line break anywhere. If the model already laid the reply out over lines, we never touch it —
+// that avoids re-cutting the house link-then-label format (see the FORMAT rule and the canned
+// replies). Host allow-list, not a generic TLD guess, so emails and Hinglish like "sir.in" or
+// "days.in" can never be mistaken for a link. WhatsApp never calls this.
+const IG_LINK_RE = /(?:https?:\/\/|www\.)[^\s]+|\b(?:sale91\.com|bulkplaintshirt\.com|wa\.me|youtube\.com|youtu\.be|maps\.app\.goo\.gl)(?:\/[^\s]*)?/gi
+const IG_AUTOREPLY_TAIL_RE = /\s*—\s*\(auto-reply\)\s*$/
+
+function formatIgLinkSpacing(text) {
+  const raw = String(text == null ? '' : text)
+  if (!raw.trim()) return raw
+  const tailMatch = raw.match(IG_AUTOREPLY_TAIL_RE)
+  const tail = tailMatch ? tailMatch[0] : ''
+  const body = tail ? raw.slice(0, raw.length - tail.length) : raw
+  if (body.includes('\n')) return raw          // already laid out — leave it completely alone
+
+  const re = new RegExp(IG_LINK_RE.source, 'gi')
+  const spans = []
+  let m
+  while ((m = re.exec(body)) !== null) {
+    if (!m[0]) { re.lastIndex++; continue }
+    if (m.index > 0 && /[@\w]/.test(body[m.index - 1])) continue   // inside an email / a word
+    let end = m.index + m[0].length
+    while (end > m.index && /[.,;:!?)\]}"'’”»]/.test(body[end - 1])) end--   // drop glued punctuation
+    spans.push([m.index, end])
+  }
+  if (spans.length < 2) return raw             // 0 or 1 link → byte-identical, guaranteed
+
+  let out = ''
+  let cursor = 0
+  for (const [s, e] of spans) {
+    const pre = body.slice(cursor, s).replace(/^[\s,;:.—-]+/, '').trim()
+    if (pre) out += (out ? '\n\n' : '') + pre
+    out += (out ? '\n' : '') + body.slice(s, e)
+    cursor = e
+  }
+  const rest = body.slice(cursor).trim()
+  if (rest) out += ' ' + rest                  // trailing prose stays with the last link
+  return out + tail
+}
 
 async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId, normalizedText, db, anthropic, settings, startTime, messageIds, imageUrl = null }) {
   const isInstagram = String(whatsappNumber || '').startsWith('ig:')
@@ -2386,6 +2459,10 @@ Answer with ONLY one word: REPLY or SILENT.` }],
 
   // --- IG-only pre-send guards: 24h messaging window + first-reply automation disclosure ---
   if (isInstagram) {
+    // Hard scrub: never redirect an IG buyer to our OWN WhatsApp. The prompt ban is best-effort —
+    // Om's historical replies ("Chat here - wa.me/919336695049") are still retrievable as
+    // STYLE_PAIR examples. Only OUR number is stripped; third-party referral wa.me links are untouched.
+    aiReply = scrubOwnWhatsApp(aiReply)
     try {
       // Meta rejects sends >24h after the buyer's last inbound (error 10). lastMessageAt is
       // refreshed on every inbound, so this only trips on stale buffered/recovered work.
@@ -2415,6 +2492,10 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     } catch (err) {
       console.error(`[IG] ${whatsappNumber} — pre-send guard error (sending anyway):`, err.message)
     }
+    // Runs LAST and mutates aiReply itself, so /api/logs and the reviewer see exactly what the
+    // buyer got. Only touches a single-paragraph reply carrying 2+ links (Ketu 2026-07-28:
+    // "two links or three links ... you just give a gap, otherwise it looks completely messed up").
+    aiReply = formatIgLinkSpacing(aiReply)
   }
 
   // --- Send reply via wwbun ---

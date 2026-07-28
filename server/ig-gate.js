@@ -11,8 +11,8 @@
 //
 // This module only DECIDES — the caller (process.js) performs the send + MessageLog write.
 
-const IG_NUDGE_TEXT = "Namaste! Ye Sale91 ka auto-assistant hai 🙏 Price/order ke liye 'PRICE' likhein, ya WhatsApp karein: wa.me/919336695049 — turant jawab milega."
-const IG_CAP_TEXT = 'Abhi busy hoon, WhatsApp pe message karein: wa.me/919336695049'
+const IG_NUDGE_TEXT = "Namaste! Ye Sale91 ka auto-assistant hai 🙏 Rate/order ke liye yahin 'PRICE' likh dijiye — turant jawab milega. Catalog 👉 https://sale91.com/catalog"
+const IG_CAP_TEXT = 'Ji sir 🙏 aapka message mil gaya — thodi der mein yahin reply karte hain.'
 
 const IG_PER_USER_DAILY_AI_CAP = 10
 const IG_GLOBAL_DAILY_AI_CAP = 100
