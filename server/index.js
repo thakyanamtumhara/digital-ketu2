@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
@@ -877,9 +878,41 @@ app.get('/ig/webhook', (c) => {
 const recentIgMids = new Set()
 const RECENT_IG_MIDS_MAX = 500
 
+// Webhook authenticity (added 2026-07-28, the day Advanced Access landed). Before approval a
+// forged POST could only reach app-role users, so it was near-harmless. Now that
+// instagram_manage_messages is approved, a forged event makes us send a REAL DM to any IGSID the
+// attacker names — unsolicited DMs are exactly what gets a Meta permission revoked. Meta signs
+// every POST with HMAC-SHA256(app_secret) over the RAW body, so verify that.
+// FAIL-OPEN when IG_APP_SECRET is unset: this shipped while buyer DMs were already flowing live,
+// and silently 403-ing every real event would be worse than the risk it closes.
+const IG_APP_SECRET = (process.env.IG_APP_SECRET || '').trim()
+let warnedNoIgAppSecret = false
+
+function igSignatureValid(rawBody, header) {
+  if (!header || !header.startsWith('sha256=')) return false
+  const expected = createHmac('sha256', IG_APP_SECRET).update(rawBody, 'utf8').digest('hex')
+  const got = header.slice(7)
+  // timingSafeEqual throws on length mismatch, so length-check first
+  if (got.length !== expected.length) return false
+  return timingSafeEqual(Buffer.from(got, 'utf8'), Buffer.from(expected, 'utf8'))
+}
+
 app.post('/ig/webhook', async (c) => {
   try {
-    const body = await c.req.json().catch(() => null)
+    // Read the RAW body once — the HMAC is over Meta's exact bytes, so re-serialising a parsed
+    // object here would never match.
+    const raw = await c.req.text()
+    if (IG_APP_SECRET) {
+      if (!igSignatureValid(raw, c.req.header('x-hub-signature-256'))) {
+        console.warn('[IG] rejected webhook POST with missing/invalid signature')
+        return c.text('forbidden', 403)
+      }
+    } else if (!warnedNoIgAppSecret) {
+      warnedNoIgAppSecret = true
+      console.warn('[IG] IG_APP_SECRET not set — webhook signature verification is DISABLED')
+    }
+    let body = null
+    try { body = raw ? JSON.parse(raw) : null } catch { body = null }
     // Tolerate 'page' too (events can route via the linked Facebook Page)
     if (body && (body.object === 'instagram' || body.object === 'page')) {
       for (const entry of body.entry || []) {
