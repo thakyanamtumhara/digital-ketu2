@@ -57,6 +57,13 @@ function isEmojiOnly(text) {
 
 function isZeroTier(mergedText, messages) {
   const t = (mergedText || '').trim()
+  // A real photo or voice note the clone can actually PROCESS is not "nothing" — WhatsApp runs
+  // vision on a buyer's product photo and transcribes his voice note, so Instagram must too
+  // (Ketu 2026-07-28). A captionless photo arrives with empty text, which the `!t` check below
+  // would otherwise swallow silently. wwbun only ever labels a genuine image/audio attachment
+  // this way — reels, shares, stickers and story mentions still arrive as '[media]' text and
+  // stay free on the ZERO tier.
+  if ((messages || []).some(m => (m.messageType === 'image' || m.messageType === 'audio') && m.mediaUrl)) return false
   if (!t) return true
   // Attachment-only messages (stickers, reels, photos, story mentions) arrive as '[media]' markers
   if (/^(\[media\]\s*)*\[media\]$/.test(t)) return true
