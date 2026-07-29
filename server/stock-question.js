@@ -1,3 +1,15 @@
+// The clone's own holding line ("Ketu will reply shortly sir 🙏"). A DEFER IS A ROUTING DECISION,
+// NOT AN ANSWER — the restraint gate makes it fresh per message from full context. Stored as a
+// correction it is embedded, boosted +0.15 and injected under "ALWAYS follow corrections over
+// other sources", so it does not teach restraint: it silently suppresses real answers. By
+// 2026-07-29, 183 such rows had accumulated (172 written by the AI reviewer), including 24 on
+// tracking questions the clone had answered CORRECTLY with the buyer's own live AWB link and 6
+// stock questions it answered correctly from the live stock block. Capture-time guard on every
+// correction write path; process.js also drops any that are already in the index.
+export function isDeferLine(text) {
+  return /ketu\s+will\s+reply\s+shortly/i.test(text || '')
+}
+
 // Detects buyer questions about live STOCK / AVAILABILITY / RESTOCK-TIMING.
 // Any answer to these ("7 days", "abhi nahi", "there is no red", "aa gaya") is true only at
 // that moment, so it must NEVER be captured as a permanent correction — the live AI answers

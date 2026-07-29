@@ -9,7 +9,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
-import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber } from './stock-question.js'
+import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine } from './stock-question.js'
 
 // Quality filter: both sides need 4+ words, no media/reaction placeholders
 const wordCount = (s) => (s || '').split(/\s+/).filter(w => w.length > 0).length
@@ -43,7 +43,14 @@ BUSINESS CONTEXT:
 - Buyers are shopkeepers/retailers from across India
 - Owner is Ketu. Communication: casual, friendly, Hinglish, 10-15 words max
 - Prices are FIXED, no discounts. Orders via sale91.com
-- AI CANNOT check order status, tracking, payments — must [DEFER] for those
+- THE AI DOES HAVE LIVE DATA (this changed 2026-07; do not review against the old assumption). Two
+  blocks are injected into the AI's prompt per message when relevant: "📦 ORDER LOOKUP RESULT" (the
+  asking buyer's OWN orders, with AWB tracking links) and "📦 LIVE STOCK DATA" (real in/out-of-stock
+  + Coming Soon ETAs). A reply GROUNDED IN THOSE BLOCKS is CORRECT, not a hallucination — a real
+  tracking link (https://trq.pages.dev/?<awb>), an "abhi out of stock hai / available hai" answer,
+  or a Coming-Soon ETA must be rated on tone/length only, NEVER rated down and NEVER "corrected"
+  into a defer. Only what the data cannot settle is a defer: disputes, damage/missing items,
+  refunds, payment problems, negotiation, angry buyers.
 
 REVIEW EACH REPLY — rate 1 to 5:
 5 = Perfect reply, natural and helpful
@@ -68,9 +75,14 @@ For rating ≤ 3, suggest the correct reply in the same language/style as the bu
 suggestedReply HARD RULES (your suggestion gets saved as a permanent correction the live AI replays, so):
 - NEVER say "team" — Ketu is ONE person and says "main"/"I".
 - NEVER promise follow-ups the bot can't keep: no "bhej denge", "karwa dete hain", "jaldi milega", "update karunga", "forward kar raha hoon", "confirm karke batate hain".
-- NEVER make stock claims ("out of stock lag raha", "available hai") or give dates/timeframes.
+- NEVER invent stock claims or dates/timeframes out of nothing. (An in/out-of-stock answer the AI
+  took from a live "📦 LIVE STOCK DATA" block is NOT invented — leave it alone.)
 - NEVER override the dispatch-ack: a buyer CONFIRMING a placed order ("order kiya", a website order summary, "porter krwado") correctly gets "Ok sir, dispatching ASAP 🚚" — do NOT downgrade it to a defer.
-- If the right answer is a defer, suggest EXACTLY "Ketu will reply shortly sir 🙏" with nothing added.
+- If the right answer is a DEFER, set "suggestedReply": null and say so in the reason. NEVER write
+  "Ketu will reply shortly sir 🙏" (or any defer wording) as a suggestedReply. A defer is a routing
+  decision the live restraint gate makes fresh per message from full context — it is not a
+  teachable answer. Saved as a correction it is retrieved later with a +0.15 boost under an
+  "ALWAYS follow corrections" instruction, so it silently suppresses real answers.
 
 CATEGORIZE each message into one of: order_issue, payment, delivery, complaint, pricing, product_inquiry, website, greeting, informing, other.
 
@@ -157,6 +169,17 @@ export async function reviewAiReplies(db) {
 
     // Skip stock/availability/restock-timing + bare media placeholders — never learn as a correction
     if (isStockAvailabilityQuestion(msg.buyerMessage) || isMediaPlaceholder(msg.buyerMessage)) continue
+    // A DEFER IS NEVER A CORRECTION (2026-07-29). A correction is stored, embedded, boosted +0.15
+    // and injected under "ALWAYS follow corrections over other sources" — so a stored defer does
+    // not teach restraint, it un-teaches real answers. 183 such rows had piled up by 2026-07-29
+    // (172 from this reviewer), including 24 on tracking questions the clone had answered
+    // CORRECTLY with the buyer's own live AWB link, and 6 stock questions it answered correctly
+    // from the live stock block. The restraint gate already decides deferral per message.
+    if (isDeferLine(result.suggestedReply)) continue
+    // The AI's own reply was point-in-time/transactional (a tracking link, an AWB, a dispatch ack):
+    // whatever the reviewer thinks of it, it must never become a permanent replayed correction —
+    // same rule /api/intervention already applies to Ketu's manual replies.
+    if (isTransactionalReply(msg.aiReply)) continue
     // Auto-correct bad replies (only for quality pairs with 4+ words on both sides)
     if (result.rating <= 2 && result.suggestedReply && isQualityPair(msg.buyerMessage, result.suggestedReply)) {
       try {
@@ -320,7 +343,7 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
         // Context-independent replies → store with actual reply (reusable answer)
         // Stock/availability/timing AND dispatch/tracking replies are point-in-time → force defer-only
         // even if the LLM missed it (never inject a stale stock answer or a one-order tracking link).
-        const correctReply = (result.contextDependent || isStockAvailabilityQuestion(pair.buyerMessage) || isTransactionalReply(pair.ketuReply) || isMediaPlaceholder(pair.buyerMessage)) ? '' : pair.ketuReply
+        const correctReply = (result.contextDependent || isStockAvailabilityQuestion(pair.buyerMessage) || isTransactionalReply(pair.ketuReply) || isMediaPlaceholder(pair.buyerMessage) || isDeferLine(pair.ketuReply)) ? '' : pair.ketuReply
         const deferId = crypto.randomUUID()
         await db.$executeRaw`
           INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")

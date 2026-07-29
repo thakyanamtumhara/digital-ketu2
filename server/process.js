@@ -12,6 +12,7 @@ import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } 
 import { evaluateIgGate } from './ig-gate.js'
 import { lookupOrdersByPhone, formatOrderLookupBlock, getBuyerProfile, formatBuyerProfileBlock } from './order-lookup.js'
 import { getStockSnapshot, formatStockBlock } from './stock-lookup.js'
+import { isDeferLine } from './stock-question.js'
 import { openaiReply, isOpenAiFallbackConfigured } from './openai-fallback.js'
 
 // ===========================================
@@ -2052,13 +2053,32 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     excludeSources: ['STYLE_GUIDE', 'STYLE_PAIR', 'PREMIUM_PAIR', 'CATALOG'],
   })
 
-  const bestSimilarity = allVectorResults.length > 0
-    ? Math.max(...allVectorResults.map(r => Number(r.similarity)))
+  // DROP STORED DEFERS BEFORE ANYTHING ELSE (2026-07-29). A CORRECTION whose "correct reply" is the
+  // clone's own holding line teaches nothing — but it is boosted +0.15 below and injected under
+  // "ALWAYS follow corrections over other sources", so it actively suppresses real answers. 183 had
+  // accumulated in the index by 2026-07-29 (24 on tracking questions the clone had answered
+  // CORRECTLY with the buyer's own live AWB link, 6 on stock questions answered from the live stock
+  // block). The write paths no longer create them; this drops the ones already embedded, BEFORE the
+  // boost/threshold/top-5 slice so they cannot even consume a slot. Deliberately a read-side filter,
+  // not a delete: reversible, and it also catches any straggler from an older import.
+  // Match the ANSWER side only. A naive whole-chunk match also hit 16 genuine corrections whose
+  // BUYER text quoted an earlier defer (replacement policy, boxy chest size, acid-wash care…) —
+  // those are real answers and must survive.
+  const correctionAnswer = (r) => {
+    const meta = r.metadata && typeof r.metadata === 'object' ? r.metadata : null
+    if (meta && typeof meta.correctReply === 'string') return meta.correctReply
+    const m = /\bCorrect reply:\s*([\s\S]*)$/.exec(r.content || '')
+    return m ? m[1] : ''
+  }
+  const vectorResults = allVectorResults.filter(r => !isDeferLine(correctionAnswer(r)))
+
+  const bestSimilarity = vectorResults.length > 0
+    ? Math.max(...vectorResults.map(r => Number(r.similarity)))
     : 0
 
   // Boost CORRECTION results BEFORE applying threshold — corrections are Om's manual fixes
   // and should be able to clear the bar even if their raw similarity was slightly below it.
-  const boostedResults = allVectorResults.map(r => ({
+  const boostedResults = vectorResults.map(r => ({
     ...r,
     similarity: r.source === 'CORRECTION' ? Math.min(Number(r.similarity) + 0.15, 1.0) : Number(r.similarity),
     boosted: r.source === 'CORRECTION',
@@ -2068,7 +2088,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   const knowledgeResults = captionlessPhoto
     ? []  // caption-less photo: query is just '[product photo]', so injecting any CATALOG match would be a guess
     : boostedResults.filter(r => r.similarity >= confidenceThreshold).slice(0, 5)
-  if (knowledgeResults.length === 0 && allVectorResults.length > 0) {
+  if (knowledgeResults.length === 0 && vectorResults.length > 0) {
     console.log(`[Vector] ${whatsappNumber} — best match ${(bestSimilarity * 100).toFixed(1)}% below threshold ${(confidenceThreshold * 100).toFixed(0)}%; Claude will likely defer`)
   }
   // Personality DNA: find 3 similar real Om-buyer conversations to use as style examples
@@ -2078,7 +2098,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     sources: ['STYLE_PAIR', 'PREMIUM_PAIR'],
   })
 
-  console.log(`[Vector] ${whatsappNumber} — ${allVectorResults.length} results, best: ${(bestSimilarity * 100).toFixed(1)}%`)
+  console.log(`[Vector] ${whatsappNumber} — ${vectorResults.length} results, best: ${(bestSimilarity * 100).toFixed(1)}%`)
 
   // --- Build prompt for Claude ---
   const recentLogs = await db.messageLog.findMany({
@@ -2344,7 +2364,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
       await createLog(db, conversationId, mergedText, messageIds, {
         status: 'FAILED',
         deferReason: err.message,
-        knowledgeChunks: allVectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
+        knowledgeChunks: vectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
         processingMs: Date.now() - startTime,
       })
       return
@@ -2551,7 +2571,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     status: 'REPLIED',
     aiReply,
     deferReason: usedFallbackBrain ? `openai_fallback:${usedFallbackBrain}` : undefined,
-    knowledgeChunks: allVectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
+    knowledgeChunks: vectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
     similarityScore: bestSimilarity,
     catalogMatch: catalogMatches.length > 0 ? catalogMatches[0].metadata : null,
     promptTokens, completionTokens, totalTokens, costUsd,

@@ -5,7 +5,7 @@ import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt, resolveReplyModel, REPLY_MODEL_INFO } from './process.js'
-import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber } from './stock-question.js'
+import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { scanFollowupCandidates, handleOwnerShortlistReply, actOnDraft } from './followup.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
@@ -1128,9 +1128,12 @@ app.post('/api/intervention', async (c) => {
 
   let learned = null
 
-  if (isQualityPair && isIntervention && buyerMessage && ketuReply && (isStockAvailabilityQuestion(buyerMessage) || isTransactionalReply(ketuReply) || isMediaPlaceholder(buyerMessage))) {
+  if (isQualityPair && isIntervention && buyerMessage && ketuReply && (isStockAvailabilityQuestion(buyerMessage) || isTransactionalReply(ketuReply) || isMediaPlaceholder(buyerMessage) || isDeferLine(ketuReply))) {
     // Point-in-time / transactional replies — stock-availability answers OR dispatch/tracking
     // notifications (Porter links, referral codes) — must never become a permanent correction.
+    // isDeferLine: the clone's own holding line can reach here if it was relayed as a manual send;
+    // stored as a correction it would teach the clone to defer instead of answering (see
+    // isDeferLine in stock-question.js).
     learned = 'intervention_skipped_point_in_time'
     console.log(`[AutoLearn] Intervention SKIPPED — point-in-time/transactional, not learnable: "${buyerMessage.substring(0, 50)}..."`)
   } else if (isQualityPair && isIntervention && buyerMessage && ketuReply) {
@@ -1188,9 +1191,9 @@ app.post('/api/correction', async (c) => {
 
   // Point-in-time / transactional answers (stock/availability, or dispatch-tracking/referral
   // messages) must not be captured — they go stale or leak a one-order link. Skip them.
-  if (isStockAvailabilityQuestion(buyerQuestion) || isTransactionalReply(correctReply) || isMediaPlaceholder(buyerQuestion)) {
-    console.log(`[Correction] SKIPPED — point-in-time/transactional, not saved: "${buyerQuestion.substring(0, 50)}..."`)
-    return c.json({ status: 'skipped_point_in_time', reason: 'Stock/availability and dispatch/tracking replies are not saved as corrections (they go stale / leak a one-order link).' })
+  if (isStockAvailabilityQuestion(buyerQuestion) || isTransactionalReply(correctReply) || isMediaPlaceholder(buyerQuestion) || isDeferLine(correctReply)) {
+    console.log(`[Correction] SKIPPED — point-in-time/transactional/defer, not saved: "${buyerQuestion.substring(0, 50)}..."`)
+    return c.json({ status: 'skipped_point_in_time', reason: 'Stock/availability, dispatch/tracking and defer-line replies are not saved as corrections (they go stale, leak a one-order link, or suppress real answers).' })
   }
 
   // Generate embedding for the buyer question
