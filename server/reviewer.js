@@ -9,7 +9,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
-import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine } from './stock-question.js'
+import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine, hasGarbledTranscript } from './stock-question.js'
 
 // Quality filter: both sides need 4+ words, no media/reaction placeholders
 const wordCount = (s) => (s || '').split(/\s+/).filter(w => w.length > 0).length
@@ -175,7 +175,7 @@ export async function reviewAiReplies(db) {
     // (172 from this reviewer), including 24 on tracking questions the clone had answered
     // CORRECTLY with the buyer's own live AWB link, and 6 stock questions it answered correctly
     // from the live stock block. The restraint gate already decides deferral per message.
-    if (isDeferLine(result.suggestedReply)) continue
+    if (isDeferLine(result.suggestedReply) || hasGarbledTranscript(result.suggestedReply)) continue
     // The AI's own reply was point-in-time/transactional (a tracking link, an AWB, a dispatch ack):
     // whatever the reviewer thinks of it, it must never become a permanent replayed correction —
     // same rule /api/intervention already applies to Ketu's manual replies.
@@ -343,7 +343,10 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
         // Context-independent replies → store with actual reply (reusable answer)
         // Stock/availability/timing AND dispatch/tracking replies are point-in-time → force defer-only
         // even if the LLM missed it (never inject a stale stock answer or a one-order tracking link).
-        const correctReply = (result.contextDependent || isStockAvailabilityQuestion(pair.buyerMessage) || isTransactionalReply(pair.ketuReply) || isMediaPlaceholder(pair.buyerMessage) || isDeferLine(pair.ketuReply)) ? '' : pair.ketuReply
+        // hasGarbledTranscript: a badly-transcribed voice note ("बाहर देवली मσειल के लिए") must never
+        // become a stored answer — it is boosted in retrieval and replayed to a buyer as Ketu's own
+        // words, so the buyer gets gibberish. 4 such rows had been stored by 2026-07-30.
+        const correctReply = (result.contextDependent || isStockAvailabilityQuestion(pair.buyerMessage) || isTransactionalReply(pair.ketuReply) || isMediaPlaceholder(pair.buyerMessage) || isDeferLine(pair.ketuReply) || hasGarbledTranscript(pair.ketuReply)) ? '' : pair.ketuReply
         const deferId = crypto.randomUUID()
         await db.$executeRaw`
           INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")
@@ -351,7 +354,15 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
         `
         // Context-INDEPENDENT (reusable) → also write to KnowledgeChunk(CORRECTION), the table the live AI reads.
         // Context-dependent rows keep an empty reply and stay defer-only — NOT injected (would reply blank).
-        if (correctReply) {
+        // Skipped when the same question+answer is already stored: the pipeline had written 6 pairs
+        // 2-3× over (2026-07-30), and every copy takes one of the 5 retrieval slots, crowding out
+        // other corrections for the same query.
+        const alreadyStored = correctReply ? await db.knowledgeChunk.findFirst({
+          where: { source: 'CORRECTION', title: pair.buyerMessage.substring(0, 80) },
+          select: { metadata: true },
+        }).then(row => (row?.metadata?.correctReply || '').trim() === correctReply.trim()).catch(() => false) : false
+        if (alreadyStored) console.log(`[Reviewer] duplicate correction skipped: "${pair.buyerMessage.substring(0, 40)}…"`)
+        if (correctReply && !alreadyStored) {
           const ccContent = `Buyer: ${pair.buyerMessage}\nCorrect reply: ${correctReply}`
           await db.$executeRaw`
             INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")

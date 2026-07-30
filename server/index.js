@@ -2777,6 +2777,12 @@ async function runScheduledReview() {
 
 // Poll every 6h; runScheduledReview internally gates on learningIntervalHours (default weekly = 168h)
 setInterval(runScheduledReview, 6 * 60 * 60 * 1000)
+// BOOT-KICK (2026-07-30): setInterval alone never fires the FIRST poll until 6h after start, and the
+// timer resets on every deploy — so a day of frequent deploys starved the review completely
+// (lastReviewAt sat at 29-Jul 08:30 while the interval said every 24h, and nothing ran). A delayed
+// kick at boot means a redeploy can no longer postpone it indefinitely. runScheduledReview still
+// gates on learningIntervalHours, so this cannot cause an early or duplicate run.
+setTimeout(runScheduledReview, 9 * 60 * 1000)
 
 // ===========================================
 // Export Premium Pairs (Rules 1-4) — Claude AI Classification

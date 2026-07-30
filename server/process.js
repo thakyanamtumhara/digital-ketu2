@@ -12,7 +12,7 @@ import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } 
 import { evaluateIgGate } from './ig-gate.js'
 import { lookupOrdersByPhone, formatOrderLookupBlock, getBuyerProfile, formatBuyerProfileBlock } from './order-lookup.js'
 import { getStockSnapshot, formatStockBlock } from './stock-lookup.js'
-import { isDeferLine } from './stock-question.js'
+import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
 import { openaiReply, isOpenAiFallbackConfigured } from './openai-fallback.js'
 
 // ===========================================
@@ -2073,7 +2073,13 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     const m = /\bCorrect reply:\s*([\s\S]*)$/.exec(r.content || '')
     return m ? m[1] : ''
   }
-  const vectorResults = allVectorResults.filter(r => !isDeferLine(correctionAnswer(r)))
+  // Also drops answers whose voice-note transcription came back corrupted (Hindi spliced with Greek
+  // or Cyrillic letters) — 4 were already embedded on 2026-07-30, and being CORRECTION rows they
+  // would be boosted and replayed to a buyer as Ketu's own words, i.e. gibberish.
+  const vectorResults = allVectorResults.filter(r => {
+    const answer = correctionAnswer(r)
+    return !isDeferLine(answer) && !hasGarbledTranscript(answer)
+  })
 
   const bestSimilarity = vectorResults.length > 0
     ? Math.max(...vectorResults.map(r => Number(r.similarity)))
