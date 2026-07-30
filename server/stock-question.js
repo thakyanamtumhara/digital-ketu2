@@ -10,6 +10,18 @@ export function isDeferLine(text) {
   return /ketu\s+will\s+reply\s+shortly/i.test(text || '')
 }
 
+// A voice note that transcribed badly. Ketu's Hindi replies sometimes come back with stray Greek /
+// Cyrillic / CJK letters spliced into the Devanagari — "बाहर देवली मσειल के लिए", "कीуєईर कौड आ जाएगा".
+// Stored as a CORRECTION those get boosted in retrieval and replayed to a buyer as Ketu's own words,
+// so the buyer receives gibberish. Latin letters and emoji are NORMAL in his Hinglish and must not
+// trip this — only scripts that cannot legitimately appear alongside Devanagari here.
+export function hasGarbledTranscript(text) {
+  if (!text) return false
+  const devanagari = /[ऀ-ॿ]/.test(text)
+  const strayScript = /[Ͱ-ϿЀ-ӿ一-鿿฀-๿]/.test(text)
+  return devanagari && strayScript
+}
+
 // Detects buyer questions about live STOCK / AVAILABILITY / RESTOCK-TIMING.
 // Any answer to these ("7 days", "abhi nahi", "there is no red", "aa gaya") is true only at
 // that moment, so it must NEVER be captured as a permanent correction — the live AI answers
