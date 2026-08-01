@@ -200,29 +200,58 @@ async function computeFidelity(days, maxGapMin = 25) {
   const pairs = []
   let paidReplies = 0
   for (const l of logs) if (l.status === 'REPLIED' && (l.costUsd || 0) > 0) paidReplies++
+  // Pair each manual reply with the nearest PRECEDING AI action, skipping rows that are neither
+  // (scheduled follow-ups, silence decisions, cooldown markers, his own earlier messages).
+  //
+  // This used to compare arr[i] with arr[i+1] and only counted a divergence when Ketu's reply was
+  // the very next row in the conversation. In practice something almost always sits in between, so
+  // the pair was dropped and the intervention became invisible — measured 2026-08-01: 17 replies
+  // where the AI had already answered, of which the old adjacency rule caught just 2. The daily
+  // digest was therefore reporting a fidelity that was too high.
+  //
+  // Ketu's own framing (2026-08-01): "if I am replying, that chat should have been in Waiting" — a
+  // chat the AI answered should need nothing from him, so him answering it anyway IS the signal.
+  // A manual reply after a [DEFER] is NOT a divergence: the clone correctly handed that one over,
+  // so the backward scan stops at a DEFERRED row.
+  const ACK_RE = /^(ok(ay)?|k|yes|yeah|yep|haan|han|ha|ji|hmm+|thanks|thank you|thik|theek|sahi|done|noted|👍|🙏|✅)[\s.!👍🙏✅]*$/i
+  const acks = []
   for (const cid in byConv) {
     const arr = byConv[cid]
-    for (let i = 0; i < arr.length - 1; i++) {
-      const ai = arr[i], nxt = arr[i + 1]
-      if (ai.status === 'REPLIED' && (ai.costUsd || 0) > 0 && nxt.deferReason === 'manual_reply') {
-        const gapMin = (new Date(nxt.createdAt) - new Date(ai.createdAt)) / 60000
-        if (gapMin >= 0 && gapMin < maxGapMin) {
-          pairs.push({
-            t: ai.createdAt,
-            brain: /gpt-4\.1-mini/.test(ai.deferReason || '') ? 'mini' : /openai_fallback/.test(ai.deferReason || '') ? 'gpt4.1' : 'opus',
-            buyer: (ai.buyerMessage || '').replace(/\s+/g, ' ').slice(0, 220),
-            ai: (ai.aiReply || '').replace(/\s+/g, ' ').slice(0, 220),
-            ketu: (nxt.aiReply || '').replace(/\s+/g, ' ').slice(0, 260),
-          })
-        }
+    for (let i = 0; i < arr.length; i++) {
+      const man = arr[i]
+      if (man.deferReason !== 'manual_reply') continue
+      let ai = null
+      for (let j = i - 1; j >= 0; j--) {
+        const p = arr[j]
+        if (p.deferReason === 'manual_reply') continue          // his own earlier message
+        if (p.status === 'DEFERRED') break                      // handed to him on purpose
+        if (p.status === 'REPLIED' && (p.costUsd || 0) > 0) { ai = p; break }
       }
+      if (!ai) continue
+      const gapMin = (new Date(man.createdAt) - new Date(ai.createdAt)) / 60000
+      if (gapMin < 0 || gapMin >= maxGapMin) continue
+      const entry = {
+        t: ai.createdAt,
+        gapMin: Math.round(gapMin),
+        brain: /gpt-4\.1-mini/.test(ai.deferReason || '') ? 'mini' : /openai_fallback/.test(ai.deferReason || '') ? 'gpt4.1' : 'opus',
+        buyer: (ai.buyerMessage || '').replace(/\s+/g, ' ').slice(0, 220),
+        ai: (ai.aiReply || '').replace(/\s+/g, ' ').slice(0, 220),
+        ketu: (man.aiReply || '').replace(/\s+/g, ' ').slice(0, 260),
+      }
+      // A bare "ok"/"yes"/"👍" is him acknowledging, not correcting — counting those as failures
+      // would inflate the number just as badly as the old rule deflated it. Kept separately so
+      // nothing is hidden, but out of the headline figure.
+      if (ACK_RE.test((man.aiReply || '').trim())) acks.push(entry)
+      else pairs.push(entry)
     }
   }
+  acks.sort((a, b) => new Date(b.t) - new Date(a.t))
   pairs.sort((a, b) => new Date(b.t) - new Date(a.t))
   return {
     days, paidReplies, interventions: pairs.length,
     interventionRatePct: paidReplies ? Math.round((pairs.length / paidReplies) * 1000) / 10 : 0,
     pairs,
+    ackCount: acks.length, acks,   // he replied, but only to acknowledge — not a correction
   }
 }
 app.get('/api/fidelity', async (c) => {
@@ -252,6 +281,7 @@ async function sendFidelityDigest(force = false) {
     const f = await computeFidelity(1)
     const fidelity = f.paidReplies ? (100 - f.interventionRatePct).toFixed(1) : '100'
     let msg = `🤖 Digital Ketu — daily report\nClone fidelity (24h): ${fidelity}% — aap ne ${f.interventions}/${f.paidReplies} replies pe step-in kiya.`
+    if (f.ackCount) msg += `\n(+${f.ackCount} baar sirf "ok/haan" bola — wo correction nahi, count nahi kiya.)`
     if (f.pairs.length === 0) {
       msg += `\n\n✅ Koi divergence nahi — clone ne sab aap jaisa handle kiya 🎉`
     } else {
