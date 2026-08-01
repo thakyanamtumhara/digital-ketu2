@@ -1540,6 +1540,32 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  // --- "Share details" pre-filled link text (exact match only) ---
+  // This is NOT a question — it is the text Ketu pre-fills into the wa.me links he shares, so the
+  // buyer arrives having typed nothing. He wants exactly this line back (2026-08-01: "not something
+  // like that, exactly like that"). Handled deterministically, BEFORE any model runs, for two
+  // reasons: it guarantees his exact wording, and it takes the answer away from the OpenAI fallback
+  // brain, which sent the VISIT ADDRESS three times overnight on 2026-08-01 (00:49, 03:26, 05:05)
+  // because it does not follow the rulebook as closely as Opus does — the address is flatly wrong
+  // here, the buyer never asked where we are. Opus itself answered this correctly 9/9 times.
+  // Anchored to the WHOLE message, so "Share Details Sir any offer for me??" still goes to the model
+  // and gets a real answer. Zero cost.
+  if (/^(ok(ay)?|hi|hello|hey)?[\s,.:-]*(pls|plz|please|kindly)?[\s,.:-]*(share|send|give)\s*(me\s*)?(the\s*)?detail(s)?[\s.!]*$/i.test(normalizedText)) {
+    const prefillReply = WELCOME_FOLLOWUP_GENERIC
+    const sendResult = await sendReplyViaWwbun(whatsappNumber, prefillReply)
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'REPLIED',
+      aiReply: prefillReply,
+      deferReason: 'share_details_prefill',
+      processingMs: Date.now() - startTime,
+      sentViaWwbun: !!sendResult,
+      wwbunMessageId: sendResult?.messageId || null,
+      promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+    })
+    console.log(`[Full AI] ${whatsappNumber} — "share details" pre-fill, sent the ask-me line${sendResult ? '' : ' (SEND FAILED)'}`)
+    return
+  }
+
   // --- Dynamic Pre-AI Keyword Filters ---
   // Load from DB (cached 5 min). Falls back to hardcoded if DB not ready.
   const dynamicFilters = await loadKeywordFilters(db)
