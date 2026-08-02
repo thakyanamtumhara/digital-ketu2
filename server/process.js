@@ -2063,7 +2063,6 @@ Answer with ONLY one word: REPLY or SILENT.` }],
         totalTokens: (gate.usage?.input_tokens || 0) + (gate.usage?.output_tokens || 0), costUsd: gateCost,
         processingMs: Date.now() - startTime,
       })
-      markHandledInWwbun(whatsappNumber)   // the gate judged no reply is needed — not "waiting"
       console.log(`[Restraint] ${whatsappNumber} — gate: SILENT (Om wouldn't reply), $${gateCost.toFixed(6)}`)
       return
     }
@@ -2819,7 +2818,12 @@ async function sendReplyViaInstagram(igsid, message) {
 // Send reply via wwbun API
 // ===========================================
 
-// Tell wwbun this chat needs nothing further, so it drops off Ketu's Waiting list. Fire-and-forget:
+// Tell wwbun this chat needs nothing further, so it drops off Ketu's Waiting list.
+// ONLY called for the DETERMINISTIC conversation-ender (a bare "ok"/"okay"). Deliberately NOT
+// called for ai_chose_silence: that is the restraint gate's JUDGEMENT and it is sometimes wrong —
+// on 2026-08-02 it had stayed silent on "Printing bhi available hai aapke pass", "1 ps sample ke
+// liye chahiye" and a voice note. Hiding those from Waiting would bury the gate's own mistakes,
+// and catching exactly those is what the list is for. Fire-and-forget:
 // a failure here must never affect the buyer, and the chat simply stays on the list (the old
 // behaviour). Ketu 2026-08-02: the list should hold only what he actually has to reply to.
 async function markHandledInWwbun(whatsappNumber) {
