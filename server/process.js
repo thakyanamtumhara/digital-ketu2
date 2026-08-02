@@ -1298,6 +1298,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       status: 'SKIPPED', deferReason: 'conversation_ender_deterministic',
       processingMs: Date.now() - startTime,
     })
+    markHandledInWwbun(whatsappNumber)   // finished chat — keep it off the Waiting list
     console.log(`[Ender] ${whatsappNumber} — bare "${mergedText.trim().slice(0, 20)}" is a conversation ender; skipping`)
     return
   }
@@ -2062,6 +2063,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
         totalTokens: (gate.usage?.input_tokens || 0) + (gate.usage?.output_tokens || 0), costUsd: gateCost,
         processingMs: Date.now() - startTime,
       })
+      markHandledInWwbun(whatsappNumber)   // the gate judged no reply is needed — not "waiting"
       console.log(`[Restraint] ${whatsappNumber} — gate: SILENT (Om wouldn't reply), $${gateCost.toFixed(6)}`)
       return
     }
@@ -2816,6 +2818,23 @@ async function sendReplyViaInstagram(igsid, message) {
 // ===========================================
 // Send reply via wwbun API
 // ===========================================
+
+// Tell wwbun this chat needs nothing further, so it drops off Ketu's Waiting list. Fire-and-forget:
+// a failure here must never affect the buyer, and the chat simply stays on the list (the old
+// behaviour). Ketu 2026-08-02: the list should hold only what he actually has to reply to.
+async function markHandledInWwbun(whatsappNumber) {
+  if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) return
+  try {
+    await fetch(`${WWBUN_API_URL}/api/conversations/mark-handled`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET },
+      body: JSON.stringify({ whatsappNumber }),
+      signal: AbortSignal.timeout(6000),
+    })
+  } catch (err) {
+    console.warn(`[MarkHandled] ${whatsappNumber} — could not mark handled: ${String(err?.message || '').slice(0, 60)}`)
+  }
+}
 
 export async function sendReplyViaWwbun(whatsappNumber, message) {
   // 'ig:' keys flow through wwbun like any number since 2026-07-07 — wwbun's
