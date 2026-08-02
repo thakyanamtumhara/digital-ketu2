@@ -32,6 +32,24 @@ function looksLikeAwb(s) {
   return typeof s === 'string' && /^[A-Za-z0-9-]{8,25}$/.test(s.trim())
 }
 
+// THE AWB STRING ENCODES THE COURIER, and each courier has its OWN tracking page. This used to
+// hardcode trq.pages.dev for every AWB, but trq is the DELHIVERY-DIRECT page only: its worker reads
+// search[1] as the account prefix (a/b/c → dl0/dl1/dl2) and returns "Not Found" for anything else.
+// So every ShipRocket order got a 404 link. Caught live 2026-08-01 19:03 — the clone sent
+// trq.pages.dev/?77103029172 (404) and Ketu had to resend shiprocket.co/tracking/77103029172.
+//   Delhivery  → prefixed a/b/c        → trq.pages.dev/?<awb>
+//   RocketBox  → trailing '&'          → app-cargo.shiprocket.in (strip the '&'; dp_name=Delhivery)
+//   ShipRocket → raw, no prefix/suffix → shiprocket.co/tracking/<awb>
+function trackUrlFor(awb) {
+  const s = String(awb || '').trim()
+  if (!s) return null
+  if (s.endsWith('&')) {
+    return `https://app-cargo.shiprocket.in/p/track-shipment?dp_name=Delhivery&waybillno=${s.slice(0, -1)}`
+  }
+  if (/^[abc]/i.test(s)) return `https://trq.pages.dev/?${s}`
+  return `https://shiprocket.co/tracking/${s}`
+}
+
 function courierLabel(o) {
   const tch = String(o.tch || '')
   if (/zz\d/i.test(tch)) return 'Delhivery'
@@ -68,7 +86,7 @@ export async function lookupOrdersByPhone(whatsappNumber) {
       date: o.dt ? new Date(Number(o.dt) || o.dt).toISOString().slice(0, 10) : null,
       awb,
       courier: awb ? courierLabel(o) : null,
-      trackUrl: awb ? `https://trq.pages.dev/?${awb}` : null,
+      trackUrl: trackUrlFor(awb),
     })
   }
   return out
@@ -130,7 +148,7 @@ export async function getBuyerProfile(whatsappNumber) {
       lastDate, lastDays,
       lastSummary: summarizeOd(last.od),
       lastValue: last.tv ? Math.round(Number(last.tv)) : null,
-      lastAwb: awb, lastTrackUrl: awb ? `https://trq.pages.dev/?${awb}` : null,
+      lastAwb: awb, lastTrackUrl: trackUrlFor(awb),
     }
   } else {
     profile = { count: 0 }
