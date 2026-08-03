@@ -2951,12 +2951,16 @@ async function notifyOwnerTelegram(message) {
 
 export async function notifyOwner(message) {
   const tg = await notifyOwnerTelegram(message)
-  if (!OWNER_WHATSAPP) return tg ? { viaTelegram: true } : null
+  // Telegram delivered → done. The unconditional WhatsApp copy failed [131047] whenever the
+  // owner's own 24h window was closed (946 failed rows in his thread, ~180/month) — WhatsApp is
+  // the FALLBACK for when Telegram is down, not a duplicate channel.
+  if (tg) return { viaTelegram: true }
+  if (!OWNER_WHATSAPP) return null
   const wa = await sendReplyViaWwbun(OWNER_WHATSAPP, message).catch(err => {
     console.error('[notifyOwner] whatsapp error:', err.message)
     return null
   })
-  return wa || (tg ? { viaTelegram: true } : null)
+  return wa
 }
 
 // ===========================================
