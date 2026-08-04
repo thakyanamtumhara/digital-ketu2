@@ -241,8 +241,16 @@ async function computeFidelity(days, maxGapMin = 25) {
       // A bare "ok"/"yes"/"👍" is him acknowledging, not correcting — counting those as failures
       // would inflate the number just as badly as the old rule deflated it. Kept separately so
       // nothing is hidden, but out of the headline figure.
-      if (ACK_RE.test((man.aiReply || '').trim())) acks.push(entry)
-      else pairs.push(entry)
+      if (ACK_RE.test((man.aiReply || '').trim())) { acks.push(entry); continue }
+      // ONE AI REPLY = AT MOST ONE INTERVENTION. When Ketu takes a chat over he sends several
+      // messages in a row, and each was being counted as a separate failure: on 2026-08-04 a single
+      // reply he stepped in on produced SIX "divergences" (order from website / share location /
+      // give me your number / wrong number / call back / you're confusing yourself), dragging the
+      // reported figure to 86.3% when the true one was 91.4%. His follow-ups are kept on the same
+      // entry so nothing is lost from the view — they just don't multiply the count.
+      const seen = pairs.find(p => p.t === entry.t && p.ai === entry.ai)
+      if (seen) { (seen.ketuMore ||= []).push(entry.ketu); continue }
+      pairs.push(entry)
     }
   }
   acks.sort((a, b) => new Date(b.t) - new Date(a.t))
