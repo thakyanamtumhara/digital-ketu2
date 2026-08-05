@@ -2240,7 +2240,15 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   // yet, dispatched or NOT???") is still caught here by "haven't received" + "???", so his
   // correction stands. Genuine anxiety markers below are unchanged — complaints still defer.
   const TRACKING_COMPLAINT_RE = /haven.?t\s*(received|got)|not\s*(yet\s*)?(received|delivered|dispatched)|nahi\s*(aaya|aya|mila|mile|pahu|nikla)|abhi\s*tak|\bproblem\b|kyu?n?\s*(nahi|nhi|late)|\blate\b|\d+\s*din\s*(ho|hue|se)|\?{3,}|still\s*(not|waiting|pending)/i
-  if (!isInstagram && TRACKING_INTENT_RE.test(mergedText || '') && !TRACKING_COMPLAINT_RE.test(mergedText || '')) {
+  // "TRACKING ID NAHI MILA" IS A REQUEST, NOT A COMPLAINT (Ketu 2026-08-05, buyer 9766056861).
+  // The complaint guard matches "nahi mila", which is right for the GOODS ("maal/order nahi mila" —
+  // that is his to handle) but wrong when what is missing is the TRACKING ID itself: that is simply
+  // how buyers ask for it. The guard suppressed the order-lookup block, so the clone answered
+  // "tracking isi number pe aa jaati hai, website pe login karo" while the order already had AWB
+  // 7D122390033 sitting in booking_logs — and Ketu had to paste the link himself 11 minutes later.
+  const TRACKING_ID_MISSING_RE = /\b(tracking|track|awb|consignment|shipment)\s*(id|ids|number|no\.?|link|details?)?\s*(abhi\s*tak\s*)?(nahi|nhi|not)\s*(mila|mili|mile|milla|aaya|aayi|aye|aya|received|got|hua)/i
+  const isTrackingIdAsk = TRACKING_ID_MISSING_RE.test(mergedText || '')
+  if (!isInstagram && TRACKING_INTENT_RE.test(mergedText || '') && (isTrackingIdAsk || !TRACKING_COMPLAINT_RE.test(mergedText || ''))) {
     try {
       const orders = await lookupOrdersByPhone(whatsappNumber)
       const block = formatOrderLookupBlock(orders)
