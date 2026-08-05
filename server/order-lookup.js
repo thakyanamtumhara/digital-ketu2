@@ -37,17 +37,18 @@ function looksLikeAwb(s) {
 // search[1] as the account prefix (a/b/c → dl0/dl1/dl2) and returns "Not Found" for anything else.
 // So every ShipRocket order got a 404 link. Caught live 2026-08-01 19:03 — the clone sent
 // trq.pages.dev/?77103029172 (404) and Ketu had to resend shiprocket.co/tracking/77103029172.
+// Ketu 2026-08-05 — these are the ONLY three buyer-facing forms he wants; the courier's own domain
+// is never sent, track.bulkplaintshirt.com redirects (verified live: it reads ?r / ?s and forwards
+// to app-cargo / shiprocket.co), which keeps the link brand-neutral:
 //   Delhivery  → prefixed a/b/c        → trq.pages.dev/?<awb>
-//   RocketBox  → trailing '&'          → app-cargo.shiprocket.in (strip the '&'; dp_name=Delhivery)
-//   ShipRocket → raw, no prefix/suffix → shiprocket.co/tracking/<awb>
+//   RocketBox  → trailing '&'          → track.bulkplaintshirt.com/?r=<awb>   ('&' stripped)
+//   ShipRocket → raw, no prefix/suffix → track.bulkplaintshirt.com/?s=<awb>
 function trackUrlFor(awb) {
-  const s = String(awb || '').trim()
-  if (!s) return null
-  if (s.endsWith('&')) {
-    return `https://app-cargo.shiprocket.in/p/track-shipment?dp_name=Delhivery&waybillno=${s.slice(0, -1)}`
-  }
-  if (/^[abc]/i.test(s)) return `https://trq.pages.dev/?${s}`
-  return `https://shiprocket.co/tracking/${s}`
+  const a = String(awb || '').trim()
+  if (!a) return null
+  if (a.endsWith('&')) return `https://track.bulkplaintshirt.com/?r=${a.slice(0, -1)}`
+  if (/^[abc]/i.test(a)) return `https://trq.pages.dev/?${a}`
+  return `https://track.bulkplaintshirt.com/?s=${a}`
 }
 
 function courierLabel(o) {
