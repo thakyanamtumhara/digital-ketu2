@@ -39,7 +39,11 @@ export const lastReplySentAt = new Map()
 // ===========================================
 // Defer Batching: Wait 30s, batch multiple defers into one message
 // ===========================================
-function scheduleDeferReply({ whatsappNumber, deferMessage, conversationId, mergedText, messageIds, logData, db }) {
+// brainLabel: which model DECIDED this defer. A defer that Opus 5 chose (after reading the whole
+// rulebook, at ₹3-8 a time) is model output — labelling it "Rule" made it look like nothing ran, so
+// Ketu saw only "Rule" tags and thought the model tagging was broken (2026-08-07). Genuinely
+// rule-based defers (budget trip, pre-AI filters) pass nothing and stay "Rule".
+function scheduleDeferReply({ whatsappNumber, deferMessage, conversationId, mergedText, messageIds, logData, db, brainLabel = null }) {
   const existing = pendingDefers.get(whatsappNumber)
   const messageEntry = { conversationId, mergedText, messageIds, logData }
 
@@ -51,6 +55,7 @@ function scheduleDeferReply({ whatsappNumber, deferMessage, conversationId, merg
       messages: [messageEntry],
       deferMessage,
       db,
+      brainLabel,
     })
   }
 
@@ -87,7 +92,7 @@ function createDeferTimerCallback(whatsappNumber) {
       }
 
       // Send ONE defer message for all batched messages
-      const sendResult = await sendReplyViaWwbun(whatsappNumber, entry.deferMessage, 'Rule')
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, entry.deferMessage, entry.brainLabel || 'Rule')
 
       // Log each accumulated message
       for (const msg of entry.messages) {
@@ -2484,7 +2489,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
         status: 'DEFERRED', deferReason: 'reasoning_leak_blocked',
         aiReply, promptTokens, completionTokens, totalTokens, costUsd,
         processingMs: Date.now() - startTime,
-      }, db,
+      }, db, brainLabel: modelLabel(usedFallbackBrain || replyModel),
     })
     await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
     return
@@ -2539,7 +2544,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
         status: 'DEFERRED', deferReason: 'claude_deferred',
         promptTokens, completionTokens, totalTokens, costUsd,
         processingMs: Date.now() - startTime,
-      }, db,
+      }, db, brainLabel: modelLabel(usedFallbackBrain || replyModel),
     })
     await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
     return
