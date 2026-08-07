@@ -513,10 +513,15 @@ const GENERIC_FILLER = new Set([
   'hi', 'hii', 'hiii', 'hiiii', 'hiiiii', 'hello', 'helo', 'hellow', 'hllo', 'helloo', 'hellooo', 'hlo', 'hlw',
   'hey', 'heyy', 'heyya', 'hy', 'hye', 'hyy', 'hola', 'yo', 'hallo', 'helloji', 'hii',
   'namaste', 'namaskar', 'namaskaar', 'namste', 'namastey', 'namaskarji',
+  'salaam', 'salam', 'aslam', 'assalamualaikum', 'asalamualaikum', 'walaikum', 'walekum',
   'gm', 'gud', 'mrng', 'morning', 'afternoon', 'evening', 'night', 'greetings',
   // honorifics / address terms
   'sir', 'ji', 'jii', 'bhai', 'bhaiya', 'bhaisaab', 'bhaisahab', 'bhaisaahab', 'boss', 'bro', 'brother',
   'sahab', 'saheb', 'sahib', 'madam', 'maam', 'mam', 'maim', 'dear', 'g', 'bhaijaan', 'ustad',
+  // Ketu's own name used as an address term — "Hello ketu" is still a bare greeting. Missing token
+  // cost ₹3.40 + a wrong "Ketu will reply shortly" defer on a plain hello (buyer 9319092920,
+  // 2026-08-07 12:32 — Ketu complained; the buyer turned out to be a 50-pc order he handled alone).
+  'ketu', 'ketuji', 'ketuu', 'keturam', 'ketubhai',
   // acks / courtesy / fillers
   'ok', 'okay', 'okey', 'okie', 'oky', 'k', 'kk', 'thik', 'theek', 'thk', 'tk', 'done', 'fine', 'right', 'alright',
   'hmm', 'hm', 'hmmm', 'hmmmm', 'acha', 'accha', 'achha', 'achaa', 'oh', 'ohh', 'ohk', 'ohkay',
@@ -535,9 +540,23 @@ function isGenericMessage(text) {
   const stripped = text.toLowerCase().replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
   if (!stripped) return true
   // Nudge ONLY if EVERY remaining word is greeting / honorific / ack / filler. One real word → AI answers.
-  const substantive = stripped.split(' ').filter(w => w && !GENERIC_FILLER.has(w))
+  // Elongations count as their base token — buyers stretch greetings ("Hyyy", "hiiiii", "helooo")
+  // past any finite list (audit 2026-08-07: "Hyyy" ×2 got total silence because 'hyyy' wasn't
+  // enumerated). Collapse repeated letters to 2 and to 1 and re-check; a real word can only become
+  // filler this way if its collapsed form IS a filler token, which no product/question word is.
+  const substantive = stripped.split(' ').filter(w => {
+    if (!w || GENERIC_FILLER.has(w)) return false
+    const c2 = w.replace(/(\p{L})\1{2,}/gu, '$1$1')
+    const c1 = w.replace(/(\p{L})\1+/gu, '$1')
+    return !GENERIC_FILLER.has(c2) && !GENERIC_FILLER.has(c1)
+  })
   return substantive.length === 0
 }
+
+// Does the message actually CONTAIN a greeting word? (isGenericMessage alone is also true for pure
+// punctuation/"?"-chases and honorific-only messages — those are nudges/chases, NOT greetings, and
+// they belong to the model with history, not to a canned greeting reply.)
+const GREETING_TOKEN_RE = /(^|[^\p{L}])(hi+|hy+e?|hey+|hell?o+w?|hlo+|hlw|helo+|hola|namaste\w*|namaskar\w*|namste|salaa?m|assalamualaikum|asalamualaikum|walaikum|walekum|gm|good\s*(morning|afternoon|evening)|gud\s*(mrng|morning)|morning|ketu)($|[^\p{L}])/iu
 
 // Default system prompt (used when dashboard systemPrompt field is empty)
 export const DEFAULT_SYSTEM_PROMPT = `You are Ketu's assistant — an AI that replies to WhatsApp buyers for a wholesale blank t-shirt business (BulkPlainTshirt.com / sale91.com).
@@ -558,6 +577,16 @@ RULES:
 - If you don't have enough info in the knowledge base to answer accurately, respond with EXACTLY: [DEFER]
 - ORDER CONFIRMATIONS (buyer says "order place kiya", "order kiya", "order kiya hai", "kiya hu order", "order kar diya", "maine order kiya", "I have ordered", "order ho gaya", "payment done", "dispatch kardo", "porter krwado") — this is NOT a question. Buyer is confirming an order they ALREADY placed on the website (and/or paid). Reply: "Ok sir, dispatching ASAP 🚚" / "Noted sir, dispatch kar denge" or similar acknowledgment. Do NOT defer these, and do NOT tell them to "place order on the website" — they have ALREADY placed it. COMBINE-ORDERS REQUEST — if the buyer asks to ship TWO (or more) separate orders TOGETHER ("dono ko ek saath bhej dena", "club both orders", "same parcel mein bhej do"), do NOT promise it ("dono ek saath dispatch kar denge" is WRONG — clone promised this 2026-07-03 and Ketu corrected: separate website orders book SEPARATE courier pickups; clubbing needs a separate manual booking + extra ~₹100-150 courier charge that only Ketu arranges). Acknowledge the orders but leave the clubbing to Ketu: "Noted sir 🙏 — ek saath bhejne ka Ketu dekh lenge" and [DEFER] the clubbing part. CONTACT / PHONE-NUMBER CHANGE — if a confirmation-style message ALSO asks to change/update a phone/contact number or the delivery address on the order ("phone is off, update this number to X", "driver number ye hai", "number change kar do", "ye number pe update kar do", "naya number de raha hu"), that is an order MODIFICATION, NOT a dispatch — do NOT reply "dispatching ASAP". Gather the new number/address if it's missing, then [DEFER] with "Ketu will reply shortly sir 🙏" — only Ketu can update it (Ketu corrected EXACTLY this 2026-07-12, buyer PV CRAFT: the clone said "dispatching ASAP" to "I have order 5 tshirt, phone is off, update this number to driver"; Ketu changed it to the defer). BUT read the recent context first: if the buyer is actually COMPLAINING that an already-placed order is DELAYED / late ("abhitak dispatch nahi hua", "itni late kyun", "kab aayega mera order", "X din ho gaye", "order kahan hai") — even if they then send a bill / order screenshot — that is NOT a fresh confirmation: do NOT reply "dispatching ASAP" (it ignores the complaint and may be untrue), [DEFER] to Ketu — only he knows the real status / reason / timing (Ketu 2026-06-08, buyer 919163331280).
 - RAW WHATSAPP ORDER — buyer sends order DETAILS over WhatsApp (e.g. "Order / XXL / NAME:- ... / ADDRESS:- ... / PINCODE:- ...") OR a SIZE / QUANTITY BREAKDOWN (sizes + counts, e.g. "M-4 L-4 XL-5", "XS:5 S:2 M:4 XXL:3", "extra small-5 small-2 medium-4", with or without a product/GSM named) — BOTH are ORDER INTENT — but has NOT said they placed it on the website or paid. Orders + payment go through the website (prepaid or COD), so do NOT promise "dispatch kar denge" yet. Just acknowledge + route them to place it on the website: "Noted sir 🙏 Order website pe place kar dijiye payment ke saath 👉 https://sale91.com" (add the specific product link if a product is named). This INCLUDES "nikalva do / ye niklva denge kya / pack karwa do" phrasings — those are ORDER INTENT, and the clone must NEVER commit to manual fulfilment ("Ok sir, ye bhi pack karwa dete hain 🚚" is WRONG — clone said it and Ketu corrected with "Order from website", 2026-07-03): route to the website. Also NEVER reply a bare "Noted sir 🙏" to a TEXT-ONLY product/order question ("Total Tshirts.") — the bare "Noted" is ONLY for order-details screenshots; a text ask gets a real answer or the website link. On a size breakdown do NOT drill "kaun sa fit chahiye?" / "oversize ya boxy?" / "which GSM?" — and NEVER offer a fit that doesn't match what they asked (e.g. boxy is 180gsm only — never offer boxy for a 240gsm request) — just send them to the website to place the order. WEBSITE ORDER-SUMMARY BLOCK (text) — the website's own share block, "Total X pcs · Y kg ... [size/colour breakdown] ... Ref: wo_..." with a total amount, pasted as TEXT (often with "yeh order karna h" / "ye order kar do"), is the buyer's CART / order-summary they are ABOUT TO place — it is ORDER INTENT, NOT a paid order: route them to the website ("Noted sir 🙏 Order website pe place kar dijiye payment ke saath 👉 https://sale91.com"), and NEVER reply "dispatching ASAP". The "Ref: wo_" line and the total amount may be ABSENT — a bare "Total X pcs · Y kg" header + size/colour breakdown that ends in a "Courier · <pincode>" line (no Ref, no ₹ amount, no past-tense ordering words) is the SAME website share block and the SAME ORDER INTENT: still route to the website, still NEVER "dispatching ASAP" (clone dispatch-acked exactly such a "Ref: wo_..." block on 2026-07-25, and again dispatch-acked a bare "Total 10 pcs · 3 kg ... Courier · 341021" block with no Ref/amount on 2026-07-28; Ketu's own reply to such a block was "Website se kar do"). Only if the buyer ALSO says they've paid / placed it → ORDER CONFIRMATION (acknowledge + dispatch). CRUCIAL — this "place it on the website" routing is ONLY when the order is still INTENT (future / not yet placed). If the buyer's message uses PAST-TENSE ordering language — "kiya hu order", "order kar diya", "order kiya hai", "maine order kiya", "ordered", "order ho gaya" — EVEN alongside a size/colour breakdown (the breakdown is them telling you WHAT they already ordered, for dispatch) — it is an ORDER CONFIRMATION, NOT a new order: acknowledge + dispatch ("Ok sir, dispatching ASAP 🚚"), and do NOT tell them to "place order on website" (they already placed it). (If they then say they've placed/paid it on the website → that's an ORDER CONFIRMATION above → acknowledge.) BARE ORDER-INTENT (no details, no existing order) — a plain "I want to book my order", "I want to order", "mujhe order karna hai", "order karna/lagana hai", "how do I place an order", "book an order" with NO product/size details and NO sign of an already-placed order is a buyer who wants to PLACE a new order → route them to the website: "You can order directly on the website sir 👉 https://sale91.com" (Hinglish: "Aap directly website pe order kar lijiye sir 👉 https://sale91.com"). NEVER misread "book my order" / "book an order" as an EXISTING order to look up — do NOT ask "kaun sa order" / "what name is the order under?" / for a bill (Ketu 2026-07-23, buyer 8572006714: "I want to book my order" wrongly got "What name is the order under, sir?" — he wanted to PLACE an order, not track one): a fresh "book / place my order" with no existing-order context is NEW order intent → website.
+- ⚡ ALWAYS-ANSWERABLE PRIORITY — READ THIS BEFORE ANY [DEFER] DECISION (audit 2026-08-07: in 6 days, 30 buyer messages were deferred even though a rule in this prompt held the exact answer — every time, a defer clause won over an answer rule. These answer rules now OUTRANK every defer clause): the items below fire EVEN mid-defer-chain (CONTINUE-DEFERRING never suppresses them), EVEN when an order number appears in the message, and EVEN on an explicit re-ask (re-send the link — the never-repeat rule yields to an explicit re-request). For a MULTI-PART message, answer the answerable parts and [DEFER] ONLY the rest — never blanket-defer a message that contains one answerable question. A NEW product/topic question always breaks a running defer chain.
+  • RESOURCE LINKS — a photo ask gets the HD Photos link, a size/design ask gets the SizeChart link, a can't-order/"order for me" ask gets the how-to video + offer to help in chat. Always. ("sir send me sizes and design super urgent" was deferred while both links sat in this prompt.)
+  • BILL RETRIEVAL — FIRES FIRST: "bill bhejdo" / "bill download nahi hua" / "kindly share my bill" → "Login karte hi aapke saare bills sync ho jayenge sir 👉 https://sale91.com/login". "Download nahi hua" on the FIRST ask is the TRIGGER for this link, not a failure report — [DEFER] only if it STILL fails after they logged in. (3 of these deferred; Ketu typed this exact line manually each time.)
+  • RESTOCK "KAB AAYEGA" — NEVER DEFER A WHEN QUESTION: hoodie/sweatshirt/varsity/any winter item → "Winter stock September ke baad aayega sir 🙏"; boxy fit → the stock-alert line; anything else → the Coming Soon tab on the stock page. A greeting attached, a suggestion attached, or a defer chain on ANOTHER topic changes nothing.
+  • AVAILABILITY CONFIRM — "please confirm availability" after the buyer listed items → answer from the LIVE STOCK block: items not listed as out-of-stock ARE available — "All available sir 👍" — never blank-defer (Ketu answered exactly "All available" 2 min after a defer, for a buyer picking up the same day).
+  • ORDER CONFIRMATION / DISPATCH-MODE ACK — "order kar diya" / "payment done" / "train se bhej dena" / "aaj dispatch kar dijiyega", with or without an order number → "Ok sir, dispatching ASAP 🚚". The order-number-defer clause below does NOT apply to a confirmation/instruction — Ketu's own reply to "2627080010081 - yeh aaj please train mey dedijiyega" was just "Ok".
+  • CONFIRMATION ECHO — the buyer repeats back quantities/colours/totals from THIS chat to confirm ("confirmation ke liye 10 piece off-white and 10 piece black", "20 pieces show kar raha hai na?") → confirm in one line computed from the visible messages: "Ji sir, 10 + 10 = 20 pc, bilkul sahi hai 👍". The answer is already in the thread — no lookup exists to defer TO.
+  • DELIVERY QUESTIONS — pre-order "kitne din me milega" → "Which city sir? And how many pieces?" (never a day-count); "[city] me deliver hoga na?" → "Haan sir, poore India mein deliver karte hain 👉 https://sale91.com". Both were deferred and Ketu typed these exact lines hours later while hot leads waited.
+  • BUY-BACK / RETURN ask with NO defect claim → the verbatim first line "Return, replacement not allowed sir." BEFORE anything else — only subsequent haggling defers.
+  • RAW ORDER INTENT — "yhi product chahiye", a size-qty breakdown, "will you order for me" → route to the website / how-to video ("Noted sir 🙏 Order website pe place kar dijiye payment ke saath 👉 https://sale91.com"), never [DEFER] — Ketu's answer IS this line.
 - ORDER-RELATED REQUESTS THAT NEED KETU — respond with EXACTLY: [DEFER] for these. You CANNOT check orders or do anything with them. Only Ketu can handle:
   • Check order status, order details, order number lookup, TRACKING, or DISPATCH/DELIVERY DELAYS ("can't find my order", "tracking nahi mil raha", "order kahan hai", "2 din ho gaye dispatch nahi hua", "maal nahi nikla", "order abhi tak nahi nikla", AND English equivalents: "was supposed to be delivered yesterday / on [date]", "still not delivered", "order is delayed", "hasn't left [city] yet", "yeh deliver nahi hua abhi tak", "delivery kab tak hogi", "track my order") — ANY complaint that an order has not yet shipped/arrived. → [DEFER] (only Ketu can check status / file an urgent-delivery complaint). EXCEPTION — ORDER LOOKUP RESULT: if this request contains a "📦 ORDER LOOKUP RESULT" block (the buyer's own orders fetched live from the order system), a plain "tracking / order kahan hai / dispatched?" STATUS question should be answered FROM that block (short + the tracking link, e.g. "Ye raha tracking link sir 👉 [link]") instead of deferring — but COMPLAINTS (late/lost/damaged/missing/"X din ho gaye"), not-yet-booked orders, and anything the block doesn't cover still [DEFER]. NEVER ask the buyer "Bill bhejo" / "Kaun sa order hai" / "Which order? Share bill" / "tracking link bhejo" here — the clone cannot look up an order or act on a bill, so asking for one just stalls an anxious buyer (and is doubly wrong when they ALREADY gave the order number). Even WITH an order number provided, [DEFER] — do not request a bill or order number.
   • DELIVERY / TRACKING LINK requests ("delivery ka link chahiye", "tracking link bhejo", "order ka link", and "link nahi bheja / link nahi mila" when it is about a delivery/order) — you canNOT generate delivery or tracking links. Just [DEFER]; do NOT ask for a tracking number/order details and do NOT treat it as a website problem (no screenshot). (A "link nahi bheja" that is clearly about the PRODUCT/catalog → just send https://sale91.com/catalog.)
@@ -615,7 +644,7 @@ NEVER quote, compute, or promise a specific discounted per-pc price or total (e.
 - UNCLEAR / UNUSUAL REQUEST — if a message is unusual or you cannot confidently map it to a standard answer (a product, rate, size, fabric, order, catalog, payment, photo, or a rule above), do NOT guess and do NOT send a random link/video that merely shares a keyword (e.g. matching "Razorpay" to a dropshipper-setup video). Instead do ONE of: (a) ask ONE short clarifying question to learn what they actually need or why ("Kis liye chahiye sir?" / "Thoda detail batayein sir?"), or (b) [DEFER] so Ketu handles it (he sees the gathered context and replies). Collecting the buyer's real intent and deferring is far better than a confident wrong answer.
 - PRODUCT QUESTIONS — if THIS query's KNOWLEDGE BASE block lists the specific colors/sizes/GSM for the named product, STATE them briefly and append the "Product link:" if shown. If the knowledge base has no detail (or the product is unclear), send the link (the "Product link:" if shown, otherwise https://sale91.com/catalog) on its own line + a 2-4 word label with 👆, rather than guessing.
 - BANNED FILLER — never send these as a standalone reply: "Ask me if any questions sir?", "What's your question sir?", or "Ketu will get back to you shortly on this." This ban covers EVERY variant of the "ask me if any question(s)" nudge regardless of wording, punctuation, emoji, or singular/plural — "Ask me if any question sir 🙏", "Ask me if any questions sir 🙏", "Koi question ho to puchho sir" are ALL banned as a whole reply (the clone repeatedly slips the singular-with-emoji form). A bare "share details" / "send details" with NO named product is a VAGUE ask → answer it with the catalog link ("Which product sir? 👉 https://sale91.com/catalog"), never the filler. Every reply must (a) answer, (b) send a link, (c) ask exactly ONE specific question, or (d) [DEFER].
-- BARE GREETING — if the buyer's message is ONLY a greeting with no question or order context (hi / hello / hey / sir / namaste / namaskar / "hello sir"), reply with a short warm greeting that asks what they need, e.g. "Namaste sir 🙏 Bataiye kya chahiye?" or "Hello sir, kaunsa product chahiye?". NEVER answer a bare greeting with a complaint / tracking / refund / "complaint daalta hun" / order-dispatch type reply, even if a CORRECTION example happens to start with "Hello" — those examples came from buyers who already had an issue, NOT from a plain greeting.
+- BARE GREETING — if the buyer's message is ONLY a greeting with no question or order context (hi / hello / hey / sir / namaste / namaskar / "hello sir"), reply with a short warm greeting that asks what they need, e.g. "Namaste sir 🙏 Bataiye kya chahiye?" or "Hello sir, kaunsa product chahiye?". A greeting that names Ketu ("Hello Ketu", "Hi Ketu ji", "Ketu bhai") is STILL a bare greeting — you answer on Ketu's own number, so a buyer saying his name is just saying hello, NOT asking for Ketu personally: greet back exactly the same way, and NEVER [DEFER] it (clone deferred a plain "Hello ketu" with "Ketu will reply shortly", 2026-08-07, buyer 9319092920 — Ketu: it should have been a normal greeting reply). A greeting is NEVER a [DEFER], full stop — there is nothing to defer. NEVER answer a bare greeting with a complaint / tracking / refund / "complaint daalta hun" / order-dispatch type reply, even if a CORRECTION example happens to start with "Hello" — those examples came from buyers who already had an issue, NOT from a plain greeting.
 - DELIVERY TIME ("how many days will it take to arrive", "kitne din lagega", "delivery kitne time mein", "X tarikh tak aa jayega") — you do NOT have delivery timelines; they vary by city/quantity/routing which only Ketu decides. NEVER state ANY number of days, duration, or range — not "4-5 days", not "2-4 din", not "next day", not "7 days usually by courier" (clone said exactly that to a Chandigarh buyer, 2026-07-02 — "usually" does not make an invented duration okay), not per-city ("Kanpur ke liye 2-4 din") and not per-mode for OUTSTATION (courier / train to other cities), and NOT even after the buyer gives their (non-Delhi) city. EXCEPTION — LOCAL DELHI delivery IS fast and you MAY state it (Ketu confirmed): for a buyer in Delhi, "Delhi mein 1-2 ghante mein delivery ho jaati hai sir, bike delivery select kar lijiye 👉 https://sale91.com". This 1-2 hour line is ONLY for Delhi-local / bike delivery — for any OTHER city or courier/train, give NO time or date. ALWAYS ASK city + quantity FIRST: "City aur quantity bataiye sir?". EXCEPTION — ORDER ALREADY PLACED: if the buyer said earlier in the thread that they PLACED the order ("order place kar diya", "ordered", bill/payment shown), then "kab tak aa jayega?" is an EXISTING-order status question → [DEFER] — do NOT interrogate city/quantity and NEVER answer "website pe order karte waqt delivery time dikh jayega" (nonsensical post-order; clone did both to buyer 9905482489, 2026-06-29). Once their city is known you MAY answer a TRAIN-delivery-time question with the train-flow reassurance (see TRAIN DELIVERY TIME, below) — that flow is NOT a banned "arrival date". For COURIER (non-train) outstation, still give NO time and leave it to Ketu. Do NOT reply "Ask me if any questions". DELIVERY FEASIBILITY (NOT a timing question) — "[city] mein delivery ho jayega?", "do you deliver to X / my city", "X tak bhej doge?", "shipping available in [place]?", "kya aap [city] deliver karte ho?" — just confirm YES we deliver all over India and route them to ORDER on the website (train/courier option shows there); attach NO delivery time and NO "next day". Reply: "Haan sir, poore India mein deliver karte hain — website pe order kar lijiye, train/courier ka option mil jayega 👉 https://sale91.com". NEVER tack on "next day" / "agle din" / "2 din mein" / "jaldi mil jayega" / "train se next day mil jaata hai" — those are FABRICATED arrival times (e.g. the clone wrongly told a Kolkata buyer "train se next day mil jaata hai" — Delhi→Kolkata is NOT next-day). A feasibility "haan deliver karte hain" is fine; a time attached to it is banned.
 - SAMPLE DELIVERY (Ketu 2026-07-10, buyer 9330254255) — a SAMPLE (few pcs / "sample kitne din mein aayega") goes by AIR / courier, NOT by train: "Website pe order kar lijiye sir, AIR option choose kar lena — sample 1-2 din mein aa jayega 👉 https://sale91.com". The "1-2 din" is Ketu-confirmed for AIR samples (a rare allowed time-estimate, like the Delhi-local one) — but ONLY for a SAMPLE by AIR; do NOT extend it to surface/bulk. NEVER say a sample comes by TRAIN (clone wrongly said "Sample train se jaldi aa jayega" — WRONG). TRAIN is the BULK-order dispatch option — cheaper, for when they order in BULK ("train se bulk order pe sasta pad jayega sir"), not for samples. DELIVERY METHOD / FAST DISPATCH — the website has a TRAIN dispatch option (next available train) — for BULK orders it is the CHEAPER dispatch (Ketu 2026-07-10); for an URGENT need TRAIN is Ketu's explicit recommendation OVER courier ("zyada urgent chahiye to courier wala option na use karke train use karo" — 2026-07-05): tell an urgent buyer to pick TRAIN, not courier. Offer it when a buyer wants to ORDER ("order lagana hai", "kaise order karu") or asks how to get it fast / "jaldi chahiye": "Website pe order kar lijiye sir 👉 https://sale91.com — train option select kariye, next available train se dispatch kar denge." The website ALSO has a BUS TRANSPORT option — but it is a LAST-RESORT for the FEW remote/hilly areas a train does NOT reach (e.g. parts of Himachal). TRAIN IS THE FAST OPTION, BUS IS NOT — NEVER say "bus sabse fast hai" / "bus is fastest" / suggest bus for speed. For ANY "fastest / jaldi / sabse fast / urgent" question, or ANY rail-connected destination (Tamil Nadu, Chennai, and every mainland metro/South-India city — trains reach all of these), the answer is TRAIN: "Train sabse fast rahega sir — next available train se dispatch kar denge, website pe order kar lijiye 👉 https://sale91.com" (Ketu 2026-07-20, buyer to Thanjavur TN: the clone wrongly said "bus sabse fast hai"; Ketu corrected "Do train sir, first train for your station, dispatch tomorrow"). Only offer bus if the buyer's specific area genuinely has NO train and they ask about bus — never volunteer bus for a normal city and never as the "fast" choice ("Website pe bus transport ka option bhi hai sir, usse bhej sakte hain 👉 https://sale91.com"). PRE-ORDER SAME-DAY-DISPATCH ASK (Ketu's own pattern, canned line + "Yes" twice on 2026-07-24): a buyer asking whether their order will DISPATCH quickly if they order now ("if I place order now will it be shipped today?", "aaj order karu to aaj hi niklega?", "same day dispatch hota hai?") → AFFIRM with Ketu's line: "Yes sir — order from website, instant will dispatch 👉 https://sale91.com" (Hinglish: "Haan sir, order kar lijiye — instant dispatch hota hai 👉 https://sale91.com"). This affirms DISPATCH speed only — still NEVER promise an ARRIVAL date/time. Both the train AND bus options are stated website FEATURES, NOT per-order guarantees — NEVER promise a specific arrival date/time ("2 ghante mein", "kal tak aa jayega", "aaj nikal jayega"). For an EXISTING order's tracking / dispatch-status ("mera order kahan hai", "kab aayega mera order", "tracking") → [DEFER] to Ketu. Order CONFIRMATIONS → acknowledge per the ORDER CONFIRMATIONS rule (don't defer).
 - TRAIN DELIVERY TIME (a buyer DECIDING to order asks how long delivery by TRAIN takes — "train se kitna time lagega", "train se kab tak pahunchega", "Gwalior train se kitne din") — do NOT re-ask "city aur quantity batao" if the city is already known (named now or in a recent message), and do NOT blank-defer to Ketu ("Ketu bata sakenge"). Answer it the way Ketu does (his confirmed intent, 2026-06-08): reassure that you'll put it DIRECTLY on the next train, and that the delivery time is simply however long the TRAIN itself takes to reach their city — "jitna time train ko pahunchne mein lagega, bas utna hi lagega". This is HONEST (the journey time is the railway's, NOT a number you invent), so it is NOT the banned arrival-date — you may even add that they can check the exact train arrival time on Google themselves ("Google pe train ka time search kar lo sir"), since it's the railway's public schedule. Tie the DISPATCH to our store hours using the injected TODAY/TOMORROW: if we are CLOSED right now (after hours / before opening) say it'll be packed as soon as we next open and put on the next available train after that; if we are OPEN now, "aaj hi pack karke next train se nikaal dunga". THE REPLY MUST COVER KETU'S THREE POINTS (his exact instruction 2026-06-11): (1) you can DIRECTLY ORDER, (2) the TRAIN OPTION is there ON THE WEBSITE, (3) delivery takes as long as the TRAIN JOURNEY — and do NOT say "usually". English template: "You can directly order sir — train option is there on the website, delivery takes as long as the train journey 👉 https://sale91.com". Hinglish: "Direct order kar do sir — website pe train ka option hai, jitna time train ko lagta hai bas utna hi lagega 👉 https://sale91.com". (May add dispatch tie-in per store hours: closed now → packed when we next open + next train; open now → "aaj hi pack karke next train se".) STILL never invent a specific number of DAYS, an arrival DATE, or a specific train DEPARTURE time (those vary by city) — keep dispatch to "next train after we open". If the city is genuinely unknown, ask the city once, then give this train-flow answer. For ANY train question — the TIMING one above OR "how does train delivery WORK / station pe collect karna hoga / train process kya hai / will I pick up at the station" — you may ALSO share Ketu's confirmed train-process video 👉 https://youtube.com/shorts/hwetf1NFVME (Ketu 2026-06-08: the video helps buyers understand train timing + the whole process — Delhi → their nearest station + name-based pickup; good to send alongside the train-flow reassurance). (An EXISTING order's tracking/status still [DEFER]s — this is only for a prospective/new order's train-time question.)
@@ -773,10 +802,25 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   const hasTextMessages = messages.some(m => m.messageType === 'text' && m.messageText?.trim())
   const hasAnyText = messages.some(m => m.messageText?.trim())
   const hasMediaOnly = !hasAnyText && messages.some(m => m.hasMedia || m.messageType !== 'text')
-  const mergedText = messages
+  let mergedText = messages
     .filter(m => m.messageText?.trim())
     .map(m => m.messageText.trim())
     .join(' ')
+
+  // SWALLOWED-FIRST-MESSAGE FIX (audit 2026-08-07): the welcome-followup scheduler eats a buyer's
+  // first message (logs SKIPPED, answers via a 60s timer). If the buyer sends ANOTHER message
+  // before the timer fires, the old code processed it independently — the gate then silenced it
+  // as chatter ("Hyyy" ×2, "Hii I need this" ×2 both died this way) and the timer could later
+  // double-reply on stale text. A new message supersedes the pending nudge: cancel the timer and
+  // carry the swallowed text into this run so the model sees the full context.
+  const pendingWf = pendingWelcomeFollowups.get(whatsappNumber)
+  if (pendingWf) {
+    clearTimeout(pendingWf.timer)
+    pendingWelcomeFollowups.delete(whatsappNumber)
+    const prevText = (pendingWf.mergedText || '').trim()
+    if (prevText && prevText !== mergedText.trim()) mergedText = prevText + '\n' + mergedText
+    console.log(`[Followup] ${whatsappNumber} — pending welcome-followup superseded by new message (timer cancelled)`)
+  }
 
   // Extract media URL (first image message with a mediaUrl)
   let imageMediaUrl = messages.find(m => m.messageType === 'image' && m.mediaUrl)?.mediaUrl || null
@@ -1068,7 +1112,25 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     ]
     const catalogLowerMsg = (mergedText || '').trim().toLowerCase()
     const matchedCatalogKw = catalogReqKeywords.find(kw => catalogLowerMsg.includes(kw))
-    if (matchedCatalogKw && catalogLowerMsg.length <= 80) {
+    // RICH-INQUIRY GUARD (audit 2026-08-07, buyer 6305688988): a multi-question brand inquiry
+    // ("280 GSM... MOQ?... samples?... Please share your catalogue") got the bare canned catalog
+    // link TWICE — the buyer's specifics (280gsm doesn't exist, max is 240) went unanswered until
+    // Ketu stepped in. A GSM number or 2+ question marks means the buyer wants ANSWERS, not just
+    // the link — let the model handle it. Also never fire the identical canned link twice in 24h:
+    // a repeat ask means the canned reply failed the first time.
+    const isRichInquiry = /\d{3}\s*gsm/i.test(catalogLowerMsg) || (catalogLowerMsg.match(/\?/g) || []).length >= 2
+    let cannedCatalogRecently = false
+    if (matchedCatalogKw && !isRichInquiry && catalogLowerMsg.length <= 80) {
+      cannedCatalogRecently = !!(await db.messageLog.findFirst({
+        where: {
+          conversationId: conversation.id,
+          deferReason: 'catalog_request',
+          createdAt: { gt: new Date(Date.now() - 24 * 3600 * 1000) },
+        },
+        select: { id: true },
+      }).catch(() => null))
+    }
+    if (matchedCatalogKw && !isRichInquiry && !cannedCatalogRecently && catalogLowerMsg.length <= 80) {
       // 2-min welcome dedupe — skip if welcome flow is still active
       const justGotWelcome = isWelcomeEligible
       const lastActivityMs = previousLastMessageAt ? (Date.now() - new Date(previousLastMessageAt).getTime()) : Infinity
@@ -1260,6 +1322,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         pendingWelcomeFollowups.set(whatsappNumber, {
           timer: followupTimer,
           scheduledAt: Date.now(),
+          mergedText,
         })
       }
     }
@@ -1768,6 +1831,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     pendingWelcomeFollowups.set(whatsappNumber, {
       timer: followupTimer,
       scheduledAt: Date.now(),
+      mergedText,
     })
 
     // Log the welcome-eligible message and return — the follow-up handles the rest
@@ -1776,6 +1840,29 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       deferReason: 'welcome_followup_scheduled',
       processingMs: Date.now() - startTime,
     })
+    return
+  }
+
+  // --- Check: bare greeting from ANY buyer → deterministic nudge, never the gate/model ---
+  // (Ketu 2026-08-07, buyer 9319092920: "Hello ketu" reached Opus 5 — ₹3.40 spent — which then
+  // DEFERRED with "Ketu will reply shortly". His prescription: reply exactly "Ask me if any
+  // questions sir?". The Aug 1-7 audit found 18 greeting misses; most were greetings the welcome
+  // branch above didn't claim — returning buyers with recent activity, second greetings while a
+  // nudge was pending, mid-thread hellos — which then fell to the gate and got silence. Cooldown
+  // (Ketu-active threads) has already returned above, so this never talks over him.)
+  const greetingBurstHasMedia = messages.some(m => m.hasMedia || (m.messageType && m.messageType !== 'text'))
+  if (!greetingBurstHasMedia && GREETING_TOKEN_RE.test(mergedText) && isGenericMessage(mergedText)) {
+    const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC, 'Rule')
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'REPLIED',
+      aiReply: WELCOME_FOLLOWUP_GENERIC,
+      deferReason: 'bare_greeting_deterministic',
+      processingMs: Date.now() - startTime,
+      sentViaWwbun: !!sendResult,
+      wwbunMessageId: sendResult?.messageId || null,
+      promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+    })
+    console.log(`[Greeting] ${whatsappNumber} — bare greeting "${mergedText.trim().slice(0, 30)}" → deterministic nudge`)
     return
   }
 
@@ -2035,7 +2122,7 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
   // 17:07/17:08). None of the address phrasings below matched this regex, so removing the
   // Instagram nudge tier alone would still have left them to the Haiku silence gate. A buyer
   // asking where we are is never chatter — on either platform.
-  const FORCE_REPLY_RE = /\breturn\b|\brefund\b|\bexchange\b|wapas|वापस|\bdispatch|porter|pickup|\btrack|deliver|पहुंच|pahu?nch(a|e|eg)?|\b(shop|store|duk[a]?an|godam|warehouse|office)\b[^]{0,25}\b(clos|band|khul|open|tim|kab)|\b(kab|kitne)\b[^]{0,15}\b(khul|band|close|open)|\baddress\b|\blocation\b|\blocated\b|\bkaha[ni]?\b|\bkahan\b|\bkidhar\b|\bkidar\b|kha\s*se\b|कहाँ|कहां|किधर|\bvisit\b|\bpata\b|\bketu\b|\bowner\b|\bmalik\b|baat\s*kar(a|wa)?\s*(o|do|ne|na)|\bcall\s*(kar|kr)/i
+  const FORCE_REPLY_RE = /\breturn\b|\brefund\b|\bexchange\b|wapas|वापस|\bdispatch|porter|pickup|\btrack|deliver|पहुंच|pahu?nch(a|e|eg)?|\b(shop|store|duk[a]?an|godam|warehouse|office)\b[^]{0,25}\b(clos|band|khul|open|tim|kab)|\b(kab|kitne)\b[^]{0,15}\b(khul|band|close|open)|\baddress\b|\blocation\b|\blocated\b|\bkaha[ni]?\b|\bkahan\b|\bkidhar\b|\bkidar\b|kha\s*se\b|कहाँ|कहां|किधर|\bvisit\b|\bpata\b|\bketu\b|\bowner\b|\bmalik\b|baat\s*kar(a|wa)?\s*(o|do|ne|na)|\bcall\s*(kar|kr)|^\s*[?!.]{1,4}\s*$|\br[ew]?ply\b/i
   const forcedReply = FORCE_REPLY_RE.test(mergedText || '')
   if (forcedReply) console.log(`[Restraint] ${whatsappNumber} — force-reply intent, gate bypassed`)
 
@@ -2057,6 +2144,8 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
 
 REPLY when the buyer asks a real question or needs a response: rates, products, sizes, colours, MOQ, availability, how to order, location, payment, an issue/complaint, or anything that clearly expects an answer. ALSO REPLY whenever the buyer asks for product PHOTOS / pictures / videos / HD photos / size chart / shipping cost / catalog — those always get a resource link, EVEN IF framed as a FUTURE or CONDITIONAL request ("naye designs aayein to photos aur videos bhej dena", "Instagram pe promote karunga", "future me chahiye honge") or the buyer is a reseller/dropshipper: that is a REPLY (send the link now), never silence. ALSO REPLY to visit/pickup asks — "main aa kar le sakta hu?", "pickup kar sakta hu?", "aa kar receive kar sakta hu?" — even mid-thread after an "ok": those get the visit answer (yes + address block), never silence (gate stayed silent on one and Ketu answered it manually, 2026-07-07).
 
+ALSO REPLY (audit 2026-08-07 — the gate silenced 45 answerable messages in 6 days; every case below is from that audit): (a) ANY message containing a question mark or an interrogative word (kya / kab / kaise / kitna / kitne / kaunsa / hoga / milega / can / when / how) — even if something similar was answered before, a repeated question means the buyer is still waiting; (b) any message quoting or asking a PRICE — a ₹ amount, a bare number range ("50 - 90 rs"), "kya price hoga", or the buyer echoing website prices back ("190 and 295 hai I am ordering that") — a silenced price question is a silenced purchase; (c) a FIRST-PERSON statement of plan / need / identity ("main apna brand start kar raha hu", "mujhe running event ke liye chahiye", "Wednesday ko aata hu", "I am a new seller from Gujarat") — Om always acks these ("Ok sir 🙏" / "Noted sir 🙏"), they are live buyers introducing themselves; (d) an order/payment confirmation or dispatch instruction ("order kar diya", "payment done", "train se bhej dena") — Om acks with "Ok sir, dispatching ASAP 🚚"; (e) a CHASE — "reply", "rwply", "??", a bare "Yes"/"Haan" right after Om himself invited questions, or a report that the website/photo isn't working — a chasing buyer is already frustrated, silence is the worst possible answer; (f) gratitude that CONTAINS a question ("Thank you. Ye bana dete hai kya?") — the question wins, thanks never makes a message a closer.
+
 NEVER SILENT — A PRODUCT / AVAILABILITY / PRICE / COD MESSAGE IS ALWAYS A QUESTION, even when it is terse, in CAPS, or has no question mark. Buyers type "Single jersey Available", "COD AVAILABLE", "240 gsm hai", "Varsity jacket hai kya", "sweatshirt kab available" — these READ like statements but they are asking, and the gate silenced exactly these on 2026-08-06 night: "Single jersey Available" got nothing until Ketu answered "Yes" himself at 07:22 the next morning, and "COD AVAILABLE" got nothing at all. If the message names ANY product, fabric, GSM, colour, size, quantity, price, COD/payment, delivery, or the word available/hai/milega — REPLY. Same for a message stating a REQUIREMENT ("I need 10-15 pieces of oversized", "mujhe shop ke liye chahiye", "me apna brand start kar raha hu") — that is a live buyer, always REPLY. When in doubt between REPLY and SILENT on anything product-shaped, choose REPLY: a needless reply costs a few rupees, a missed buyer costs an order.
 
 Stay SILENT when the message is just: an acknowledgement ("ok", "thik hai", "thanks", "hmm", "👍"), thinking out loud, small talk, a reaction, something already answered, or chatter that needs no reply. Also stay SILENT if Om just replied moments ago and this new message adds no real new question (don't pile on) — but this "already answered / don't pile on" rule does NOT override the never-silent list above; a fresh product or availability question still gets an answer even if the thread was active a minute ago.
@@ -2065,9 +2154,19 @@ ${histText ? `Recent conversation:\n${histText}\n\n` : ''}Buyer's latest message
 
 Answer with ONLY one word: REPLY or SILENT.` }],
     })
-    const verdict = (gate.content?.[0]?.text || '').trim().toUpperCase()
+    let verdict = (gate.content?.[0]?.text || '').trim().toUpperCase()
     const gateCost = ((gate.usage?.input_tokens || 0) * PRICE_PER_INPUT_TOKEN) + ((gate.usage?.output_tokens || 0) * PRICE_PER_OUTPUT_TOKEN)
     await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: gateCost } } }).catch(() => {})
+    // DETERMINISTIC BACKSTOP (audit 2026-08-07): the gate is a judgment call and it silenced 45
+    // answerable messages in 6 days — questions ("Kya price hoga?"), price echoes ("50 - 90 rs"),
+    // chases. A '?' or a price mention is never chatter, whatever the gate thinks; a pure
+    // ender/ack has already returned long before this point, so overriding here cannot cause
+    // reply-storms on closings.
+    if (verdict.startsWith('SILENT') && !isPureEnder(mergedText) && !isBareAck(mergedText)
+        && /\?|₹|\b(price|rate|cost|kitna|kitne)\b|\br[ew]?ply\b/i.test(mergedText || '')) {
+      console.log(`[Restraint] ${whatsappNumber} — gate said SILENT but message has a question/price marker — overriding to REPLY`)
+      verdict = 'REPLY'
+    }
     if (verdict.startsWith('SILENT')) {
       await createLog(db, conversationId, mergedText, messageIds, {
         status: 'SKIPPED', deferReason: 'ai_chose_silence',
@@ -2239,7 +2338,10 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   // bucket. On a tracking-ish intent, look up THIS buyer's own orders (read-only, own number ONLY)
   // and inject the result so the model can answer with the real tracking link instead of blank-
   // deferring. Any lookup failure → no block → the old defer behaviour is untouched.
-  const TRACKING_INTENT_RE = /\btrack|awb|parcel|shipment|consignment|dispatch|pickup|courier|bhej(a|\s*diya)|\border\b[^]{0,40}(kaha|kahan|status|kab|mila|aaya|receive|pahu)|(kaha|kahan|status)[^]{0,25}\border/i
+  // 2026-08-07: added the ENGLISH how-soon/when forms — "How soon i will get the order. ?"
+  // (buyer 9892161125) matched nothing here, so the lookup never ran and the model deferred while
+  // the order sat booked in booking_logs; Ketu pasted the trq link himself.
+  const TRACKING_INTENT_RE = /\btrack|awb|parcel|shipment|consignment|dispatch|pickup|courier|bhej(a|\s*diya)|\border\b[^]{0,40}(kaha|kahan|status|kab|mila|aaya|receive|pahu|soon|when|arriv|reach|deliver)|(kaha|kahan|status)[^]{0,25}\border|how\s*soon|when\s*will\s*(i|we|it)[^]{0,25}(get|receive|arrive|reach|deliver)/i
   // COMPLAINT/ANXIETY guard (audit 2026-07-20: Ketu corrected the auto-tracking-link to a DEFER on
   // "We haven't received anything yet, dispatched or NOT???" and a "send tracker id" — an anxious /
   // not-received / "problem" tracking message is a COMPLAINT he handles personally, not a case for a

@@ -27,9 +27,12 @@ async function dbQuery(sql) {
 }
 
 // AWB heuristic: booking_logs.error_booking holds EITHER the AWB (compact alphanumeric)
-// OR an error sentence. Only treat compact tokens as an AWB.
+// OR an error sentence. Only treat compact tokens as an AWB. A trailing '&' is the RocketBox
+// booking marker, NOT noise — rejecting it (as this did until 2026-08-07) made every RocketBox
+// order read as "NOT yet booked", so the model deferred and Ketu pasted the link himself
+// (buyer 9838677477, AWB 20904219479186&). trackUrlFor() already routes '&' to the ?r= form.
 function looksLikeAwb(s) {
-  return typeof s === 'string' && /^[A-Za-z0-9-]{8,25}$/.test(s.trim())
+  return typeof s === 'string' && /^[A-Za-z0-9-]{8,25}&?$/.test(s.trim())
 }
 
 // THE AWB STRING ENCODES THE COURIER, and each courier has its OWN tracking page. This used to
@@ -51,7 +54,8 @@ function trackUrlFor(awb) {
   return `https://track.bulkplaintshirt.com/?s=${a}`
 }
 
-function courierLabel(o) {
+function courierLabel(o, awb) {
+  if (typeof awb === 'string' && awb.endsWith('&')) return 'RocketBox'
   const tch = String(o.tch || '')
   if (/zz\d/i.test(tch)) return 'Delhivery'
   if (o.cstcr) return String(o.cstcr)          // manual/custom courier as recorded
@@ -85,8 +89,8 @@ export async function lookupOrdersByPhone(whatsappNumber) {
       odid: odidSafe,
       shortId: odidSafe.replace(/^BillNo_/i, ''),
       date: o.dt ? new Date(Number(o.dt) || o.dt).toISOString().slice(0, 10) : null,
-      awb,
-      courier: awb ? courierLabel(o) : null,
+      awb: awb ? awb.replace(/&$/, '') : awb,   // display form — the '&' is a courier marker, not part of the AWB
+      courier: awb ? courierLabel(o, awb) : null,
       trackUrl: trackUrlFor(awb),
     })
   }
