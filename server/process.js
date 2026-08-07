@@ -2350,12 +2350,16 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   let aiReply
   let promptTokens, completionTokens, totalTokens, costUsd
   let usedFallbackBrain = null  // set to the OpenAI model name when the fallback answered
+  // Declared OUT here, not inside the try: the brain label is read AFTER the try closes (the leak
+  // guard, the [DEFER] branch and the send). It was a const inside the try on 2026-08-07 and every
+  // reply died with "replyModel is not defined" — the buyer saw the "DK2 is replying" badge and
+  // then nothing, because the throw happened before any log row was written.
+  const replyModel = resolveReplyModel(settings)
 
   try {
     const userMessages = [{ role: 'user', content: imageBlock ? [imageBlock, { type: 'text', text: userPrompt }] : userPrompt }]
     // Buyer-reply brain — switchable from wwbun (Settings.replyModel), allow-listed to Opus-tier.
     // thinking:disabled keeps EVERY model terse (mandatory on Opus 5, which thinks-on by default).
-    const replyModel = resolveReplyModel(settings)
     let response
     let used1hCache = false
     // Try the 1-hour cache TTL first (bigger savings with spaced traffic); on error fall back to
