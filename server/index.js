@@ -4,7 +4,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt, resolveReplyModel, REPLY_MODEL_INFO } from './process.js'
+import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt, resolveReplyModel, REPLY_MODEL_INFO, sendReplyViaWwbun } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { scanFollowupCandidates, handleOwnerShortlistReply, actOnDraft } from './followup.js'
@@ -796,7 +796,9 @@ app.put('/api/settings', async (c) => {
 // wwbun forwards incoming WhatsApp messages here
 
 // Buffer for message merging (same sender within 3 sec = one thought)
-const messageBuffer = new Map() // whatsappNumber -> { messages: [], timer: null }
+const messageBuffer = new Map()
+// whatsappNumber -> { messages: [], timer: null }
+let lastProcessErrorAlertAt = 0   // throttles the process-error alert to once per 30 min
 
 // Shared enqueue used by BOTH /api/incoming (WhatsApp via wwbun) and /ig/webhook (Instagram,
 // senderKey 'ig:<IGSID>'). Extracted verbatim from the /api/incoming handler — same followup/defer
@@ -862,6 +864,36 @@ async function enqueueIncoming(senderKey, message) {
       })
     } catch (err) {
       console.error(`[Process Error] ${senderKey}:`, err.message)
+      // A THROW HERE USED TO BE INVISIBLE. processIncomingMessage writes its log row at the END, so
+      // an exception before that left NO row at all: nothing in /api/logs, no FAILED status, no
+      // alert — the buyer just saw the "preparing a reply" badge and then silence. That is exactly
+      // how "replyModel is not defined" ran unnoticed for over an hour on 2026-08-07 until Ketu
+      // spotted a buyer with no answer. Three things now happen instead of a console line.
+      try {
+        // 1. Leave a trace the audit can see.
+        const convo = await db.buyerConversation.findUnique({ where: { whatsappNumber: senderKey } }).catch(() => null)
+        if (convo) {
+          await db.messageLog.create({
+            data: {
+              conversationId: convo.id,
+              buyerMessage: (merged.messages || []).map(m => m.text || '').filter(Boolean).join('\n').slice(0, 2000) || '[unprocessed]',
+              messageIds: [],
+              status: 'FAILED',
+              deferReason: `process_error: ${String(err?.message || '').slice(0, 180)}`,
+              processingMs: Date.now() - startedAt,
+            },
+          }).catch(() => {})
+        }
+        // 2. Never leave the buyer in silence — hand them the holding line.
+        await sendReplyViaWwbun(senderKey, settings.deferMessage || 'Ketu will reply shortly sir 🙏', 'Rule').catch(() => {})
+        // 3. Tell Ketu, throttled, so a systemic break surfaces in minutes rather than hours.
+        if (Date.now() - lastProcessErrorAlertAt > 30 * 60 * 1000) {
+          lastProcessErrorAlertAt = Date.now()
+          notifyOwner(`⚠️ dk2 process error — "${String(err?.message || '').slice(0, 90)}". Buyer ko holding line bhej diya. Agar ye baar-baar aa raha hai to replies ruk sakti hain.`).catch(() => {})
+        }
+      } catch (guardErr) {
+        console.error(`[Process Error] ${senderKey} — guard itself failed:`, guardErr.message)
+      }
     }
     // Clear wwbun's "Digital Ketu is preparing a reply" badge only when this turn concluded WITHOUT
     // any reply on the way — a genuine skip (cooldown, off-hours, filtered) or an error. Exclude:
