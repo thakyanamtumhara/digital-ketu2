@@ -954,7 +954,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // placeholder, log + skip (never auto-reply "resend kar dijiye"). If real text accompanies it,
   // fall through and answer the real text.
   const UNSUPPORTED_PLACEHOLDER = /\[unsupported\]\s*whatsapp could not deliver this message\s*\(often[^)]*\)\.?\s*ask the buyer to resend it normally\.?/gi
-  const strippedUnsupported = (mergedText || '').replace(UNSUPPORTED_PLACEHOLDER, '').replace(/\[unsupported\]/gi, '').trim()
+  const strippedUnsupported = (mergedText || '').replace(UNSUPPORTED_PLACEHOLDER, '').replace(/\[(unsupported|image|images|photo|audio|voice|video|media|document|sticker|gif)\]/gi, '').trim()
   if (mergedText && /could not deliver this message/i.test(mergedText) && strippedUnsupported.length < 4) {
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'SKIPPED',
