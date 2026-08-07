@@ -806,9 +806,25 @@ let lastProcessErrorAlertAt = 0   // throttles the process-error alert to once p
 async function enqueueIncoming(senderKey, message) {
   // Cancel pending welcome followup if buyer sends another message
   if (pendingWelcomeFollowups.has(senderKey)) {
-    clearTimeout(pendingWelcomeFollowups.get(senderKey).timer)
+    const pendingEntry = pendingWelcomeFollowups.get(senderKey)
+    clearTimeout(pendingEntry.timer)
     pendingWelcomeFollowups.delete(senderKey)
-    console.log(`[Welcome] ${senderKey} — cancelled pending followup (new message received)`)
+    // SWALLOW FIX (audit 2026-08-07): the scheduler ate message #1 (logged SKIPPED, answer pending
+    // on this timer we just killed) — so message #1 has now received NOTHING. Carry its text into
+    // this burst as a synthetic message so the gate/model judge the FULL context, not message #2
+    // alone ("Hyyy" ×2 and "Hii I need this" ×2 both died exactly here: the repeat, judged alone,
+    // read as chatter and got gate-silenced).
+    const swallowed = (pendingEntry.mergedText || '').trim()
+    if (swallowed && swallowed !== (message.messageText || '').trim()) {
+      const bk = senderKey
+      if (!messageBuffer.has(bk)) messageBuffer.set(bk, { messages: [], timer: null })
+      messageBuffer.get(bk).messages.unshift({
+        messageText: swallowed, messageId: null, messageType: 'text', hasMedia: false,
+        timestamp: new Date().toISOString(), senderName: null, quotedText: null,
+        mediaUrl: null, wwbunMessageId: null,
+      })
+    }
+    console.log(`[Welcome] ${senderKey} — cancelled pending followup (new message received${swallowed ? ', swallowed text carried into burst' : ''})`)
   }
 
   // Pause pending defer timer — new message arrived, let it process first

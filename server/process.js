@@ -760,7 +760,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     },
   })
 
-  const messageIds = messages.map(m => m.messageId)
+  const messageIds = messages.map(m => m.messageId).filter(Boolean)   // synthetic carried messages have no id
 
   // --- AUDIO TRANSCRIPTION ---
   // If any message is audio, try to transcribe. On success, the message is rewritten as text
