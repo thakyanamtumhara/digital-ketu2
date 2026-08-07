@@ -87,7 +87,7 @@ function createDeferTimerCallback(whatsappNumber) {
       }
 
       // Send ONE defer message for all batched messages
-      const sendResult = await sendReplyViaWwbun(whatsappNumber, entry.deferMessage)
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, entry.deferMessage, 'Rule')
 
       // Log each accumulated message
       for (const msg of entry.messages) {
@@ -870,7 +870,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
 
     if (gate.action === 'canned') {
-      const sendResult = await sendReplyViaWwbun(whatsappNumber, gate.cannedText)
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, gate.cannedText, 'Rule')
       await createLog(db, conversation.id, mergedText, messageIds, {
         status: 'REPLIED',
         aiReply: gate.cannedText,
@@ -1033,7 +1033,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       || acidWashNormalized === 'i want to know about acidwash tshirts'
       || acidWashNormalized === 'i want to know about acidwash t shirts') {
       const acidWashReply = 'https://www.sale91.com/catalog/p/acidwash-oversize/\n\nAcidWash Cataloge👆'
-      const sendResult = await sendReplyViaWwbun(whatsappNumber, acidWashReply)
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, acidWashReply, 'Rule')
       await createLog(db, conversation.id, mergedText, messageIds, {
         status: 'REPLIED',
         aiReply: acidWashReply,
@@ -1078,7 +1078,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         return
       }
       const catalogReply = 'https://sale91.com/catalog\n\nCheck rates and color once sir 👆'
-      const sendResult = await sendReplyViaWwbun(whatsappNumber, catalogReply)
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, catalogReply, 'Rule')
       await createLog(db, conversation.id, mergedText, messageIds, {
         status: 'REPLIED',
         aiReply: catalogReply,
@@ -1132,7 +1132,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       'gm', 'morning', 'evening', 'hy', 'hye', 'hola', 'yo',
     ]
     if (partialGreetingPatterns.includes(partialNormalizedGreeting)) {
-      const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC, 'Rule')
       await createLog(db, conversation.id, mergedText, messageIds, {
         status: 'REPLIED',
         aiReply: WELCOME_FOLLOWUP_GENERIC,
@@ -1232,7 +1232,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
             if (isGenericMessage(mergedText)) {
               // Short/generic message (hi, hello, etc.) → send nudge
-              const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+              const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC, 'Rule')
               await createLog(db, conversation.id, mergedText, [], {
                 status: 'REPLIED',
                 aiReply: WELCOME_FOLLOWUP_GENERIC,
@@ -1533,7 +1533,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     || normalizedText === 'i want to know about acidwash tshirts'
     || normalizedText === 'i want to know about acidwash t shirts') {
     const acidWashReply = 'https://www.sale91.com/catalog/p/acidwash-oversize/\n\nAcidWash Cataloge👆'
-    const sendResult = await sendReplyViaWwbun(whatsappNumber, acidWashReply)
+    const sendResult = await sendReplyViaWwbun(whatsappNumber, acidWashReply, 'Rule')
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'REPLIED',
       aiReply: acidWashReply,
@@ -1559,7 +1559,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // and gets a real answer. Zero cost.
   if (/^(ok(ay)?|hi|hello|hey)?[\s,.:-]*(pls|plz|please|kindly)?[\s,.:-]*(share|send|give)\s*(me\s*)?(the\s*)?detail(s)?[\s.!]*$/i.test(normalizedText)) {
     const prefillReply = WELCOME_FOLLOWUP_GENERIC
-    const sendResult = await sendReplyViaWwbun(whatsappNumber, prefillReply)
+    const sendResult = await sendReplyViaWwbun(whatsappNumber, prefillReply, 'Rule')
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'REPLIED',
       aiReply: prefillReply,
@@ -1716,7 +1716,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
         if (isGenericMessage(mergedText)) {
           // Generic message → send nudge
-          const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+          const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC, 'Rule')
           await createLog(db, conversation.id, mergedText, [], {
             status: 'REPLIED',
             aiReply: WELCOME_FOLLOWUP_GENERIC,
@@ -1860,7 +1860,7 @@ export async function recoverPendingFollowups({ db, anthropic }) {
       const mergedText = row.buyerMessage || ''
       try {
         if (isGenericMessage(mergedText)) {
-          const sendResult = await sendReplyViaWwbun(convo.whatsappNumber, WELCOME_FOLLOWUP_GENERIC)
+          const sendResult = await sendReplyViaWwbun(convo.whatsappNumber, WELCOME_FOLLOWUP_GENERIC, 'Rule')
           await createLog(db, row.conversationId, mergedText, [], {
             status: 'REPLIED', aiReply: WELCOME_FOLLOWUP_GENERIC,
             deferReason: 'welcome_followup_recovered_generic', processingMs: 0,
@@ -1906,6 +1906,7 @@ https://sale91.com/catalog/p/oversize-240gsm
 https://sale91.com/catalog/p/true-biowash-round-neck
 True Biowash 👆
   Never put two links in the same sentence or on the same line. Prices, if you give any, come ONLY from this query's authoritative catalog — never from this example.
+- ONE LINK PER MESSAGE — INSTAGRAM KILLS THE REST. Instagram DM only makes the FIRST url in a message tappable (it gets the preview card); every url after it is dead plain text the buyer cannot open (Ketu 2026-08-07). On 2026-08-06 a buyer asking for round neck AND polo prices got FOUR links — the polo ones, the thing he actually asked about, were both dead. So on Instagram send EXACTLY ONE link, never two. If the answer would need several product links, send the ONE generic catalog link instead — https://sale91.com/catalog covers everything — and name the products in words: "Round neck ₹136 se, polo ₹185 se sir 👉 https://sale91.com/catalog". If a third-party referral is the point of the reply (printer / embroidery / custom vendor), that wa.me link is the ONE link and no catalog link goes with it. Put the link LAST in the message so the preview sits at the bottom.
 - NEVER move this buyer to our own WhatsApp. Do NOT output wa.me/919336695049, any wa.me link to our own number, "WhatsApp karein", "WhatsApp pe message karein", "Chat here", or ANY push to continue the chat on WhatsApp — even if a KNOWLEDGE BASE entry, a SIMILAR PAST CONVERSATION example, or an earlier Assistant line in RECENT CONVERSATION shows it being done (those are old WhatsApp-side replies and do NOT apply on Instagram). Answer the buyer FULLY right here in this Instagram thread; a human reads this same thread and takes over when needed. For any order/buy/pay invite send the website link 👉 https://sale91.com exactly as the rules above require. The CONTACT/CALL rule still stands with TWO changes, because this buyer does NOT have our number: (1) on an EXPLICIT calling-number ask you DO give the digits as a plain phone call — "Call kar lijiye sir 👉 9336695049" — never framed as a WhatsApp chat and never with "isi number pe" / "this same number". (2) ON A VAGUE CALL/TALK ASK YOU MUST GIVE THE DIGITS TOO ("Sir can we talk", "baat karni hai", "can we connect on call?", "call kar sakte hain?") — the WhatsApp-side ban on volunteering the digits does NOT apply on Instagram, and dropping BOTH the digits AND "isi number pe" leaves a DEAD END: live 2026-07-30 06:21 a buyer asked "Sir can we talk" and got the useless "Aap call kar lijiye sir 🙏" with no number anywhere (Ketu flagged it — on Instagram there is no number for them to call). Keep his shape: the DIGITS + offer to help right here + the catalog nudge so they are prepared BEFORE the call — "Call kar lijiye sir 👉 9336695049, ya yahin bata dijiye — main help kar deta hoon. Catalog ek baar dekh lijiye pehle 👉 https://sale91.com/catalog" (English buyer: "Give me a call sir 👉 9336695049, or just tell me here — I'll help. Do check the catalog once before the call 👉 https://sale91.com/catalog"). NEVER invite a call on Instagram without the digits in the same message. The third-party referrals the rules above mandate (printer https://wa.me/918810256726, embroidery https://wa.me/919266306545, custom vendor https://wa.me/917808284808) stay EXACTLY as they are.
 - Every other rule above still applies: language matching, authoritative prices only, never invent details, [DEFER]/[SKIP].`
 
@@ -2650,7 +2651,9 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   // --- Send reply via wwbun ---
   // Cancel any pending defer — AI is engaging with the buyer
   cancelPendingDefer(whatsappNumber)
-  const sendResult = await sendReplyViaWwbun(whatsappNumber, aiReply)
+  // Tag the bubble with the brain that actually wrote this — the fallback tier if one was used,
+  // otherwise the configured reply model.
+  const sendResult = await sendReplyViaWwbun(whatsappNumber, aiReply, modelLabel(usedFallbackBrain || replyModel))
 
   // --- Update daily spend ---
   await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
@@ -2854,7 +2857,15 @@ async function markHandledInWwbun(whatsappNumber) {
   }
 }
 
-export async function sendReplyViaWwbun(whatsappNumber, message) {
+// Human-readable brain label that rides along with every reply, so wwbun can show WHICH model
+// answered instead of a bare "AI" tag (Ketu 2026-08-07: "I want the model name written here... at
+// least I will know which model is replying"). Falls back to the configured reply model.
+export function modelLabel(modelId) {
+  if (!modelId) return null
+  return REPLY_MODEL_INFO.labels[modelId] || String(modelId)
+}
+
+export async function sendReplyViaWwbun(whatsappNumber, message, model = null) {
   // 'ig:' keys flow through wwbun like any number since 2026-07-07 — wwbun's
   // send-ai-reply branches on the prefix and does the Graph send + store + emit,
   // so IG replies appear in the operator's threads. (sendReplyViaInstagram below
@@ -2878,6 +2889,7 @@ export async function sendReplyViaWwbun(whatsappNumber, message) {
           whatsappNumber,
           message,
           isAiGenerated: true,
+          model: model || null,
         }),
       })
 
