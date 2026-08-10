@@ -892,7 +892,7 @@ async function enqueueIncoming(senderKey, message) {
           await db.messageLog.create({
             data: {
               conversationId: convo.id,
-              buyerMessage: (merged.messages || []).map(m => m.text || '').filter(Boolean).join('\n').slice(0, 2000) || '[unprocessed]',
+              buyerMessage: (merged.messages || []).map(m => m.messageText || '').filter(Boolean).join('\n').slice(0, 2000) || '[unprocessed]',
               messageIds: [],
               status: 'FAILED',
               deferReason: `process_error: ${String(err?.message || '').slice(0, 180)}`,
@@ -900,12 +900,20 @@ async function enqueueIncoming(senderKey, message) {
             },
           }).catch(() => {})
         }
-        // 2. Never leave the buyer in silence — hand them the holding line.
-        await sendReplyViaWwbun(senderKey, settings.deferMessage || 'Ketu will reply shortly sir 🙏', 'Rule').catch(() => {})
+        // 2. Never leave the buyer in silence — hand them the holding line. The process error is
+        // often a NETWORK flap (2026-08-08 09:38: "socket connection was closed" killed the AI call
+        // AND this very send, so the buyer got silence anyway) — retry once after 5s before giving up.
+        const holdingLine = settings.deferMessage || 'Ketu will reply shortly sir 🙏'
+        let holdingSent = false
+        try { holdingSent = !!(await sendReplyViaWwbun(senderKey, holdingLine, 'Rule')) } catch { /* retry below */ }
+        if (!holdingSent) {
+          await new Promise(r => setTimeout(r, 5000))
+          try { holdingSent = !!(await sendReplyViaWwbun(senderKey, holdingLine, 'Rule')) } catch { /* give up */ }
+        }
         // 3. Tell Ketu, throttled, so a systemic break surfaces in minutes rather than hours.
         if (Date.now() - lastProcessErrorAlertAt > 30 * 60 * 1000) {
           lastProcessErrorAlertAt = Date.now()
-          notifyOwner(`⚠️ dk2 process error — "${String(err?.message || '').slice(0, 90)}". Buyer ko holding line bhej diya. Agar ye baar-baar aa raha hai to replies ruk sakti hain.`).catch(() => {})
+          notifyOwner(`⚠️ dk2 process error — "${String(err?.message || '').slice(0, 90)}". ${holdingSent ? 'Buyer ko holding line bhej diya.' : `Holding line bhi NAHI gaya (${senderKey.slice(-10)}) — is buyer ko khud reply kar dijiye.`} Agar ye baar-baar aa raha hai to replies ruk sakti hain.`).catch(() => {})
         }
       } catch (guardErr) {
         console.error(`[Process Error] ${senderKey} — guard itself failed:`, guardErr.message)
