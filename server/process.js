@@ -2379,7 +2379,11 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   // 2026-08-07: added the ENGLISH how-soon/when forms — "How soon i will get the order. ?"
   // (buyer 9892161125) matched nothing here, so the lookup never ran and the model deferred while
   // the order sat booked in booking_logs; Ketu pasted the trq link himself.
-  const TRACKING_INTENT_RE = /\btrack|awb|parcel|shipment|consignment|dispatch|pickup|courier|bhej(a|\s*diya)|\border\b[^]{0,40}(kaha|kahan|status|kab|mila|aaya|receive|pahu|soon|when|arriv|reach|deliver)|(kaha|kahan|status)[^]{0,25}\border|how\s*soon|when\s*will\s*(i|we|it)[^]{0,25}(get|receive|arrive|reach|deliver)/i
+  // 2026-08-11 backlog scan: three more phrasing gaps — "Where is my order ?" (English 'where'
+  // absent), "if order was placed kindly Inform" ('placed' absent), "maximum kb tk ajega mere pass
+  // order" ('kb'/'kab' BEFORE the word order absent from the reversed alternation). All three
+  // deferred while the lookup sat unused.
+  const TRACKING_INTENT_RE = /\btrack|awb|parcel|shipment|consignment|dispatch|pickup|courier|bhej(a|\s*diya)|\border\b[^]{0,40}(kaha|kahan|status|kab|mila|aaya|receive|pahu|soon|when|arriv|reach|deliver|placed|confirm)|(kaha|kahan|status|where|kab|kb\s*tak|kb\s*tk)[^]{0,30}\border|how\s*soon|when\s*will\s*(i|we|it)[^]{0,25}(get|receive|arrive|reach|deliver)/i
   // COMPLAINT/ANXIETY guard (audit 2026-07-20: Ketu corrected the auto-tracking-link to a DEFER on
   // "We haven't received anything yet, dispatched or NOT???" and a "send tracker id" — an anxious /
   // not-received / "problem" tracking message is a COMPLAINT he handles personally, not a case for a
