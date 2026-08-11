@@ -2383,7 +2383,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   // absent), "if order was placed kindly Inform" ('placed' absent), "maximum kb tk ajega mere pass
   // order" ('kb'/'kab' BEFORE the word order absent from the reversed alternation). All three
   // deferred while the lookup sat unused.
-  const TRACKING_INTENT_RE = /\btrack|awb|parcel|shipment|consignment|dispatch|pickup|courier|bhej(a|\s*diya)|\border\b[^]{0,40}(kaha|kahan|status|kab|mila|aaya|receive|pahu|soon|when|arriv|reach|deliver|placed|confirm)|(kaha|kahan|status|where|kab|kb\s*tak|kb\s*tk)[^]{0,30}\border|how\s*soon|when\s*will\s*(i|we|it)[^]{0,25}(get|receive|arrive|reach|deliver)/i
+  const TRACKING_INTENT_RE = /\btrack|awb|parcel|shipment|consignment|dispatch|pickup|courier|bhej(a|\s*diya)|\border\b[^]{0,40}(kaha|kahan|status|kab|mila|aaya|receive|pahu|soon|when|arriv|reach|deliver|placed|confirm)|(kaha|kahan|status|where|kab|kb\s*tak|kb\s*tk)[^]{0,30}\border|how\s*soon|by\s*when|\bwhen\b[^]{0,30}(get|receive|arriv|reach|deliver)/i
   // COMPLAINT/ANXIETY guard (audit 2026-07-20: Ketu corrected the auto-tracking-link to a DEFER on
   // "We haven't received anything yet, dispatched or NOT???" and a "send tracker id" — an anxious /
   // not-received / "problem" tracking message is a COMPLAINT he handles personally, not a case for a
