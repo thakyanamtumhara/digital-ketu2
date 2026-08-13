@@ -7,6 +7,11 @@ import { storeChunkWithEmbedding } from './embeddings.js'
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN
 const GITHUB_REPO_WWBUN = process.env.GITHUB_REPO_WWBUN || 'thakyanamtumhara/wwbun'
 const GITHUB_REPO_CATALOG = process.env.GITHUB_REPO_CATALOG || 'thakyanamtumhara/catalog'
+// Live catalog JSON — published straight from the website's pc.js publishers, ALWAYS current.
+// The GitHub repo copy goes stale (last commit 2026-04): on 2026-08-13 the live site had sold the
+// new 260gsm product for days while dk2's catalog chunks — synced from the repo — still lacked it,
+// so the clone answered from launch-era facts. Live first; repo only as fallback.
+const LIVE_PRODUCTS_URL = process.env.LIVE_PRODUCTS_URL || 'https://www.bulkplaintshirt.com/catalog/products.json'
 
 /**
  * Fetch a file from a GitHub repo using the GitHub API
@@ -150,8 +155,16 @@ export async function syncCatalog(db, anthropic) {
   let itemsFound = 0, itemsNew = 0, itemsUpdated = 0
 
   try {
-    // Fetch products.json from catalog repo
-    const rawJson = await fetchGitHubFile(GITHUB_REPO_CATALOG, 'products.json')
+    // Fetch products.json from the LIVE site first (see LIVE_PRODUCTS_URL note above)
+    let rawJson
+    try {
+      const res = await fetch(LIVE_PRODUCTS_URL, { signal: AbortSignal.timeout(10000) })
+      if (!res.ok) throw new Error(`live products.json ${res.status}`)
+      rawJson = await res.text()
+    } catch (liveErr) {
+      console.warn(`[Sync] live products.json failed (${liveErr.message}) — falling back to GitHub repo copy`)
+      rawJson = await fetchGitHubFile(GITHUB_REPO_CATALOG, 'products.json')
+    }
     const catalogData = JSON.parse(rawJson)
 
     // Products are nested inside categories: categories[].products[]
