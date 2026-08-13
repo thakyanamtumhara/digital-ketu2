@@ -600,6 +600,16 @@ RULES:
   • DROPSHIP STANDARD ASK — "aapke through kaise bechu?", "dropshipping kaise hogi?" → the standard explainer: website has a drop-ship option, parcel ships direct to their customer with none of our details on it. Only CUSTOM commercial terms (special rates, white-label contracts) defer.
   • ALLOWED REPEATS — the never-repeat rule blocks UNSOLICITED duplicates only. "Fixed price sir 🙏" may be re-sent EVERY time a buyer keeps haggling (holding the line is not a repeat), and an EXPLICIT re-ask of an answered question ("please let me know MOQ") always gets the answer again, even seconds after the last send — a direct question may never go unanswered because of the repeat rule.
   • UNSEEN MEDIA AFTER AN ISSUE INVITE — if you invited a problem report ("koi dikkat aaye to bata dijiye") and the buyer responds with media you cannot see (a video/screenshot placeholder), reply "Ketu video dekh ke bata denge sir 🙏" ([DEFER]) or ask what the issue is — total silence after your own invite is never an option.
+  • RESTOCK WHETHER-FORM — "aayega ya nahi?" is the same never-defer restock question as "kab aayega": "Aayega sir 🙏 Timing Coming Soon tab mein hota hai — check kar lijiye 👉 https://www.bulkplaintshirt.com/delhi-stock.html" (Ketu's own answer to "Kids ka stock aayega ya nahi?" was a one-line "Aayega, delay ho raha hai bas thoda" — the clone deferred it).
+  • RESELLER / EARNING INTRO — "business karna hai aapke saath", "earning ke liye", "reselling karni hai" are the same standard dropship ask: send the explainer + catalog link (Ketu's entire reply to one was "Sale91.com pe catalog hai. Check once").
+  • WEBSITE IDENTITY YES/NO — "ye aapki website hai?", "sale91 aap hi ho?" → "Haan sir, https://sale91.com hamari hi website hai 👍 order wahi se kar sakte ho" — a yes/no about our own website has zero defer triggers, especially right after your own "Ask me if any questions" invite.
+  • PRODUCT SUGGESTIONS — "XXL bhi lao", "ye colour add karna chahiye", "shorts mein XXL hona chahiye" are feedback, not closers: always ack "Noted sir 🙏" (Ketu did exactly that manually when the gate silenced one).
+- 🚫 NEVER FABRICATE — GROUNDING RULES (audit 2026-08-13: 7 of 40 Ketu interventions were him CORRECTING an invented AI answer — these destroy trust faster than any defer):
+  • LOT SALE — NEVER contradict what a buyer says they can see in the Lot Sale ("wahan acid wash regular fit dikh raha hai") — the lot changes constantly and you have NO lot data: "Lot sale mein jo dikh raha hai wahi available hai sir, wahin se order kar lijiye 👉 https://sale91.com" (clone denied a product the buyer was looking at; Ketu reversed it: "lot sale mein hai, wahan se le lo").
+  • COLOUR × FIT — NEVER deny a colour until the FIT is known: 180gsm spans oversize (Black/White only) AND regular-fit round necks (full colour range). If fit is unstated, ask "Regular fit ya oversize sir?" before any colour denial (clone denied purple in 180/210 flat-out; Ketu reopened with exactly that fit question).
+  • ₹4/pc DISCOUNT — for ANY "discount nahi mil raha / apply nahi ho raha / kaise milega" about the ₹4 discount, send ONLY the video: "Ye video dekh lijiye sir 👉 https://youtube.com/shorts/dnFWXQW5yqk". NEVER state a piece threshold or eligibility mechanics — you do not know them, Ketu grants it case-by-case (clone invented "1000+ pcs pe lagta hai"; a 102-pc cart was eligible).
+  • PAYMENT FAILURES — cards declining / payment page cancelling / UPI stuck (often with a screenshot) → [DEFER] immediately: "Ketu will reply shortly sir 🙏". Ketu fixes payment personally and often takes payment manually. NEVER invent retry timing ("15-20 min baad try karo") or ANY troubleshooting step not written in this prompt (clone fabricated a retry fix; the buyer had already failed on 3 cards).
+  • POST-DELIVERY "CHANGES" — if the buyer ALREADY RECEIVED the order, "changes / badalna / size change karna hai" is a RETURN/EXCHANGE ask, NOT customization: "Return, replacement not allowed sir." The "hum sirf plain blanks bechte hain" customization answer applies only pre-order (clone gave the customization answer to a delivered-order change request).
 - ORDER-RELATED REQUESTS THAT NEED KETU — respond with EXACTLY: [DEFER] for these. You CANNOT check orders or do anything with them. Only Ketu can handle:
   • Check order status, order details, order number lookup, TRACKING, or DISPATCH/DELIVERY DELAYS ("can't find my order", "tracking nahi mil raha", "order kahan hai", "2 din ho gaye dispatch nahi hua", "maal nahi nikla", "order abhi tak nahi nikla", AND English equivalents: "was supposed to be delivered yesterday / on [date]", "still not delivered", "order is delayed", "hasn't left [city] yet", "yeh deliver nahi hua abhi tak", "delivery kab tak hogi", "track my order") — ANY complaint that an order has not yet shipped/arrived. → [DEFER] (only Ketu can check status / file an urgent-delivery complaint). EXCEPTION — ORDER LOOKUP RESULT: if this request contains a "📦 ORDER LOOKUP RESULT" block (the buyer's own orders fetched live from the order system), a plain "tracking / order kahan hai / dispatched?" STATUS question should be answered FROM that block (short + the tracking link, e.g. "Ye raha tracking link sir 👉 [link]") instead of deferring — but COMPLAINTS (late/lost/damaged/missing/"X din ho gaye"), not-yet-booked orders, and anything the block doesn't cover still [DEFER]. NEVER ask the buyer "Bill bhejo" / "Kaun sa order hai" / "Which order? Share bill" / "tracking link bhejo" here — the clone cannot look up an order or act on a bill, so asking for one just stalls an anxious buyer (and is doubly wrong when they ALREADY gave the order number). Even WITH an order number provided, [DEFER] — do not request a bill or order number.
   • DELIVERY / TRACKING LINK requests ("delivery ka link chahiye", "tracking link bhejo", "order ka link", and "link nahi bheja / link nahi mila" when it is about a delivery/order) — you canNOT generate delivery or tracking links. Just [DEFER]; do NOT ask for a tracking number/order details and do NOT treat it as a website problem (no screenshot). (A "link nahi bheja" that is clearly about the PRODUCT/catalog → just send https://sale91.com/catalog.)
@@ -1628,6 +1638,53 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  // DEFER-CHAIN AWARENESS for canned prefills (audit 2026-08-13): a buyer 2h into an active defer
+  // chain sent "Please share the details bhai" as a REMINDER — the share-details prefill matched it
+  // and answered "Ask me if any questions sir?", resetting a thread Ketu was mid-handling. A
+  // reminder inside a defer chain is a chain continuation: suppress every canned prefill and
+  // re-send the holding line instead.
+  const inDeferChain = pendingDefers.has(whatsappNumber) || await (async () => {
+    try {
+      const last = await db.messageLog.findFirst({
+        where: { conversationId: conversation.id, status: { in: ['REPLIED', 'DEFERRED'] } },
+        orderBy: { createdAt: 'desc' },
+        select: { status: true, createdAt: true },
+      })
+      return !!last && last.status === 'DEFERRED'
+        && (Date.now() - new Date(last.createdAt).getTime()) < 24 * 3600 * 1000
+    } catch { return false }
+  })()
+  const suppressPrefillForDeferChain = async (label) => {
+    const line = settings.deferMessage || 'Ketu will reply shortly sir 🙏'
+    const sendResult = await sendReplyViaWwbun(whatsappNumber, line, 'Rule')
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'DEFERRED', aiReply: line, deferReason: 'prefill_suppressed_defer_chain',
+      processingMs: Date.now() - startTime,
+      sentViaWwbun: !!sendResult, wwbunMessageId: sendResult?.messageId || null,
+      promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+    })
+    console.log(`[Prefill] ${whatsappNumber} — ${label} suppressed (active defer chain), re-sent holding line`)
+  }
+
+  // --- WEBSITE CART BLOCK ("Ref: wo_") — deterministic order-intent routing ---
+  // Third documented violation of the prompt ban (2026-07-25, 07-28, 08-11): the model keeps
+  // dispatch-acking the website's own cart-share block as if it were a placed order. The prompt
+  // ban has provably failed — hard-code it. Past-tense placed/paid language means it IS a
+  // confirmation, so that still goes to the model.
+  if (/ref:\s*wo_/i.test(mergedText || '') && !/(kar\s*diya|kiya\s*h|order\s*kiya|ordered|payment|paid|ho\s*gaya)/i.test(mergedText || '')) {
+    if (inDeferChain) { await suppressPrefillForDeferChain('cart-block route'); return }
+    const cartReply = 'Noted sir 🙏 Order website pe place kar dijiye payment ke saath 👉 https://sale91.com'
+    const sendResult = await sendReplyViaWwbun(whatsappNumber, cartReply, 'Rule')
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'REPLIED', aiReply: cartReply, deferReason: 'cart_block_order_intent',
+      processingMs: Date.now() - startTime,
+      sentViaWwbun: !!sendResult, wwbunMessageId: sendResult?.messageId || null,
+      promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+    })
+    console.log(`[CartBlock] ${whatsappNumber} — Ref:wo_ cart share routed to website (deterministic)`)
+    return
+  }
+
   // --- "Share details" pre-filled link text (exact match only) ---
   // This is NOT a question — it is the text Ketu pre-fills into the wa.me links he shares, so the
   // buyer arrives having typed nothing. He wants exactly this line back (2026-08-01: "not something
@@ -1639,6 +1696,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // Anchored to the WHOLE message, so "Share Details Sir any offer for me??" still goes to the model
   // and gets a real answer. Zero cost.
   if (/^(ok(ay)?|hi|hello|hey)?[\s,.:-]*(pls|plz|please|kindly)?[\s,.:-]*(share|send|give)\s*(me\s*)?(the\s*)?detail(s)?[\s.!]*$/i.test(normalizedText)) {
+    if (inDeferChain) { await suppressPrefillForDeferChain('share-details prefill'); return }
     const prefillReply = WELCOME_FOLLOWUP_GENERIC
     const sendResult = await sendReplyViaWwbun(whatsappNumber, prefillReply, 'Rule')
     await createLog(db, conversation.id, mergedText, messageIds, {
@@ -1872,6 +1930,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         (GREETING_TOKEN_RE.test(greetingProbe) && isGenericMessage(greetingProbe))
         || GREETING_PHRASE_RE.test(greetingProbe)
       )) {
+    if (inDeferChain) { await suppressPrefillForDeferChain('bare-greeting nudge'); return }
     const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC, 'Rule')
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'REPLIED',
@@ -2188,6 +2247,17 @@ Answer with ONLY one word: REPLY or SILENT.` }],
         && /\?|₹|\b(price|rate|cost|kitna|kitne)\b|\br[ew]?ply\b/i.test(mergedText || '')) {
       console.log(`[Restraint] ${whatsappNumber} — gate said SILENT but message has a question/price marker — overriding to REPLY`)
       verdict = 'REPLY'
+    }
+    // PENDING-QUESTION LOCK (audit 2026-08-13): the clone asked "City aur pieces?" / "kaunsa
+    // product?", the buyer ANSWERED ("Jaipur, pcs kal batadunga" / "This one") — and the gate
+    // silenced the answer, twice, killing both leads. If our last outbound was a question, the
+    // buyer's next message is the answer TO US: never silent.
+    if (verdict.startsWith('SILENT') && !isPureEnder(mergedText)) {
+      const lastOut = recentForGate.find(h => h.aiReply && h.aiReply.trim())
+      if (lastOut && /\?\s*$/.test(lastOut.aiReply.trim())) {
+        console.log(`[Restraint] ${whatsappNumber} — buyer is answering OUR question — overriding to REPLY`)
+        verdict = 'REPLY'
+      }
     }
     // SECOND-TOUCH BACKSTOP (re-audit 2026-08-10): 3 buyers that window got NO reply from the clone
     // OR Ketu — every one was a silence stacked on an earlier non-answer. If our side gave this
@@ -2682,6 +2752,43 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     if (normalizedText) await autoLearnAcknowledgment(db, normalizedText)
     console.log(`[Skip] ${whatsappNumber} — conversation ender detected by Claude`)
     return
+  }
+
+  // --- DISPATCH-ACK DEFER OVERRIDE (audit 2026-08-13) ---
+  // The DISPATCH-ACK bullets keep LOSING inside the model: 5 confirmed cases across two audits
+  // where it deferred a plain dispatch yes/no or instruction and Ketu's whole reply was "Yes" /
+  // "Ok" / "Nikal diya" ("ye kal ka order hai, aaj dispatch hoga?" → defer, Ketu typed the yes-line
+  // 3 minutes later). Prompt precedence has provably plateaued on this class — same lesson as the
+  // 2026-07-21 English gate: fix with a CODE gate, not more rules. Only ever replaces a [DEFER],
+  // never a real answer; any complaint/cancel/return/cart-intent marker keeps the defer.
+  if (aiReply.includes('[DEFER]')) {
+    const DISPATCH_BLOCK_RE = /nahi|nhi\b|\bnot\b|abhi\s*tak|cancel|return|wapas|refund|complaint|damage|ref:\s*wo_|total\s*\d+\s*pcs|kyu\b|why/i
+    const DISPATCH_YESNO_RE = /\b(aa?j|kal|abhi|today|tomorrow)\b[^]{0,40}\b(dispatch|nika?l|bhej)[^]{0,25}(hoga|hogi|jayega|jaega|\bna\b|\?)|\bdispatch\s*(hoga|ho\s*jayega)\b/i
+    const DISPATCH_INSTRUCT_RE = /(nikal\s*wa|nikalwa|nikla?wa|bhij\s*wa|bhijwa|rakh\s*wa|rakhwa|porter\s*kar[wv]a)\s*(de?na|di?jiye|do\b|dena)|dispatch\s*(kar|kr)[wv]a\s*(dena|do|dijiye)|(aa?j|kal)[^]{0,20}(bhijwa|nikalwa|rakhwa)\s*(dena|dijiye|do)/i
+    if (!DISPATCH_BLOCK_RE.test(mergedText || '')) {
+      let ack = null
+      if (DISPATCH_YESNO_RE.test(mergedText || '')) {
+        // Pre-order same-day ask ("180 pcs black aaj dispatch karoge?") → Ketu's order-now variant
+        // ("lagwa do abhi, 5 baje se pehle nikal jayega"); placed-order ask → plain yes.
+        const preOrder = /\d+\s*(pcs?|pieces?)\b|chahiye/i.test(mergedText || '')
+        if (preOrder) ack = 'Haan sir, abhi order laga dijiye — aaj hi dispatch ho jayega 🚚 👉 https://sale91.com'
+        else ack = /\baa?j\b|today/i.test(mergedText || '') ? 'Yes sir, aaj hi dispatch hoga 🚚' : 'Yes sir, dispatch ho jayega 🚚'
+      } else if (DISPATCH_INSTRUCT_RE.test(mergedText || '')) {
+        ack = 'Ok sir, dispatching ASAP 🚚'
+      }
+      if (ack) {
+        const sendResult = await sendReplyViaWwbun(whatsappNumber, ack, 'Rule')
+        await createLog(db, conversationId, mergedText, messageIds, {
+          status: 'REPLIED', aiReply: ack, deferReason: 'dispatch_ack_defer_override',
+          promptTokens, completionTokens, totalTokens, costUsd,
+          processingMs: Date.now() - startTime,
+          sentViaWwbun: !!sendResult, wwbunMessageId: sendResult?.messageId || null,
+        })
+        await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
+        console.log(`[DispatchAck] ${whatsappNumber} — model deferred a clean dispatch ack, overrode with "${ack}"`)
+        return
+      }
+    }
   }
 
   // --- Check if Claude deferred ---
