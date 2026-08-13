@@ -1697,7 +1697,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // and gets a real answer. Zero cost.
   if (/^(ok(ay)?|hi|hello|hey)?[\s,.:-]*(pls|plz|please|kindly)?[\s,.:-]*(share|send|give)\s*(me\s*)?(the\s*)?detail(s)?[\s.!]*$/i.test(normalizedText)) {
     if (inDeferChain) { await suppressPrefillForDeferChain('share-details prefill'); return }
-    const prefillReply = WELCOME_FOLLOWUP_GENERIC
+    // Ketu 2026-08-13: add the catalog link ("Yes, you can add a catalog link") — his own manual
+    // follow-up to this prefill was the catalog pointer, twice. EXCEPT in the welcome window: the
+    // welcome template IS the catalog link ("https://sale91.com/catalog / Check rates and color
+    // once👆..."), so a fresh buyer would get the same link twice in a row — his caveat, same
+    // message. His exact "Ask me if any questions sir?" line stays first in both variants.
+    const welcomeJustCarriedLink = isWelcomeEligible
+      || ((previousLastMessageAt ? (Date.now() - new Date(previousLastMessageAt).getTime()) : Infinity) < 2 * 60 * 1000
+          && (conversation.messageCount || 0) <= 2)
+    const prefillReply = welcomeJustCarriedLink
+      ? WELCOME_FOLLOWUP_GENERIC
+      : `${WELCOME_FOLLOWUP_GENERIC}\n\nSaare rates aur products yahan hain 👉 https://sale91.com/catalog`
     const sendResult = await sendReplyViaWwbun(whatsappNumber, prefillReply, 'Rule')
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'REPLIED',
