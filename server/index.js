@@ -800,6 +800,22 @@ const messageBuffer = new Map()
 // whatsappNumber -> { messages: [], timer: null }
 let lastProcessErrorAlertAt = 0   // throttles the process-error alert to once per 30 min
 
+// TIMED FACT (2026-08-14): Ketu's time-bound answers ("zipper 7-8 din mein aa jayega") — too
+// perishable for the permanent KB, too valuable to discard. Stored WITHOUT an embedding (vector
+// search has WHERE embedding IS NOT NULL, so these can never resurface stale) and injected into
+// every prompt while fresh; process.js lazily deletes them after expiry.
+async function storeTimedFact(db, buyerText, ketuText, origin) {
+  const id = crypto.randomUUID()
+  const expiresAt = new Date(Date.now() + 10 * 24 * 3600 * 1000).toISOString()
+  const today = new Date().toISOString().slice(0, 10)
+  const content = `[stated ${today}] Buyer asked: "${String(buyerText || '').slice(0, 200)}" — Ketu's answer: "${String(ketuText || '').slice(0, 300)}"`
+  const meta = JSON.stringify({ expiresAt, origin })
+  await db.$executeRaw`
+    INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
+    VALUES (${id}, 'TIMED_FACT'::"ChunkSource", ${'timed_' + id.slice(0, 8)}, ${'Timing: ' + String(buyerText || '').slice(0, 60)}, ${content}, NULL, ${meta}::jsonb, NOW(), NOW())
+  `
+}
+
 // Shared enqueue used by BOTH /api/incoming (WhatsApp via wwbun) and /ig/webhook (Instagram,
 // senderKey 'ig:<IGSID>'). Extracted verbatim from the /api/incoming handler — same followup/defer
 // pausing, same merge buffer, same settle timer, same processIncomingMessage handoff.
@@ -1227,9 +1243,21 @@ app.post('/api/intervention', async (c) => {
     // notifications (Porter links, referral codes) — must never become a permanent correction.
     // isDeferLine: the clone's own holding line can reach here if it was relayed as a manual send;
     // stored as a correction it would teach the clone to defer instead of answering (see
-    // isDeferLine in stock-question.js).
-    learned = 'intervention_skipped_point_in_time'
-    console.log(`[AutoLearn] Intervention SKIPPED — point-in-time/transactional, not learnable: "${buyerMessage.substring(0, 50)}..."`)
+    // isDeferLine in stock-question.js). Stock-TIMING answers become auto-expiring TIMED facts
+    // instead of vanishing (2026-08-14, the "not remembering my edits" zipper case).
+    if (isStockAvailabilityQuestion(buyerMessage) && !isDeferLine(ketuReply) && !isMediaPlaceholder(buyerMessage) && !isTransactionalReply(ketuReply)) {
+      try {
+        await storeTimedFact(db, buyerMessage, ketuReply, 'intervention')
+        learned = 'intervention_timed_fact'
+        console.log(`[AutoLearn] Intervention saved as TIMED FACT (auto-expires): "${buyerMessage.substring(0, 50)}..."`)
+      } catch (tfErr) {
+        learned = 'intervention_skipped_point_in_time'
+        console.error('[AutoLearn] timed-fact store failed:', tfErr.message)
+      }
+    } else {
+      learned = 'intervention_skipped_point_in_time'
+      console.log(`[AutoLearn] Intervention SKIPPED — point-in-time/transactional, not learnable: "${buyerMessage.substring(0, 50)}..."`)
+    }
   } else if (isQualityPair && isIntervention && buyerMessage && ketuReply) {
     try {
       const embedding = await getEmbedding(anthropic, buyerMessage)
@@ -1284,8 +1312,23 @@ app.post('/api/correction', async (c) => {
   }
 
   // Point-in-time / transactional answers (stock/availability, or dispatch-tracking/referral
-  // messages) must not be captured — they go stale or leak a one-order link. Skip them.
+  // messages) must not become PERMANENT corrections — they go stale or leak a one-order link.
+  // But a stock-TIMING answer Ketu typed is his freshest truth for the next ~week, and silently
+  // discarding it is how "you are not remembering my edits" happened (2026-08-13: his "zipper
+  // 4-5 din" edit was dropped here, and the clone told the next zipper buyer "September").
+  // Those now become auto-expiring TIMED facts instead of vanishing.
   if (isStockAvailabilityQuestion(buyerQuestion) || isTransactionalReply(correctReply) || isMediaPlaceholder(buyerQuestion) || isDeferLine(correctReply)) {
+    const isTimingAnswer = isStockAvailabilityQuestion(buyerQuestion)
+      && !isDeferLine(correctReply) && !isMediaPlaceholder(buyerQuestion) && !isTransactionalReply(correctReply)
+    if (isTimingAnswer) {
+      try {
+        await storeTimedFact(db, buyerQuestion, correctReply, 'edit')
+        console.log(`[Correction] saved as TIMED FACT (auto-expires): "${buyerQuestion.substring(0, 50)}..."`)
+        return c.json({ status: 'saved_timed_fact', reason: 'Stock-timing answer stored as an auto-expiring timed fact (injected into every reply for ~10 days, never permanent).' })
+      } catch (tfErr) {
+        console.error('[Correction] timed-fact store failed:', tfErr.message)
+      }
+    }
     console.log(`[Correction] SKIPPED — point-in-time/transactional/defer, not saved: "${buyerQuestion.substring(0, 50)}..."`)
     return c.json({ status: 'skipped_point_in_time', reason: 'Stock/availability, dispatch/tracking and defer-line replies are not saved as corrections (they go stale, leak a one-order link, or suppress real answers).' })
   }
@@ -3268,6 +3311,11 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
 ;(async () => {
   try {
     // Add systemPrompt + promptUpdatedAt columns to Settings if missing
+    // TIMED_FACT (2026-08-14): time-bound Ketu answers ("zipper 7-8 din mein aayega") — stored
+    // WITHOUT an embedding so vector search can never surface them stale; injected into every
+    // prompt while fresh, auto-expired after. Born from Ketu's complaint: his zipper-timing edit
+    // was silently discarded by the point-in-time guard, so the clone answered "September".
+    await db.$executeRawUnsafe(`ALTER TYPE "ChunkSource" ADD VALUE IF NOT EXISTS 'TIMED_FACT'`)
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "systemPrompt" TEXT`)
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "promptUpdatedAt" TIMESTAMP(3)`)
     // Add details JSON column to SyncLog for training history
