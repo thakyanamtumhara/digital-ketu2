@@ -83,6 +83,7 @@ const s2sGuard = async (c, next) => {
 }
 app.use('/api/incoming', s2sGuard)
 app.use('/api/intervention', s2sGuard)
+app.use('/api/dead-leads/triage', s2sGuard)
 const writeGuard = async (c, next) => {
   if (c.req.method === 'GET' || c.req.method === 'HEAD' || c.req.method === 'OPTIONS') return next()
   const settings = await getSettings().catch(() => null)
@@ -1156,6 +1157,50 @@ app.post('/api/ask', async (c) => {
 // Manual Intervention Detection
 // ===========================================
 // wwbun calls this when Om sends a manual message in a conversation
+
+// POST /api/dead-leads/triage — wwbun's dead-lead chip showed 98 aged Waiting chats and Ketu
+// found almost all were already DONE ("Okay, thanks for your time" endings, AI-resolved asks —
+// 2026-08-14: "those are not exactly dead leads... how will you know a message which is really
+// missing?"). Age is not the signal — an UNANSWERED ASK is. This endpoint reads each chat's tail
+// and judges it with Haiku (batched, ~₹0.03/chat, verdicts cached wwbun-side per message-state).
+// Body: { candidates: [{ id, waiting, messages: [{ from: 'buyer'|'us', text }] }] } (≤10/call)
+// Returns: { verdicts: { [id]: 'NEEDS_REPLY' | 'DONE' } }
+app.post('/api/dead-leads/triage', async (c) => {
+  try {
+    const { candidates } = await c.req.json()
+    if (!Array.isArray(candidates) || !candidates.length) return c.json({ verdicts: {} })
+    const batch = candidates.slice(0, 10)
+    const chatBlocks = batch.map(cd => {
+      const tail = (cd.messages || []).slice(-6)
+        .map(m => `${m.from === 'buyer' ? 'BUYER' : 'US'}: ${String(m.text || '').slice(0, 200)}`)
+        .join('\n')
+      return `--- CHAT ${cd.id} (${cd.waiting === 'ai_deferred' ? 'our side last said the holding line "Ketu will reply shortly"' : 'buyer spoke last'}) ---\n${tail}`
+    }).join('\n\n')
+    const resp = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 400,
+      messages: [{ role: 'user', content: `You triage a busy wholesale t-shirt seller's WhatsApp inbox. Below are chats that have sat 3+ hours. For EACH chat decide: is the BUYER still waiting for an answer from the seller's side ("US" = the seller or his AI)?
+
+NEEDS_REPLY only when: the buyer asked a question or stated a real requirement (price, stock, order, delivery, complaint) that never got a real answer — including when US said only "Ketu will reply shortly" about a real ask and nothing followed.
+DONE when: the buyer's last message is a closing/ack/thanks in ANY wording ("Ok", "Okay, thanks for your time", "theek hai", "got it", emojis); US's last real answer resolved the ask and nothing new came; the buyer said THEY will get back ("I'll let you know", "kal batata hun", "will order later"); or it is spam/greeting-only chatter.
+When genuinely unsure, choose DONE — the seller reviewed 98 flags and almost all were done; false alarms destroy the alert's value. The Waiting tab still holds everything as backup.
+
+${chatBlocks}
+
+Reply with ONLY JSON: {"verdicts": {"<chat id>": "NEEDS_REPLY" | "DONE", ...}} — one verdict per chat.` }],
+    })
+    const text = (resp.content?.[0]?.text || '').trim()
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : { verdicts: {} }
+    const cost = ((resp.usage?.input_tokens || 0) * 1e-6) + ((resp.usage?.output_tokens || 0) * 5e-6)
+    await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: cost } } }).catch(() => {})
+    console.log(`[DeadLeads] triaged ${batch.length} chats — ${Object.values(parsed.verdicts || {}).filter(v => v === 'NEEDS_REPLY').length} need reply`)
+    return c.json({ verdicts: parsed.verdicts || {} })
+  } catch (err) {
+    console.error('[DeadLeads] triage error:', err.message)
+    return c.json({ verdicts: {} }, 500)
+  }
+})
 
 app.post('/api/intervention', async (c) => {
   const body = await c.req.json()
