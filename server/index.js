@@ -1181,7 +1181,8 @@ app.post('/api/dead-leads/triage', async (c) => {
       max_tokens: 400,
       messages: [{ role: 'user', content: `You triage a busy wholesale t-shirt seller's WhatsApp inbox. Below are chats that have sat 3+ hours. For EACH chat decide: is the BUYER still waiting for an answer from the seller's side ("US" = the seller or his AI)?
 
-NEEDS_REPLY only when: the buyer asked a question or stated a real requirement (price, stock, order, delivery, complaint) that never got a real answer — including when US said only "Ketu will reply shortly" about a real ask and nothing followed.
+THE BUYER'S LAST MESSAGE DECIDES — read it FIRST, before anything above it. If the buyer's most recent message is an ack, closer, or thanks ("Ok sir", "theek hai", "got it", 👍), the chat is DONE no matter how serious or unresolved the earlier conversation looks — a delivery complaint that ends with the buyer saying "Ok sir" has been settled, and an [Audio]/voice reply from US counts as a real answer even though you cannot read it.
+NEEDS_REPLY only when: the buyer's LAST message asked a question or stated a real requirement (price, stock, order, delivery, complaint) that never got a real answer — including when US said only "Ketu will reply shortly" about a real ask and nothing followed.
 DONE when: the buyer's last message is a closing/ack/thanks in ANY wording ("Ok", "Okay, thanks for your time", "theek hai", "got it", emojis); US's last real answer resolved the ask and nothing new came; the buyer said THEY will get back ("I'll let you know", "kal batata hun", "will order later"); or it is greeting-only chatter.
 ALSO ALWAYS DONE — NOT-A-BUYER traffic (this is the biggest source of false alarms; the seller only wants people who want to BUY t-shirts):
 - Anyone SELLING TO us or pitching: marketing/SEO/web/video agencies, "I noticed you're involved in the apparel industry", "we help brands like yours", software demos, courier/logistics sales, investment offers.
