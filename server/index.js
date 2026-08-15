@@ -1182,7 +1182,12 @@ app.post('/api/dead-leads/triage', async (c) => {
       messages: [{ role: 'user', content: `You triage a busy wholesale t-shirt seller's WhatsApp inbox. Below are chats that have sat 3+ hours. For EACH chat decide: is the BUYER still waiting for an answer from the seller's side ("US" = the seller or his AI)?
 
 NEEDS_REPLY only when: the buyer asked a question or stated a real requirement (price, stock, order, delivery, complaint) that never got a real answer — including when US said only "Ketu will reply shortly" about a real ask and nothing followed.
-DONE when: the buyer's last message is a closing/ack/thanks in ANY wording ("Ok", "Okay, thanks for your time", "theek hai", "got it", emojis); US's last real answer resolved the ask and nothing new came; the buyer said THEY will get back ("I'll let you know", "kal batata hun", "will order later"); or it is spam/greeting-only chatter.
+DONE when: the buyer's last message is a closing/ack/thanks in ANY wording ("Ok", "Okay, thanks for your time", "theek hai", "got it", emojis); US's last real answer resolved the ask and nothing new came; the buyer said THEY will get back ("I'll let you know", "kal batata hun", "will order later"); or it is greeting-only chatter.
+ALSO ALWAYS DONE — NOT-A-BUYER traffic (this is the biggest source of false alarms; the seller only wants people who want to BUY t-shirts):
+- Anyone SELLING TO us or pitching: marketing/SEO/web/video agencies, "I noticed you're involved in the apparel industry", "we help brands like yours", software demos, courier/logistics sales, investment offers.
+- Collaboration / partnership / reseller-recruitment pitches ("main sales man hu, collab karke business aage le jayein?"), influencer or barter proposals, job/internship seekers, CV drops.
+- Bot or misdirected noise: bare "OTP", verification codes, automated notifications, wrong-number messages, forwarded promotional broadcasts.
+A message can look polite, long and business-like and still be one of these — judge who wants what: if THEY want something from the seller rather than to buy from him, it is DONE.
 When genuinely unsure, choose DONE — the seller reviewed 98 flags and almost all were done; false alarms destroy the alert's value. The Waiting tab still holds everything as backup.
 
 ${chatBlocks}
