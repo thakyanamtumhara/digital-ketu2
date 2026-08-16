@@ -12,6 +12,7 @@ import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } 
 import { evaluateIgGate } from './ig-gate.js'
 import { lookupOrdersByPhone, formatOrderLookupBlock, getBuyerProfile, formatBuyerProfileBlock } from './order-lookup.js'
 import { getStockSnapshot, formatStockBlock } from './stock-lookup.js'
+import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
 import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
 import { openaiReply, isOpenAiFallbackConfigured } from './openai-fallback.js'
 
@@ -2526,6 +2527,23 @@ Answer with ONLY one word: REPLY or SILENT.` }],
       }
     } catch (err) {
       console.error(`[StockLookup] ${whatsappNumber} — fetch failed (falling back to defer):`, err.message)
+    }
+  }
+
+  // PHOTO / VIDEO DEEP LINKS (2026-08-16, Ketu-approved): on a "dikhao / photo bhejo / video"
+  // intent, inject the live gallery index so the clone can send ONE link that opens the buyer's
+  // exact colour, swipeable, with price + size chart on the same screen — instead of the generic
+  // HD-photos link. ~1,100 tokens, photo-intent turns only (~11% of chats ≈ ₹0.06 each). Any
+  // failure → no block → the generic HD-photos rule answers exactly as it did before.
+  if (PHOTO_INTENT_RE.test(mergedText || '')) {
+    try {
+      const photoBlock = formatPhotoBlock(await getPhotoIndex())
+      if (photoBlock) {
+        userPrompt = photoBlock + '\n\n' + userPrompt
+        console.log(`[PhotoLinks] ${whatsappNumber} — injected gallery index for photo/video intent`)
+      }
+    } catch (err) {
+      console.error(`[PhotoLinks] ${whatsappNumber} — index fetch failed (generic HD link still works):`, err.message)
     }
   }
 
