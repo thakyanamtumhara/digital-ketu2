@@ -35,23 +35,25 @@ function looksLikeAwb(s) {
   return typeof s === 'string' && /^[A-Za-z0-9-]{8,25}&?$/.test(s.trim())
 }
 
-// THE AWB STRING ENCODES THE COURIER, and each courier has its OWN tracking page. This used to
-// hardcode trq.pages.dev for every AWB, but trq is the DELHIVERY-DIRECT page only: its worker reads
-// search[1] as the account prefix (a/b/c → dl0/dl1/dl2) and returns "Not Found" for anything else.
-// So every ShipRocket order got a 404 link. Caught live 2026-08-01 19:03 — the clone sent
-// trq.pages.dev/?77103029172 (404) and Ketu had to resend shiprocket.co/tracking/77103029172.
-// Ketu 2026-08-05 — these are the ONLY three buyer-facing forms he wants; the courier's own domain
-// is never sent, track.bulkplaintshirt.com redirects (verified live: it reads ?r / ?s and forwards
-// to app-cargo / shiprocket.co), which keeps the link brand-neutral:
-//   Delhivery  → prefixed a/b/c        → trq.pages.dev/?<awb>
-//   RocketBox  → trailing '&'          → track.bulkplaintshirt.com/?r=<awb>   ('&' stripped)
-//   ShipRocket → raw, no prefix/suffix → track.bulkplaintshirt.com/?s=<awb>
+// THE AWB STRING ENCODES THE COURIER. This used to hardcode trq.pages.dev for every AWB back when
+// trq was the DELHIVERY-DIRECT page only — its worker read search[1] as the account prefix and
+// returned "Not Found" for anything else, so every ShipRocket order got a 404 link. Caught live
+// 2026-08-01 19:03: the clone sent trq.pages.dev/?77103029172 (404) and Ketu resent it by hand.
+// 2026-08-16 — trq now renders ShipRocket ('s') and RocketBox cargo ('r') too, so all three go
+// straight there. That drops the track.bulkplaintshirt.com hop, which only ever redirected on to
+// the courier's own site, and keeps the link brand-neutral for dropship buyers:
+//   RocketBox  → trailing '&'          → trq.pages.dev/?r<awb>   ('&' stripped)
+//   Delhivery  → prefixed a/b/c/d      → trq.pages.dev/?<awb>    (letter IS the account; 'd' is
+//                                        international and the old /^[abc]/ test missed it)
+//   ShipRocket → anything else         → trq.pages.dev/?s<awb>
+// The Delhivery test is anchored and case-SENSITIVE on purpose: matching loosely sent ShipRocket
+// AWBs beginning 'C' (DTDC-style) down the Delhivery branch.
 function trackUrlFor(awb) {
   const a = String(awb || '').trim()
   if (!a) return null
-  if (a.endsWith('&')) return `https://track.bulkplaintshirt.com/?r=${a.slice(0, -1)}`
-  if (/^[abc]/i.test(a)) return `https://trq.pages.dev/?${a}`
-  return `https://track.bulkplaintshirt.com/?s=${a}`
+  if (a.endsWith('&')) return `https://trq.pages.dev/?r${a.replace(/&+$/, '')}`
+  if (/^[abcd]\d{9,}$/.test(a)) return `https://trq.pages.dev/?${a}`
+  return `https://trq.pages.dev/?s${a}`
 }
 
 function courierLabel(o, awb) {
