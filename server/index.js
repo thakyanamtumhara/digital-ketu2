@@ -920,15 +920,19 @@ async function enqueueIncoming(senderKey, message) {
         // 2. Never leave the buyer in silence — hand them the holding line. The process error is
         // often a NETWORK flap (2026-08-08 09:38: "socket connection was closed" killed the AI call
         // AND this very send, so the buyer got silence anyway) — retry once after 5s before giving up.
+        // ...unless the bot is switched OFF for this chat, in which case silence is the whole
+        // point: don't retry it, and don't tell him to go reply by hand (2026-08-17).
         const holdingLine = settings.deferMessage || 'Ketu will reply shortly sir 🙏'
         let holdingSent = false
-        try { holdingSent = !!(await sendReplyViaWwbun(senderKey, holdingLine, 'Rule')) } catch { /* retry below */ }
-        if (!holdingSent) {
+        const holdCtx = {}
+        try { holdingSent = !!(await sendReplyViaWwbun(senderKey, holdingLine, 'Rule', holdCtx)) } catch { /* retry below */ }
+        if (!holdingSent && !holdCtx.blocked) {
           await new Promise(r => setTimeout(r, 5000))
-          try { holdingSent = !!(await sendReplyViaWwbun(senderKey, holdingLine, 'Rule')) } catch { /* give up */ }
+          try { holdingSent = !!(await sendReplyViaWwbun(senderKey, holdingLine, 'Rule', holdCtx)) } catch { /* give up */ }
         }
         // 3. Tell Ketu, throttled, so a systemic break surfaces in minutes rather than hours.
-        if (Date.now() - lastProcessErrorAlertAt > 30 * 60 * 1000) {
+        //    A bot-OFF chat is not a break — stay quiet about it.
+        if (!holdCtx.blocked && Date.now() - lastProcessErrorAlertAt > 30 * 60 * 1000) {
           lastProcessErrorAlertAt = Date.now()
           notifyOwner(`⚠️ dk2 process error — "${String(err?.message || '').slice(0, 90)}". ${holdingSent ? 'Buyer ko holding line bhej diya.' : `Holding line bhi NAHI gaya (${senderKey.slice(-10)}) — is buyer ko khud reply kar dijiye.`} Agar ye baar-baar aa raha hai to replies ruk sakti hain.`).catch(() => {})
         }

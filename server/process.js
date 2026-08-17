@@ -3030,17 +3030,23 @@ Answer with ONLY one word: REPLY or SILENT.` }],
   cancelPendingDefer(whatsappNumber)
   // Tag the bubble with the brain that actually wrote this — the fallback tier if one was used,
   // otherwise the configured reply model.
-  const sendResult = await sendReplyViaWwbun(whatsappNumber, aiReply, modelLabel(usedFallbackBrain || replyModel))
+  const sendCtx = {}
+  const sendResult = await sendReplyViaWwbun(whatsappNumber, aiReply, modelLabel(usedFallbackBrain || replyModel), sendCtx)
 
   // --- Update daily spend ---
+  // Counted even when the send was blocked: the Claude call already happened, so the money is
+  // genuinely gone. (wwbun now gates the forward, so a silenced chat should not reach here at all.)
   await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
 
   // --- Log ---
+  // A chat with the bot switched off is a SKIP, not a REPLIED-that-failed. The dashboard paints
+  // `REPLIED + sentViaWwbun:false` as a red "SEND FAILED", so logging it that way turned every
+  // deliberately silenced buyer into a fake infrastructure alarm.
   const catalogMatches = knowledgeResults.filter(c => c.source === 'CATALOG')
   await createLog(db, conversationId, mergedText, messageIds, {
-    status: 'REPLIED',
+    status: sendCtx.blocked ? 'SKIPPED' : 'REPLIED',
     aiReply,
-    deferReason: usedFallbackBrain ? `openai_fallback:${usedFallbackBrain}` : undefined,
+    deferReason: sendCtx.blocked ? 'ai_disabled' : (usedFallbackBrain ? `openai_fallback:${usedFallbackBrain}` : undefined),
     knowledgeChunks: vectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
     similarityScore: bestSimilarity,
     catalogMatch: catalogMatches.length > 0 ? catalogMatches[0].metadata : null,
@@ -3255,7 +3261,12 @@ export function modelLabel(modelId) {
   return REPLY_MODEL_INFO.labels[modelId] || String(modelId)
 }
 
-export async function sendReplyViaWwbun(whatsappNumber, message, model = null) {
+// `ctx` is an optional out-param: on a deliberate block (the operator switched the bot off for
+// this chat in wwbun) we set ctx.blocked = 'ai_disabled'. The return value stays null in that
+// case — every one of the ~25 call sites tests truthiness for "did it send", and that answer is
+// still no — but the callers that care can now tell "he silenced this chat" apart from "the send
+// broke", instead of retrying, re-offering the draft forever, and painting a red SEND FAILED.
+export async function sendReplyViaWwbun(whatsappNumber, message, model = null, ctx = null) {
   // 'ig:' keys flow through wwbun like any number since 2026-07-07 — wwbun's
   // send-ai-reply branches on the prefix and does the Graph send + store + emit,
   // so IG replies appear in the operator's threads. (sendReplyViaInstagram below
@@ -3286,6 +3297,13 @@ export async function sendReplyViaWwbun(whatsappNumber, message, model = null) {
       if (!response.ok) {
         let errorBody = ''
         try { errorBody = await response.text() } catch (_) {}
+        // wwbun answers 409 { reason: 'ai_disabled' } when the Bot icon is unticked for this
+        // chat. Not an error — it is exactly what the operator asked for. Report it, don't shout.
+        if (response.status === 409 && errorBody.includes('ai_disabled')) {
+          if (ctx) ctx.blocked = 'ai_disabled'
+          console.log(`[Send] ${whatsappNumber} — bot is OFF for this chat, nothing sent`)
+          return null
+        }
         console.error(`[Send] wwbun API error (attempt ${attempt}/${MAX_RETRIES}): ${response.status} ${response.statusText} — ${whatsappNumber} — body: ${errorBody}`)
         if (attempt < MAX_RETRIES && response.status >= 500) {
           await new Promise(r => setTimeout(r, 1000 * attempt))

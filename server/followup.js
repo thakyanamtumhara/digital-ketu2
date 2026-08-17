@@ -153,7 +153,14 @@ export async function actOnDraft(db, id, action) {
     await db.followupDraft.update({ where: { id }, data: { status: 'expired' } })
     return { ok: false, status: 'expired', msg: '24h window closed' }
   }
-  const sent = await sendReplyViaWwbun(d.whatsappNumber, d.draft)
+  const ctx = {}
+  const sent = await sendReplyViaWwbun(d.whatsappNumber, d.draft, null, ctx)
+  // Bot switched off for this chat = never sendable. Close the draft instead of leaving it
+  // 'pending' for him to approve again and again against a door that will never open.
+  if (!sent && ctx.blocked) {
+    await db.followupDraft.update({ where: { id }, data: { status: 'skipped' } })
+    return { ok: false, status: 'skipped', msg: 'is chat ka bot OFF hai — nahi bheja' }
+  }
   if (!sent) return { ok: false, msg: 'send failed' }
   await db.followupDraft.update({ where: { id }, data: { status: 'sent', sentAt: new Date() } })
   await db.buyerMemory.upsert({
@@ -206,7 +213,14 @@ export async function handleOwnerShortlistReply(db, text) {
         results.push(`⌛ ${d.itemNo}) +${d.whatsappNumber} — 24h window nikal gaya, nahi bheja`)
         continue
       }
-      const sent = await sendReplyViaWwbun(d.whatsappNumber, d.draft)
+      const ctx = {}
+      const sent = await sendReplyViaWwbun(d.whatsappNumber, d.draft, null, ctx)
+      if (!sent && ctx.blocked) {
+        // Bot is OFF for this chat — close it, don't re-offer it every 8h with "try again".
+        await db.followupDraft.update({ where: { id: d.id }, data: { status: 'skipped' } })
+        results.push(`🚫 ${d.itemNo}) +${d.whatsappNumber} — is chat ka bot OFF hai, nahi bheja`)
+        continue
+      }
       await db.followupDraft.update({ where: { id: d.id }, data: { status: sent ? 'sent' : 'pending', sentAt: sent ? new Date() : null } })
       if (sent) {
         await db.buyerMemory.upsert({
