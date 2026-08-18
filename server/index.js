@@ -643,7 +643,25 @@ app.get('/api/ai-status', async (c) => {
       reason = `Claude (Anthropic) is down — running on the OpenAI backup brain (${fallbackState.model || 'gpt-4o-mini'}). Buyers ARE getting replies; top up Anthropic credits to restore full quality.`
       detail = 'openai_fallback_active'
     }
-    return c.json({ ok: !down, down, onFallback, brain: onFallback ? (fallbackState.model || 'openai-fallback') : 'claude', reason, detail, since, probed, lastPaidReplyAt: lastPaid?.createdAt || null, cost: { avgInr: costAlarm.avgInr, ceiling: costAlarm.ceiling, over: costAlarm.over, replies: costAlarm.replies }, checkedAt: new Date().toISOString() })
+    // BUDGET (2026-08-18): wwbun's header showed a rolling-24h sum of reply costs (₹562) while the
+    // cap that actually pauses the AI is a since-05:30-IST counter that ALSO carries the restraint
+    // gate, vision checks, dead-lead triage and cache pings — 39% of it invisible to that sum. So
+    // the header could never predict the cap, and Ketu only learned about a 6h outage afterwards.
+    // Ship the real counter so the app can show "₹X / ₹Y today" and warn before it trips.
+    let budget = null
+    try {
+      const st = await getSettings()
+      const spentInr = Math.round((st?.dailySpentUsd || 0) * COST_ALARM_USD_TO_INR)
+      const capInr = st?.dailyBudgetInr || 0
+      budget = {
+        spentInr, capInr,
+        pct: capInr ? Math.round((spentInr / capInr) * 100) : null,
+        tripped: capInr > 0 && spentInr >= capInr,
+        // Both are IST-day figures; the reset happens at 05:30 IST (UTC midnight).
+        resetsAtIst: '05:30',
+      }
+    } catch { /* budget is a nice-to-have; never break the status probe */ }
+    return c.json({ ok: !down, down, onFallback, brain: onFallback ? (fallbackState.model || 'openai-fallback') : 'claude', reason, detail, since, probed, lastPaidReplyAt: lastPaid?.createdAt || null, cost: { avgInr: costAlarm.avgInr, ceiling: costAlarm.ceiling, over: costAlarm.over, replies: costAlarm.replies }, budget, checkedAt: new Date().toISOString() })
   } catch (e) {
     return c.json({ ok: false, down: true, reason: `Status check failed: ${e.message}`, detail: 'status_error' })
   }
