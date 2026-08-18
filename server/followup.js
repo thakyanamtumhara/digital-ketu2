@@ -2,8 +2,9 @@
 //
 // Ketu's constraints, verbatim honoured:
 // - He never blind-initiates; selection is HIS gut → nothing is ever sent without his one-tap
-//   approval. The clone only PROPOSES: it WhatsApps him a numbered shortlist with ready drafts;
-//   he replies "1" / "1 2" / "sab" / "skip" in his owner chat (the /api/ask channel) to act.
+//   approval. The clone only PROPOSES: it builds a numbered shortlist with ready drafts that
+//   he acts on from the wwbun 📤 panel. It used to WhatsApp/Telegram him the list too, but he
+//   muted that on 18-Aug-2026 — the drafts are still built, he just is not pinged about them.
 // - WhatsApp 24h window: a free-form message must land within 24h of the buyer's last inbound.
 //   Candidates are picked at 18-20h quiet (leaving ~4-6h of window) and re-checked (<23h) at
 //   send time; too late → marked expired, never a paid template.
@@ -15,7 +16,7 @@
 // Fully isolated: nothing in the reply pipeline imports this; every step fail-opens (an error =
 // no shortlist today, never a broken reply flow).
 
-import { sendReplyViaWwbun, notifyOwner } from './process.js'
+import { sendReplyViaWwbun } from './process.js'
 import { lookupOrdersByPhone } from './order-lookup.js'
 
 // Shopping-interest signal in the buyer's own words (same spirit as the budget-cap SHOPPING_RE).
@@ -126,11 +127,10 @@ export async function scanFollowupCandidates(db) {
         data: { whatsappNumber: p.num, context, draft: buildDraft(p.buyerText), itemNo: startNo + i },
       }))
     }
-    const lines = created.map(d => `${d.itemNo}) +${d.whatsappNumber} — "${d.context}"\n   Draft: ${d.draft}`)
-    await notifyOwner(
-      `📋 Follow-up shortlist — kal ke quiet shoppers (window ~4h bacha hai):\n\n${lines.join('\n\n')}\n\nBhejne ke liye number reply karo ("${created[0].itemNo}" ya "${created.map(d => d.itemNo).join(' ')}"), ignore = kuch nahi jayega.`
-    )
-    console.log(`[Followup] proposed ${created.length} candidate(s) to Ketu`)
+    // Ketu muted the push on 18-Aug-2026 — he did not want a shortlist arriving on its
+    // own. The drafts are still built, so the wwbun 📤 panel and its pending badge keep
+    // working; he now goes and looks instead of being told.
+    console.log(`[Followup] prepared ${created.length} candidate(s) — panel only, owner not pinged`)
   } catch (err) {
     console.error('[Followup] scan failed (harmless):', err.message)
   }

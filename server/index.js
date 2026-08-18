@@ -3363,14 +3363,10 @@ async function checkCostCeiling() {
     const avgInr = (totalUsd / rows.length) * COST_ALARM_USD_TO_INR
     const over = avgInr > COST_ALARM_CEILING_INR
     costAlarm = { ...costAlarm, avgInr: +avgInr.toFixed(2), replies: rows.length, over, checkedAt: new Date().toISOString() }
-    if (over && Date.now() - costAlarm.lastAlertAt > 12 * 3600 * 1000) {
-      costAlarm.lastAlertAt = Date.now()
-      const msg = `⚠️ dk2 cost alert — 7-day average is ₹${avgInr.toFixed(2)}/reply (over the ₹${COST_ALARM_CEILING_INR} ceiling), across ${rows.length} replies. Healthy is ~₹3.3-3.7. This means a regression (prompt-size creep / a bug / cache), not normal clone cost — I'm on it.`
-      await notifyOwner(msg).catch(e => console.error('[CostAlarm] owner notify failed:', e.message))
-      console.log(`[CostAlarm] TRIPPED — ₹${avgInr.toFixed(2)}/reply over ${rows.length} replies; owner alerted`)
-    } else if (over) {
-      console.log(`[CostAlarm] over ceiling (₹${avgInr.toFixed(2)}) but within 12h dedupe — no re-alert`)
-    }
+    // Ketu muted the push on 18-Aug-2026 — it had been repeating every 12h and told him
+    // nothing he did not already know. The average is still computed and still served on
+    // /api/ai-status, so the operator banner keeps showing it; only the message is gone.
+    if (over) console.log(`[CostAlarm] over ceiling (₹${avgInr.toFixed(2)}) across ${rows.length} replies — banner only, owner not pinged`)
   } catch (e) {
     console.error('[CostAlarm] check failed:', e.message)
   }
