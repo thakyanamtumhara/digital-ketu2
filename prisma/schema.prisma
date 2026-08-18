@@ -128,7 +128,9 @@ model Settings {
   isActive            Boolean  @default(true)       // global ON/OFF toggle
   partialAiEnabled    Boolean  @default(false)      // partial AI: only 3-min follow-up (no welcome, no full AI)
   dailyBudgetInr      Float    @default(500)        // daily spend limit in INR
-  dailySpentUsd       Float    @default(0)          // today's spend in USD
+  dailySpentUsd       Float    @default(0)          // today's REPLY spend in USD (this is what the cap pauses)
+  dailyJobSpentUsd    Float    @default(0)          // today's BACKGROUND spend (learning, reviewer, embeddings, probes)
+  usdToInr            Float    @default(88)         // conversion used for every ₹ display — set it to what the card actually charges
   dailySpentResetAt   DateTime @default(now())      // when daily counter was last reset
   deferMessage        String   @default("Ketu will reply shortly sir 🙏")
   mediaMessage        String   @default("Sir, Ketu is not available right now. I'm not able to see images or listen to audio at the moment — could you please write your query in text? I'll read and reply right away.")

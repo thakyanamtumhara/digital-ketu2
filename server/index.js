@@ -651,13 +651,18 @@ app.get('/api/ai-status', async (c) => {
     let budget = null
     try {
       const st = await getSettings()
-      const spentInr = Math.round((st?.dailySpentUsd || 0) * COST_ALARM_USD_TO_INR)
+      const rate = st?.usdToInr || COST_ALARM_USD_TO_INR
+      const replyInr = Math.round((st?.dailySpentUsd || 0) * rate)
+      const jobInr = Math.round((st?.dailyJobSpentUsd || 0) * rate)
       const capInr = st?.dailyBudgetInr || 0
       budget = {
-        spentInr, capInr,
-        pct: capInr ? Math.round((spentInr / capInr) * 100) : null,
-        tripped: capInr > 0 && spentInr >= capInr,
-        // Both are IST-day figures; the reset happens at 05:30 IST (UTC midnight).
+        // spentInr is now EVERYTHING billed today, so the header matches the Anthropic console.
+        // replyInr is the part the cap governs; jobInr is background work that must never pause
+        // a buyer reply. Before 2026-08-18 only replyInr existed and it under-reported by ~half.
+        spentInr: replyInr + jobInr, replyInr, jobInr, capInr, usdToInr: rate,
+        pct: capInr ? Math.round((replyInr / capInr) * 100) : null,
+        tripped: capInr > 0 && replyInr >= capInr,
+        // IST-day figures; the reset happens at 05:30 IST (UTC midnight).
         resetsAtIst: '05:30',
       }
     } catch { /* budget is a nice-to-have; never break the status probe */ }
@@ -777,6 +782,7 @@ async function getSettings() {
   const updates = {}
   if (now.toDateString() !== new Date(settings.dailySpentResetAt).toDateString()) {
     updates.dailySpentUsd = 0
+    updates.dailyJobSpentUsd = 0
     updates.dailySpentResetAt = now
   }
   const learningResetAt = settings.learningSpentResetAt ? new Date(settings.learningSpentResetAt) : new Date(0)
@@ -3393,6 +3399,13 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
     // prompt while fresh, auto-expired after. Born from Ketu's complaint: his zipper-timing edit
     // was silently discarded by the point-in-time guard, so the clone answered "September".
     await db.$executeRawUnsafe(`ALTER TYPE "ChunkSource" ADD VALUE IF NOT EXISTS 'TIMED_FACT'`)
+    // HONEST SPEND ACCOUNTING (2026-08-18): the console showed the Digital Ketu key at $303.81
+    // while dk2's own counter reported ~$144 — because only 2 of 18 Anthropic call sites charged
+    // it. The nightly reviewer, keyword extraction, style-pair sync, invoice vision and the health
+    // probe all spent real money invisibly. Reply spend still drives the cap (so background jobs
+    // can never pause buyer replies); job spend is tracked beside it and shown in the header.
+    await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "dailyJobSpentUsd" DOUBLE PRECISION NOT NULL DEFAULT 0`)
+    await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "usdToInr" DOUBLE PRECISION NOT NULL DEFAULT 88`)
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "systemPrompt" TEXT`)
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "promptUpdatedAt" TIMESTAMP(3)`)
     // Add details JSON column to SyncLog for training history

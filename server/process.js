@@ -279,7 +279,7 @@ async function downloadMediaFromWwbun(wwbunMessageId) {
 // ===========================================
 // Invoice/Bill Image Detection (Claude Vision)
 // ===========================================
-async function isInvoiceImage(anthropic, mediaUrl) {
+async function isInvoiceImage(anthropic, mediaUrl, db = null) {
   if (!mediaUrl) return false
   try {
     // Fetch the image/document from wwbun storage
@@ -325,6 +325,9 @@ async function isInvoiceImage(anthropic, mediaUrl) {
       }],
     })
     const answer = result.content?.[0]?.text?.trim().toUpperCase() || ''
+    // Haiku vision runs on EVERY incoming document — small each time, invisible until 2026-08-18.
+    const _u = result.usage || {}
+    await chargeSpend(db, ((_u.input_tokens || 0) * 1e-6) + ((_u.output_tokens || 0) * 5e-6), 'job')
     console.log(`[InvoiceDetect] Vision result: ${answer}`)
     return answer.startsWith('YES')
   } catch (err) {
@@ -1094,7 +1097,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         invoiceMediaUrl = await downloadMediaFromWwbun(mediaMsg.wwbunMessageId)
       }
     }
-    if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
+    if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl, db)) {
       // Same bill+photo evidence guard as the bill-doc path above (2026-07-05, buyer 6353441274).
       const hasExtraPhotoInBurst = messages.filter(m => m.messageType === 'image').length > 1 || /\[product photo\]/i.test(mergedText || '')
       if (hasExtraPhotoInBurst || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
@@ -1597,7 +1600,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       invoiceMediaUrl = await downloadMediaFromWwbun(mediaMsg.wwbunMessageId)
     }
   }
-  if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl)) {
+  if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl, db)) {
     if (hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
@@ -3368,6 +3371,19 @@ export async function notifySkippedViaWwbun(whatsappNumber) {
   } catch (err) {
     console.error('[Skip-notify] failed for', whatsappNumber, '—', err.message)
   }
+}
+
+// SPEND ACCOUNTING (2026-08-18). The console showed $303.81 on the Digital Ketu key while dk2's
+// own counter reported ~$144: only 2 of 18 Anthropic call sites were charging it, so the nightly
+// reviewer, keyword extraction, style-pair sync, invoice vision and the health probe all spent
+// invisibly. Every call site now goes through this.
+//   kind 'reply' → counts toward dailyBudgetInr and can pause buyer replies (unchanged behaviour)
+//   kind 'job'   → background work; tracked and displayed, but must NEVER pause a buyer reply
+export async function chargeSpend(db, usd, kind = 'reply') {
+  const amount = Number(usd) || 0
+  if (!db || amount <= 0) return
+  const field = kind === 'job' ? 'dailyJobSpentUsd' : 'dailySpentUsd'
+  await db.settings.update({ where: { id: 'default' }, data: { [field]: { increment: amount } } }).catch(() => {})
 }
 
 // Owner alert channel — a WhatsApp to Ketu himself (his own number), reusing the wwbun send path.

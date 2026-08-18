@@ -7,6 +7,7 @@
 //    Decides if AI would have handled correctly. If not → adds correction.
 
 import Anthropic from '@anthropic-ai/sdk'
+import { chargeSpend } from './process.js'
 import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine, hasGarbledTranscript } from './stock-question.js'
@@ -472,6 +473,7 @@ export async function pullAndReviewHistory(db, onProgress, { limit = 1000 } = {}
   while (true) {
     batchNumber++
     const result = await reviewManualPairs(db, { model: historyModel, batchSize: HISTORY_PULL_BATCH_SIZE })
+    await chargeSpend(db, result?.costUsd || 0, 'job')
 
     totalReviewed += result.reviewed
     totalCorrections += result.corrections
@@ -767,6 +769,7 @@ export async function runReviewJob(db, { maxBatches = 1, budgetCapUsd = null } =
   for (let i = 0; i < maxBatches; i++) {
     const aiResult = await reviewAiReplies(db)
     const manualResult = await reviewManualPairs(db)
+    await chargeSpend(db, (aiResult?.costUsd || 0) + (manualResult?.costUsd || 0), 'job')
     batchesRun++
 
     aiTotal.reviewed += aiResult.reviewed
@@ -829,6 +832,7 @@ export async function reviewBacklog(db, onProgress) {
   while (true) {
     batchNumber++
     const result = await reviewAiReplies(db)
+    await chargeSpend(db, result?.costUsd || 0, 'job')
 
     totalReviewed += result.reviewed
     totalCorrections += result.corrections
