@@ -376,8 +376,27 @@ function buildProductDescription(product, catalogData) {
   lines.push(`Product: ${product.name}`)
   if (product.description) lines.push(`Description: ${product.description}`)
   if (product.gsm) lines.push(`GSM (fabric weight): ${product.gsm}`)
-  if (product.bulkPrice) lines.push(`Bulk price: ₹${product.bulkPrice} per piece`)
-  if (product.samplePrice) lines.push(`Sample price: ₹${product.samplePrice} per piece`)
+  // PRICE (2026-08-18 fix): the LIVE products.json this now syncs from uses bulkPriceFrom/To +
+  // per-size priceBands, NOT the repo copy's flat bulkPrice/samplePrice. Reading only the old
+  // fields silently dropped the price line from 17 of 22 products for five days — the clone then
+  // had NO authoritative price and invented one ("240gsm ₹185", which is the 210gsm rate).
+  // Handle the live schema first, keep the legacy fields as a fallback, and expose the size bands
+  // so a size-dependent product (e.g. True Bio 36–42 vs 44–46) is quoted correctly.
+  const bFrom = product.bulkPriceFrom ?? product.bulkPrice
+  const bTo = product.bulkPriceTo ?? product.bulkPrice
+  if (bFrom) lines.push(`Bulk price (10+ pcs): ${bTo && bTo !== bFrom ? `₹${bFrom}–₹${bTo}` : `₹${bFrom}`} per piece`)
+  const sFrom = product.samplePriceFrom ?? product.samplePrice
+  const sTo = product.samplePriceTo ?? product.samplePrice
+  if (sFrom) lines.push(`Sample price (under 10 pcs): ${sTo && sTo !== sFrom ? `₹${sFrom}–₹${sTo}` : `₹${sFrom}`} per piece`)
+  // Size bands only when they actually differ — otherwise it is noise in every prompt.
+  const bands = []
+  for (const rate of (product.rates || [])) {
+    for (const b of (rate.priceBands || [])) {
+      if (b?.sizes && b?.price) bands.push(`${b.sizes} ₹${b.price}`)
+    }
+  }
+  const uniqueBands = [...new Set(bands)]
+  if (uniqueBands.length > 1) lines.push(`Size-wise bulk rates: ${uniqueBands.join(', ')} — quote the band matching the size the buyer asked for`)
   if (product.colors?.length) lines.push(`Available colors: ${product.colors.join(', ')}`)
   if (product.sizes?.length) lines.push(`Available sizes: ${product.sizes.join(', ')}`)
   if (product.weightKg) lines.push(`Weight: ${product.weightKg} kg`)
