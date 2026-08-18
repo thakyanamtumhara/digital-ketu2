@@ -3282,8 +3282,12 @@ function forceCacheRewarm() {
 async function cacheKeepAlive() {
   try {
     const istNow = new Date(Date.now() + 5.5 * 3600 * 1000)
-    const istHour = istNow.getUTCHours()
-    if (istHour < 7 || istHour >= 23) return  // overnight: let the cache go cold on purpose
+    // OVERNIGHT WARMTH (2026-08-18): this used to stop between 23:00 and 07:00 IST to save ping
+    // money. Measured over 4 days, that was a false economy — ALL SIX prompt-cache misses in the
+    // period landed between 00:32 and 06:28 IST, and a miss costs ~₹55 against ~₹3.83 for a warm
+    // reply (14x). Overnight is not idle either: ~10 buyers/night message in that window. Pings
+    // cost ~₹21/night versus ~₹83/night burnt on cold writes, so staying warm nets ~₹62/night
+    // (~₹1,900/month). Keep-alive now runs around the clock.
     const age = Date.now() - cacheTouch.at
     const warm = cacheTouch.at !== 0 && age <= 58 * 60 * 1000
     const inMaintainWindow = warm && age >= 50 * 60 * 1000
