@@ -360,6 +360,30 @@ const NON_DISPATCH_INTENT_RE = /\breturn\b|\brefund\b|\bcancel\b|\bexchange\b|\b
 // now fires only when the bill arrives essentially BARE. Any real sentence beside it — past-tense
 // talk, a received-quantity list, a request, a cart summary — falls through to the model, which
 // reads the whole thread and can defer. "[Image]" / "[Document: ...]" placeholders are not words.
+// IS KETU ALREADY HANDLING THIS THREAD? (2026-08-19, buyer 9870281405.) He was mid-complaint
+// about oil stains — three defers inside ten minutes, Ketu answering by hand — and then sent a
+// BARE photo of the stain. billImageHasRealText saw no words beside the image, so the canned
+// "Ok noted sir, dispatching ASAP 🚚" fired into the middle of a quality complaint; Ketu had to
+// type "Wait". The image was evidence, not an order. hasRecentDelayComplaint didn't catch it
+// because that regex only knows LATE-delivery wording, not stains.
+// So: if this thread has an unanswered defer or Ketu's own recent reply, no canned dispatch ack.
+// A genuine fresh-order bill has neither, so the common case still gets its instant ack.
+async function ownerIsHandlingThread(db, conversationId) {
+  try {
+    const recent = await db.messageLog.findMany({
+      where: { conversationId, createdAt: { gt: new Date(Date.now() - 3 * 3600 * 1000) } },
+      orderBy: { createdAt: 'desc' }, take: 8,
+      select: { status: true, deferReason: true },
+    })
+    for (const r of recent) {
+      if (r.deferReason === 'manual_reply') return true          // Ketu is in this conversation
+      if (r.status === 'DEFERRED') return true                   // something is still on his desk
+      if (r.status === 'REPLIED' && !r.deferReason) return false  // the clone resolved it since
+    }
+  } catch { /* fail-open: behave exactly as before */ }
+  return false
+}
+
 function billImageHasRealText(text) {
   const stripped = String(text || '')
     .replace(/\[[^\]]*\]/g, ' ')
@@ -1081,7 +1105,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       // at night for a delivered order (1 pc missing) and got "dispatching ASAP" twice (2026-07-05,
       // Ketu: "you should have understood the context and deferred"). Defer instead.
       const hasPhotoInBurst = messages.some(m => m.messageType === 'image') || /\[(product photo|Image)\]/i.test(mergedText || '')
-      if (hasPhotoInBurst || billImageHasRealText(mergedText) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+      if (hasPhotoInBurst || billImageHasRealText(mergedText) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
           mergedText, messageIds, logData: {
@@ -1121,7 +1145,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl, db)) {
       // Same bill+photo evidence guard as the bill-doc path above (2026-07-05, buyer 6353441274).
       const hasExtraPhotoInBurst = messages.filter(m => m.messageType === 'image').length > 1 || /\[product photo\]/i.test(mergedText || '')
-      if (hasExtraPhotoInBurst || billImageHasRealText(mergedText) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+      if (hasExtraPhotoInBurst || billImageHasRealText(mergedText) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
           mergedText, messageIds, logData: {
@@ -1585,7 +1609,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // Match common bill/invoice document patterns (Bill, Invoice, Tax, Receipt, GST, etc.)
   const isBillDocument = mergedText.match(/\[Document:.*(?:bill|invoice|tax|receipt|gst|challan|voucher|order).*\.pdf\]/i)
   if (isBillDocument) {
-    if (billImageHasRealText(mergedText) || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+    if (billImageHasRealText(mergedText) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
         mergedText, messageIds, logData: {
@@ -1622,7 +1646,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
   }
   if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl, db)) {
-    if (billImageHasRealText(mergedText) || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+    if (billImageHasRealText(mergedText) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
         mergedText, messageIds, logData: {
@@ -2475,7 +2499,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
           completionTokens: triage.usage?.output_tokens || 0,
           totalTokens: (triage.usage?.input_tokens || 0) + (triage.usage?.output_tokens || 0),
           costUsd: tCost, processingMs: Date.now() - startTime,
-        }, db, brainLabel: modelLabel('claude-haiku-4-5-20251001'),
+        }, db, brainLabel: 'Triage',   // Haiku only ROUTED this to Ketu; it never writes buyer answers
       })
       console.log(`[CheapGate] ${whatsappNumber} — owner-only message, deferred without the Opus call (saved ~₹4)`)
       return
