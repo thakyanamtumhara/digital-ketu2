@@ -351,6 +351,27 @@ const DELAY_COMPLAINT_RE = /abhi\s*t[ak]+\b[^]{0,25}\b(nahi|nhi|nahin|nehi|nai)|
 // Includes MISSING-PIECE / short-shipment complaint phrasings (2026-07-05, buyer 6353441274:
 // "ordered 2 pcs & received only 1 pcs" — a bill + such TEXT must defer, not "dispatching ASAP").
 const NON_DISPATCH_INTENT_RE = /\breturn\b|\brefund\b|\bcancel\b|\bexchange\b|\breplace\b|wapas|वापस|लौटा|रिफंड|कैंसल|रिटर्न|band\s*(karna|kar\s*rah|ho\s*rah)|बंद\s*(करना|कर\s*रह|हो\s*रह)|बदल\s*(do|दो|na|ना)|received only|\bonly\s*\d+\s*(pc|pcs|piece)|sirf\s*\d+\s*(aaya|aaye|mila|mile)|kam\s*(mila|mile|aaya|aaye|nikla|nikle|hai|the)\b|(pc|pcs|piece[s]?)\s*kam\b|\bmissing\b|\bshort\s*(aaya|mila|received)|नहीं\s*(आया|आये|मिला|मिले)|कम\s*(मिला|मिले|आया|आये|निकला|निकले)|\bwrong\s*(size|colour|color|item)|galat\s*(size|colour|color|item|maal)|गलत\s*(साइज|कलर|आइटम|माल)/i
+// A BILL IMAGE WITH REAL WORDS BESIDE IT IS NOT AUTOMATICALLY A NEW ORDER (Ketu 2026-08-19,
+// buyer 9719928873): he sent an old bill with "17 Aug ko maine samaan mangaya tha / Wo ye tha /
+// But mujhe receive hua h / Navy Blue L 11 / Navy Blue S 9" — a SHORT-DELIVERY complaint — and the
+// canned shortcut answered "Ok noted sir, dispatching ASAP" without the model ever reading it.
+// Ketu's own reply asked for a video of the 9 small pieces to verify the count.
+// The shortcut exists for the common case: a buyer pastes his fresh bill and nothing else. So it
+// now fires only when the bill arrives essentially BARE. Any real sentence beside it — past-tense
+// talk, a received-quantity list, a request, a cart summary — falls through to the model, which
+// reads the whole thread and can defer. "[Image]" / "[Document: ...]" placeholders are not words.
+function billImageHasRealText(text) {
+  const stripped = String(text || '')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!stripped) return false
+  const filler = new Set(['ok','okay','okk','ji','sir','bhai','bhaiya','thanks','thank','you','done','hn','han','haan','yes','k','kk','please','pls'])
+  return stripped.split(' ').filter(w => w && !filler.has(w.toLowerCase())).length >= 2
+}
+
 function hasNonDispatchIntentText(text) {
   return NON_DISPATCH_INTENT_RE.test(text || '')
 }
@@ -1060,7 +1081,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       // at night for a delivered order (1 pc missing) and got "dispatching ASAP" twice (2026-07-05,
       // Ketu: "you should have understood the context and deferred"). Defer instead.
       const hasPhotoInBurst = messages.some(m => m.messageType === 'image') || /\[(product photo|Image)\]/i.test(mergedText || '')
-      if (hasPhotoInBurst || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+      if (hasPhotoInBurst || billImageHasRealText(mergedText) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
           mergedText, messageIds, logData: {
@@ -1072,7 +1093,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         return
       }
       const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-      const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply)
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply, 'Rule')
       await createLog(db, conversation.id, mergedText, messageIds, {
         status: 'REPLIED',
         aiReply: mediaReply,
@@ -1100,7 +1121,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl, db)) {
       // Same bill+photo evidence guard as the bill-doc path above (2026-07-05, buyer 6353441274).
       const hasExtraPhotoInBurst = messages.filter(m => m.messageType === 'image').length > 1 || /\[product photo\]/i.test(mergedText || '')
-      if (hasExtraPhotoInBurst || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+      if (hasExtraPhotoInBurst || billImageHasRealText(mergedText) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
           mergedText, messageIds, logData: {
@@ -1112,7 +1133,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         return
       }
       const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-      const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply)
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply, 'Rule')
       await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
         status: 'REPLIED',
         aiReply: mediaReply,
@@ -1304,7 +1325,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         console.log(`[Partial AI] ${whatsappNumber} — order dispatch AI detection: ${detectAnswer}`)
         if (detectAnswer.startsWith('YES')) {
           const dispatchReply = 'Ok sir, dispatching ASAP 🚚'
-          const sendResult = await sendReplyViaWwbun(whatsappNumber, dispatchReply)
+          const sendResult = await sendReplyViaWwbun(whatsappNumber, dispatchReply, 'Rule')
           await createLog(db, conversation.id, mergedText, messageIds, {
             status: 'REPLIED',
             aiReply: dispatchReply,
@@ -1564,7 +1585,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // Match common bill/invoice document patterns (Bill, Invoice, Tax, Receipt, GST, etc.)
   const isBillDocument = mergedText.match(/\[Document:.*(?:bill|invoice|tax|receipt|gst|challan|voucher|order).*\.pdf\]/i)
   if (isBillDocument) {
-    if (hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+    if (billImageHasRealText(mergedText) || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
         mergedText, messageIds, logData: {
@@ -1576,7 +1597,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       return
     }
     const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-    const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply)
+    const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply, 'Rule')
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'REPLIED',
       aiReply: mediaReply,
@@ -1601,7 +1622,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
   }
   if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl, db)) {
-    if (hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+    if (billImageHasRealText(mergedText) || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
         mergedText, messageIds, logData: {
@@ -1613,7 +1634,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       return
     }
     const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
-    const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply)
+    const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply, 'Rule')
     await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
       status: 'REPLIED',
       aiReply: mediaReply,
@@ -1846,7 +1867,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
       if (filter.action === 'auto_reply') {
         const replyText = filter.autoReplyText || 'Ok noted sir 👍'
-        const sendResult = await sendReplyViaWwbun(whatsappNumber, replyText)
+        const sendResult = await sendReplyViaWwbun(whatsappNumber, replyText, 'Rule')
         await createLog(db, conversation.id, mergedText, messageIds, {
           status: 'REPLIED',
           deferReason: filter.name,
