@@ -2421,6 +2421,69 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     console.error(`[Restraint] ${whatsappNumber} — gate error (replying anyway):`, err.message)
   }
 
+  // --- CHEAP DEFER PRE-GATE (2026-08-19) ---
+  // Measured on 825 real paid replies: 241 of them (29%) were just "Ketu will reply shortly sir 🙏".
+  // Each one cost ~₹4 — Opus reading 45,000 cached tokens of rules to output 8 tokens meaning
+  // "this is Ketu's". A Haiku triage call costs ~₹0.04, so catching even half of them is real money
+  // with no change to what the buyer receives (same holding line, same Waiting entry, sooner).
+  //
+  // QUALITY IS THE CONSTRAINT, NOT THE SAVING. Validated against 150 real messages whose outcome we
+  // already know (70 true defers, 80 genuinely answered): it caught 49% of the defers with ZERO
+  // false defers — no answerable buyer was wrongly sent to Ketu. The categories below are exactly
+  // the validated ones; note that haggling is deliberately NOT here (an early version flagged "Any
+  // negotiate please", but the clone answers that correctly with "Fixed price sir 🙏"). Anything it
+  // is unsure about falls through to Opus untouched, and any error fails open the same way.
+  // Logged as cheap_gate_deferred so real-world precision stays auditable.
+  try {
+    // Same shape of history the offline validation used: the last few buyer/reply turns.
+    // Built here with its own query because conversationHistory is assembled further down.
+    const recentForTriage = await db.messageLog.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'desc' }, take: 3,
+      select: { buyerMessage: true, aiReply: true },
+    })
+    const triageHist = recentForTriage.slice().reverse()
+      .flatMap(h => [h.buyerMessage ? `BUYER: ${String(h.buyerMessage).slice(0, 150)}` : null,
+                     h.aiReply ? `US: ${String(h.aiReply).slice(0, 120)}` : null])
+      .filter(Boolean).join('\n')
+    const triage = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 5,
+      system: `You are a fast triage step for a wholesale blank t-shirt seller's WhatsApp. A powerful (expensive) assistant handles buyers. Your ONLY job is to spot the messages that assistant cannot handle anyway, because they need the OWNER (Ketu) personally.
+
+Answer KETU only when the message is clearly one of these:
+- A complaint about goods already RECEIVED (wrong/short/damaged/defective/quality, "receive hua", counts that don't match)
+- A delivery/dispatch complaint about an existing order ("abhi tak nahi aaya", "X din ho gaye", lost parcel)
+- Changing or cancelling an order already placed (add/remove items, change address after booking)
+- Payment matters needing the owner: sharing bank/UPI details, confirming money received, refunds, failed payments
+- Anything asking the owner to personally DO something in the system (book a porter, forward a mail, add a piece to a shipment)
+
+Answer ASSISTANT for EVERYTHING else — product questions, prices from the catalog, stock, sizes, colours, photos, links, how to order, delivery feasibility, greetings, order confirmations, dispatch acknowledgements, tracking requests, packing requests, casual chat, AND haggling or discount requests (the assistant has a fixed-price answer for those).
+
+If you are not sure, answer ASSISTANT. Being wrong about KETU is costly; the assistant can always decide to escalate itself.
+Reply with exactly one word: KETU or ASSISTANT.`,
+      messages: [{ role: 'user', content: `${triageHist ? `Recent conversation:\n${triageHist}\n\n` : ''}Buyer's latest message:\n"""${mergedText}"""` }],
+    })
+    const tCost = ((triage.usage?.input_tokens || 0) * PRICE_PER_INPUT_TOKEN) + ((triage.usage?.output_tokens || 0) * PRICE_PER_OUTPUT_TOKEN)
+    await chargeSpend(db, tCost, 'reply')
+    if ((triage.content?.[0]?.text || '').trim().toUpperCase().startsWith('KETU')) {
+      scheduleDeferReply({
+        whatsappNumber, deferMessage: settings.deferMessage, conversationId,
+        mergedText, messageIds, logData: {
+          status: 'DEFERRED', deferReason: 'cheap_gate_deferred',
+          promptTokens: triage.usage?.input_tokens || 0,
+          completionTokens: triage.usage?.output_tokens || 0,
+          totalTokens: (triage.usage?.input_tokens || 0) + (triage.usage?.output_tokens || 0),
+          costUsd: tCost, processingMs: Date.now() - startTime,
+        }, db, brainLabel: modelLabel('claude-haiku-4-5-20251001'),
+      })
+      console.log(`[CheapGate] ${whatsappNumber} — owner-only message, deferred without the Opus call (saved ~₹4)`)
+      return
+    }
+  } catch (err) {
+    console.error(`[CheapGate] ${whatsappNumber} — triage error (continuing to full AI):`, err.message)
+  }
+
   // --- VECTOR SEARCH: Single search across all 4 knowledge sources ---
   // confidenceThreshold gates which chunks reach Claude. Fallback to deprecated deferThreshold for
   // users who set the old field, then to a safe 0.55 default if neither is configured.
