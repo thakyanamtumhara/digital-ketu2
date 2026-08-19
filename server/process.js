@@ -2479,10 +2479,16 @@ Answer KETU only when the message is clearly one of these:
 - A complaint about goods already RECEIVED (wrong/short/damaged/defective/quality, "receive hua", counts that don't match)
 - A delivery/dispatch complaint about an existing order ("abhi tak nahi aaya", "X din ho gaye", lost parcel)
 - Changing or cancelling an order already placed (add/remove items, change address after booking)
-- Payment matters needing the owner: sharing bank/UPI details, confirming money received, refunds, failed payments
-- Anything asking the owner to personally DO something in the system (book a porter, forward a mail, add a piece to a shipment)
+- Payment matters needing the owner: sharing bank/UPI details, confirming whether money arrived, refunds, failed payments
+- Asking the owner to personally intervene in something already in motion (chase a stuck parcel, forward a mail to the courier, add a free piece to a shipment)
 
-Answer ASSISTANT for EVERYTHING else — product questions, prices from the catalog, stock, sizes, colours, photos, links, how to order, delivery feasibility, greetings, order confirmations, dispatch acknowledgements, tracking requests, packing requests, casual chat, AND haggling or discount requests (the assistant has a fixed-price answer for those).
+Answer ASSISTANT for EVERYTHING else — product questions, prices from the catalog, stock, sizes, colours, photos, links, how to order, delivery feasibility, greetings, order confirmations, tracking requests, packing requests, casual chat, AND haggling or discount requests (the assistant has a fixed-price answer for those).
+
+These four look like owner work but are NOT — the assistant has an exact answer and must get them (each one was wrongly sent to Ketu on 2026-08-19, and his own reply was the assistant's canned line):
+- BILLS / INVOICES / STATEMENTS — "bill bhejdo", "last 3 months ke bills chahiye", "invoice nahi mila" → the assistant sends the login link.
+- RETURN / EXCHANGE / BUY-BACK asked as a QUESTION with no defect claim — "can I return this?", "ordered wrong size, too big", "wapas le loge?" → the assistant states the policy. (An actual DEFECT or wrong item RECEIVED is still KETU.)
+- DISPATCH INSTRUCTIONS on orders already placed — "ship them today", "aaj nikalwa dena", "#11227 bhej dena", a pasted order-confirmation → the assistant acknowledges dispatch.
+- A buyer pasting his own PAYMENT-SUCCESSFUL receipt as good news → the assistant acknowledges it. (Asking whether YOU received his money is still KETU.)
 
 If you are not sure, answer ASSISTANT. Being wrong about KETU is costly; the assistant can always decide to escalate itself.
 Reply with exactly one word: KETU or ASSISTANT.`,
