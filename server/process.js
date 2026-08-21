@@ -2740,7 +2740,18 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   // coming-soon ETAs) so the model answers from real data instead of blank-deferring. Generous
   // regex is fine — over-firing only adds ~850 trusted tokens; under-firing keeps the old defer.
   // Any fetch failure → no block → the old always-defer behaviour is untouched (fail-closed).
-  const STOCK_INTENT_RE = /stock|avail|milega|milegi|mil\s*(jayega|sakta|sakti)|restock|aa\s*(gaya|gay[ei]|jayega|raha)|aayega|ayega|kab\s*(aa|tak|milega|mileg)|hai\s*(kya|k[eya])|h[ae]i?\s*\?|\bhoga\b|\bhai\b.{0,12}\?|out\s*of\s*stock|in\s*stock|khat?am|finish/i
+  // 2026-08-21: a buyer wrote "Hi Black Acid wash hai Oversize" — a plain availability question —
+  // and none of these alternatives matched, because 'hai' sat mid-sentence rather than before
+  // 'kya' or a '?'. With no stock block the model had no data and correctly deferred; Ketu
+  // answered "Yes available" himself. Added: any PRODUCT word sitting near 'hai'/'available'.
+  // Over-firing is the cheap direction here (~850 trusted tokens); under-firing costs an order.
+  const PRODUCT_WORD = 'acid\\s*wash|acidwash|oversize[d]?|polo|hoodie|sweatshirt|varsity|t[- ]?shirt|tshirt|round\\s*neck|rneck|boxy|kids|shorts|sublimation|jacket|\\d{3}\\s*gsm'
+  const STOCK_INTENT_RE = new RegExp(
+    'stock|avail|milega|milegi|mil\\s*(jayega|sakta|sakti)|restock|aa\\s*(gaya|gay[ei]|jayega|raha)|aayega|ayega|kab\\s*(aa|tak|milega|mileg)'
+    + '|\\bhai\\s*(kya|k[eya])|\\bh[ae]i?\\s*\\?|\\bhoga\\b|\\bhai\\b.{0,12}\\?|out\\s*of\\s*stock|in\\s*stock|khat?am|finish'
+    + '|(' + PRODUCT_WORD + ')[^]{0,30}\\b(hai|hain|h)\\b'      // "Black Acid wash hai Oversize"
+    + '|\\b(hai|hain)\\b[^]{0,30}(' + PRODUCT_WORD + ')'          // "hai kya acid wash"
+  , 'i')
   if (STOCK_INTENT_RE.test(mergedText || '')) {
     try {
       const stockBlock = formatStockBlock(await getStockSnapshot())
