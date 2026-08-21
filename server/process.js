@@ -384,6 +384,18 @@ async function ownerIsHandlingThread(db, conversationId) {
   return false
 }
 
+// Does the text beside the bill CONFIRM the buyer just placed/paid for an order? (2026-08-21,
+// Instagram buyer 2046137102932963 wrote "Hey i have ordered a sample" with her bill and got
+// "Ketu will reply shortly" — Ketu's own reply was "Ok dispatching asap".) This is the POSITIVE
+// evidence the shortcut should key on, rather than a growing chain of negative guards: past-tense
+// PLACED/PAID language means dispatch-ack, while "receive hua"/"mila" is the opposite and must
+// never match here (that is a delivery complaint — see the Niraj case).
+function billTextConfirmsOrder(text) {
+  const t = String(text || '')
+  if (/\b(receiv|recieve|mila|mili|mile|aaya|aayi|pahu?nch|damag|defect|wrong|galat|kam\s*niklе?|short)/i.test(t)) return false
+  return /\b(i\s*(have\s*)?ordered|have\s*placed|just\s*ordered|order\s*(kar\s*)?(diya|kiya|kar\s*di|place\s*kiya|placed|ho\s*gaya|laga\s*diya)|maine\s*order|payment\s*(done|ho\s*gaya|kar\s*diya)|paid)\b/i.test(t)
+}
+
 function billImageHasRealText(text) {
   const stripped = String(text || '')
     .replace(/\[[^\]]*\]/g, ' ')
@@ -1105,7 +1117,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       // at night for a delivered order (1 pc missing) and got "dispatching ASAP" twice (2026-07-05,
       // Ketu: "you should have understood the context and deferred"). Defer instead.
       const hasPhotoInBurst = messages.some(m => m.messageType === 'image') || /\[(product photo|Image)\]/i.test(mergedText || '')
-      if (hasPhotoInBurst || billImageHasRealText(mergedText) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+      if (hasPhotoInBurst || (billImageHasRealText(mergedText) && !billTextConfirmsOrder(mergedText)) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
           mergedText, messageIds, logData: {
@@ -1145,7 +1157,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl, db)) {
       // Same bill+photo evidence guard as the bill-doc path above (2026-07-05, buyer 6353441274).
       const hasExtraPhotoInBurst = messages.filter(m => m.messageType === 'image').length > 1 || /\[product photo\]/i.test(mergedText || '')
-      if (hasExtraPhotoInBurst || billImageHasRealText(mergedText) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+      if (hasExtraPhotoInBurst || (billImageHasRealText(mergedText) && !billTextConfirmsOrder(mergedText)) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
           mergedText, messageIds, logData: {
@@ -1609,7 +1621,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // Match common bill/invoice document patterns (Bill, Invoice, Tax, Receipt, GST, etc.)
   const isBillDocument = mergedText.match(/\[Document:.*(?:bill|invoice|tax|receipt|gst|challan|voucher|order).*\.pdf\]/i)
   if (isBillDocument) {
-    if (billImageHasRealText(mergedText) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+    if (await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
         mergedText, messageIds, logData: {
@@ -1620,6 +1632,12 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       console.log(`[Full AI] ${whatsappNumber} — bill arrived amid a delay complaint, deferring to Ketu instead of auto-dispatch`)
       return
     }
+    // Words beside the bill that are NOT a clear order confirmation → let the model read the whole
+    // thread and decide (it can acknowledge, answer, or defer itself). Only a bare bill, or one
+    // whose text confirms a placed/paid order, still gets the instant canned ack.
+    if (billImageHasRealText(mergedText) && !billTextConfirmsOrder(mergedText)) {
+      console.log(`[Full AI] ${whatsappNumber} — bill has text that is not an order confirmation; letting the model decide`)
+    } else {
     const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
     const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply, 'Rule')
     await createLog(db, conversation.id, mergedText, messageIds, {
@@ -1632,6 +1650,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       wwbunMessageId: sendResult?.messageId || null,
     })
     return
+    }
   }
 
   // --- Check: Invoice image (screenshot of purchase bill/tax invoice) ---
@@ -1646,7 +1665,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
   }
   if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl, db)) {
-    if (billImageHasRealText(mergedText) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+    if (await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
         mergedText, messageIds, logData: {
@@ -1657,6 +1676,12 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       console.log(`[Full AI] ${whatsappNumber} — invoice arrived amid a delay complaint, deferring to Ketu instead of auto-dispatch`)
       return
     }
+    // Words beside the bill that are NOT a clear order confirmation → let the model read the whole
+    // thread and decide (it can acknowledge, answer, or defer itself). Only a bare bill, or one
+    // whose text confirms a placed/paid order, still gets the instant canned ack.
+    if (billImageHasRealText(mergedText) && !billTextConfirmsOrder(mergedText)) {
+      console.log(`[Full AI] ${whatsappNumber} — bill has text that is not an order confirmation; letting the model decide`)
+    } else {
     const mediaReply = 'Ok noted sir, dispatching ASAP 🚚'
     const sendResult = await sendReplyViaWwbun(whatsappNumber, mediaReply, 'Rule')
     await createLog(db, conversation.id, mergedText || '[invoice image]', messageIds, {
@@ -1670,6 +1695,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     })
     console.log(`[Full AI] ${whatsappNumber} — invoice image detected, replied with dispatch confirmation${sendResult ? '' : ' (SEND FAILED)'}`)
     return
+    }
   }
 
   // A non-invoice product photo the clone can SEE (vision). null if the media isn't an image.
