@@ -123,6 +123,9 @@ function createDeferTimerCallback(whatsappNumber) {
           })
         }
         console.log(`[DeferBatch] ${whatsappNumber} — holding line already sent recently, suppressed repeat for ${entry.messages.length} message(s)`)
+        // Nothing reaches the buyer on this path, and /api/incoming skipped its own badge-clear
+        // because a defer was pending. Clear it here or it hangs to the 2-min client self-heal.
+        notifySkippedViaWwbun(whatsappNumber)
         return
       }
 
@@ -140,8 +143,12 @@ function createDeferTimerCallback(whatsappNumber) {
       }
 
       console.log(`[DeferBatch] ${whatsappNumber} — sent ONE defer for ${entry.messages.length} message(s)${sendResult ? '' : ' (SEND FAILED)'}`)
+      // A failed send never reached the buyer, so sendOutboundMessage never emitted ai_reply_done.
+      if (!sendResult) notifySkippedViaWwbun(whatsappNumber)
     } catch (err) {
       console.error(`[DeferBatch Error] ${whatsappNumber}:`, err.message)
+      // The timer threw before/while sending — nobody else will clear the badge.
+      notifySkippedViaWwbun(whatsappNumber)
     }
   }
 }
@@ -895,7 +902,30 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   //
   // Note: wwbun sends messageText as "[Audio]" placeholder for audio messages, not empty.
   // We ignore that placeholder and always try transcription for audio messages.
-  if (isTranscriptionConfigured()) {
+  // Transcription is the ONE paid call that sits ahead of every cooldown gate, so a voice note that
+  // arrives while Om is handling the chat by hand used to be transcribed and then thrown away
+  // (Ketu 2026-08-24, buyer 8929029490: his 5:01pm voice note set the cooldown, the buyer's 5:03pm
+  // voice note was transcribed anyway and dropped 15s later). Read the cooldown ONCE, and only when
+  // audio is actually present so text messages pay no extra query. On skip we clear the "[Audio]"
+  // placeholder exactly like the transcription-failure branch below, so downstream takes the
+  // already-tested media-only path — which the cooldown gate then drops.
+  const hasAudioMessage = messages.some(m => (m.messageType || '').toLowerCase() === 'audio')
+  let audioCooldownActive = false
+  if (hasAudioMessage) {
+    const audioCooldown = await db.buyerConversation.findUnique({
+      where: { whatsappNumber },
+      select: { cooldownUntil: true },
+    }).catch(() => null)
+    audioCooldownActive = !!(audioCooldown?.cooldownUntil && new Date() < new Date(audioCooldown.cooldownUntil))
+    if (audioCooldownActive) {
+      for (const m of messages) {
+        if ((m.messageType || '').toLowerCase() === 'audio') m.messageText = ''
+      }
+      console.log(`[Transcribe] ${whatsappNumber} — cooldown active (Om is handling this chat), skipping paid transcription`)
+    }
+  }
+
+  if (isTranscriptionConfigured() && !audioCooldownActive) {
     for (const m of messages) {
       const type = (m.messageType || '').toLowerCase()
       if (type !== 'audio') continue
@@ -2015,6 +2045,10 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         })
         if (freshConvo?.cooldownUntil && new Date() < new Date(freshConvo.cooldownUntil)) {
           console.log(`[Followup] ${whatsappNumber} — skipped: Om intervened (cooldown active)`)
+          // /api/incoming deliberately does NOT clear the badge while a welcome nudge is pending
+          // (it waits for the nudge to send). The nudge is now cancelled, so nothing else will —
+          // without this the badge hangs for the full 2-min client self-heal.
+          notifySkippedViaWwbun(whatsappNumber)
           return
         }
 
@@ -2853,6 +2887,31 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   // Vision: tell the model a real photo is attached and how to use it (no hallucinated prices/details).
   if (imageBlock) {
     userPrompt = `📷 The buyer attached a PHOTO (sent with this message). Look at the image carefully. OUTPUT ONLY the final WhatsApp message to send the buyer (first-person, as Om, casual Hinglish) — NEVER narrate or describe the image or your analysis: do NOT write "This is a screenshot of...", "The buyer has built their cart", "they have NOT paid yet", or ANY third-person description / reasoning (that is internal-only); send JUST the message text the buyer should receive.\nFIRST: if the photo is a SCREENSHOT of OUR WEBSITE — an Order Summary / cart / checkout page, or one showing a "Pay Now" / "Order Now" / "Place order" / "Add to cart" button (the buyer has built their order and is showing it / asking how to finish) — they have NOT paid yet, so do NOT say "dispatching" and do NOT defer. Guide them to complete it: "Pay Now button click karke order complete kar lijiye sir, payment ke baad dispatch ho jayega 👉 https://sale91.com". EXCEPTION — if the website screenshot shows the item OUT OF STOCK / "No stock" (or the buyer's text says so), do NOT bounce them back with "website pe hai, order kar lijiye" (it contradicts what they just showed): reply EXACTLY [DEFER] — only Ketu knows real-time stock (POLICY Ketu 2026-07-16: NEVER assert in/out of stock, do NOT say "out lag raha hai"); he handles the stock status + any alternative.\nBUT if the photo is a BILL / TAX INVOICE / order receipt (a FINALISED order — has an Invoice No., Total, "Pay To" bank details — NOT a cart) AND the buyer wants to ADD or CHANGE something ("add this as well", "ye bhi add kar do", "isme ye bhi daal do"), that is an order MODIFICATION → reply EXACTLY [DEFER] (only Ketu can add the item / confirm which product) — do NOT say "dispatching", do NOT acknowledge a dispatch, and do NOT interrogate for product/colour/size when the IMAGE itself shows the item to add ("ye bhi add karva do" + a product photo = the photo IS the answer — read it and defer with it; clone asked "kya add karna hai? product, colour, size bata dijiye" to a photo that showed exactly that, 2026-07-03).\nALSO — if the buyer's TEXT asks for TRACKING ("I want tracking details", "tracking chahiye", "track my order", "order kahan hai", order STATUS) — EVEN when the image is an Order-Confirmed / order page that itself says "dispatching in a few minutes" — reply EXACTLY [DEFER] — UNLESS a "📦 ORDER LOOKUP RESULT" block is present in this request: then answer the plain status/tracking ask FROM that block (short + the tracking link), complaints/no-AWB still [DEFER]. Never answer "dispatching ASAP" to a tracking request.\nORDER-DETAILS SCREENSHOT — "Noted sir 🙏" IS ONLY FOR A BREAKDOWN OF *THEIR OWN* ORDER, NEVER FOR A SCREENSHOT OF OUR SITE. If the buyer sends back a shot of OUR size chart, catalog page or product listing, they are ASKING something about it — there is nothing to note, and "Noted sir 🙏" is a non-answer (Ketu 2026-08-01, buyer 9311729188: "What's been noted? There is nothing to note here"). In that case, if you cannot tell what they want from the image, ASK: "Kya poochhna hai sir, is photo mein?" / "Kya issue hai sir?" — one short question, nothing else. Also never use "Noted sir 🙏" as a lead-in to another sentence; it is a whole reply or not used at all. ONLY when the photo is a LIST / SUMMARY of products + sizes + quantities the buyer is SHARING or confirming (an order breakdown, e.g. "240gsm Black M:5 L:5, White XL:3..."), with NO clear complaint, NO bill/payment markers (no Invoice No / Pay-To), NO cart "Pay Now" button, and NO explicit add/change request, the safest reply is simply "Noted sir 🙏" — nothing else (Ketu 2026-06-16, buyer 8437375306: such a screenshot can mean many things, so a clean "Noted" is the best answer; do NOT route it to the stock sheet / catalog / product page and do NOT say "dispatching" or ask which item).\nSECOND: if the photo shows a POSSIBLE PROBLEM on a garment — stains, marks, chalk lines, holes, loose threads, damage, wrong/odd print, a measuring tape on the garment, or the buyer's text sounds like a complaint/showing an issue ("this is hilarious", "ye kya hai", "dekho isko", "issue", "quality kharab/karap kyu hai", "fade ho gaya", emoji-only disappointment) — they are REPORTING a received-product problem, NOT shopping: reply EXACTLY [DEFER] — even if you can identify the product, a quality-negative caption makes it a complaint, NEVER a product-ID + catalog link (clone answered "Acid wash oversize hai sir 👉 link" to "quality thora karap kyu hai", 2026-07-03) (Ketu inspects defect photos personally — e.g. he identified chalk marks a buyer sent 2026-06-11 while the clone wrongly answered "cream round neck, catalog dekh lijiye"). NON-GARMENT PRODUCT they want us to supply — if the image is a HOME TEXTILE or other non-garment PRODUCT (a bedsheet / chadar, towel, curtain, blanket, or raw fabric / cloth) and the text is asking for it ("aisa bedsheet milega", "ye banaoge", "isa chahiye"), do NOT defer — tell them directly we only make t-shirts: "Hum sirf t-shirts/garments banate hain sir, ye nahi 👉 https://sale91.com/catalog" (Ketu 2026-06-27, buyer 6232320603). ALSO: if the photo is clearly NOT apparel / a garment / a product we could sell (a selfie, a meme, a screenshot of text or chat, a document, a random object), OR if the image is blank / unclear / blurry / you cannot actually make out a garment, reply with EXACTLY [DEFER] and nothing else — do NOT guess.\nPHOTO + "IS IT AVAILABLE IN THIS COLOUR?" → ANSWER IT, DO NOT DEFER (Ketu 2026-07-30, buyer 9101544502 sent a polo photo + "Bhaiya yeh wale colour main hai kya tshirt?"; the clone deferred twice and Ketu answered "Nahi" himself 9 hours later). You CAN see the photo and you DO have every product's colour list in the AUTHORITATIVE CATALOG, so this is answerable: (1) identify the product from the image (collar → polo, etc.); (2) read the garment's colour; (3) compare it with that product's "colours:" line in the CATALOG. NOT in that list → we do not make it, which is a PRODUCT FACT and NOT a stock claim, so say so plainly + HD Photos: "Ye colour nahi hai sir, available colours HD Photos mein dekh lijiye 👉 https://www.bulkplaintshirt.com/?q=HDphoto" (e.g. Premium Polo is Black/White/Navy/Maroon ONLY — any other shade = "nahi hai"). Colour IS in the list → confirm we make it + the product deep-link, and do NOT claim whether it is in stock right now (that still follows the stock rules; a "📦 LIVE STOCK DATA" block, if present, may answer it). Only [DEFER] if you genuinely cannot tell WHICH product it is or cannot make out the colour — and if you are unsure between close shades (green vs army/sage green), send HD Photos instead of guessing "nahi hai". PRINTED/BRANDED TEE + COLOUR ASK — a buyer showing a PRINTED or branded tee and asking about its COLOUR ("ei colour ta ki hobe", "ye colour milega?") wants OUR BLANK in that colour, NOT a print service: identify the colour and answer for the blank ("Army green hai sir 👉 [deep-link/HD Photos]") — do NOT reply "print wala nahi banate" to a colour question (clone did; Ketu answered "Yes army green tshirt available" + the product photo, 2026-07-06). Mention printing only if they ask for printing. PHOTO AFTER A BILL — if the recent thread shows a BILL was just sent (with or without a dispatch-ack), a product photo now is NOT a dispatch confirmation: it is usually EVIDENCE (missing/wrong/damaged piece) or an add-item → reply EXACTLY [DEFER]; never "dispatching ASAP" (2026-07-05, buyer 6353441274). OTHERWISE, identify which of our products it is (tshirt / oversized / polo / hoodie / sweatshirt / acid wash / drop shoulder / etc.) ONLY if you are genuinely confident from what you SEE. Reply about THAT product the way Om would: if it clearly matches something we make, say so briefly and send the catalog link https://sale91.com/catalog (use a specific product link only if one is given in the knowledge base above). If you are NOT sure which product it is, do NOT name one — ask "Kaunsa product chahiye sir?" instead of guessing a type (e.g. never say "polo" unless you can clearly see a collar). NEVER assert a FABRIC/KNIT TYPE from a photo ("single jersey", "matty", "pique", "terry") — knit identification from an image is unreliable (clone called a competitor sample "single jersey"; Ketu's answer was "Matty hai", 2026-07-03): for fabric-ID asks on buyer photos (especially competitor samples they want matched), [DEFER] — Ketu identifies fabrics personally. SIZE-LABEL STICKER COLOUR → GSM (OUR oversize samples ONLY; Ketu's own fact 2026-07-22): when a buyer shows OUR sample tees and asks which GSM is which, the round size-label sticker's COLOUR tells: BEIGE/cream label = 180gsm, RED label = 210gsm — answer per Ketu: "Beige label wala 180gsm hai sir, red label wala 210gsm". Do NOT extend this mapping to any other product/label colour (a colour not in this map, or a non-oversize product → don't guess, [DEFER]); never call the beige label "white". CRITICAL — NOT-MADE GARMENT TYPES: if the pictured garment is a type we do NOT make — a FULL-SLEEVE / long-sleeve T-SHIRT (our only long-sleeve items are sweatshirt / hoodie / drop-shoulder hoodie — there is NO long-sleeve tee), a collared woven "normal shirt", jeans/joggers etc. — say we don't make it: "Is tarah ka nahi banate sir — full-sleeve mein sweatshirt/hoodie hai 👉 https://sale91.com/catalog". NEVER say "ye website pe hai" for a type that isn't in the catalog (clone told a full-sleeve-tee buyer it was on the website; Ketu corrected "Nahi hai is tarah ka", 2026-07-01). If the buyer then NEGATES your identification ("sweatshirt nahi hai vo", "vo X nahi hai") they are CORRECTING you — do not re-push X's link; if what they describe isn't a catalog type, deny it plainly. And if a buyer asks whether we can SUPPLY/match a pictured fabric/garment and you are not CERTAIN it's a catalog product, [DEFER] — do not assert we have it (clone said a fabric photo "sublimation jaisa lag raha hai" and implied we stock it; Ketu said "Nahi", 2026-06-30). NEVER invent a price, GSM, or detail not in the knowledge base, and never claim it is in/out of stock (EXCEPTION: if a "📦 LIVE STOCK DATA" block is present in this request, answer stock questions FROM that block per its rules).\n\n${userPrompt}`
+  }
+
+  // --- Cooldown gate BEFORE the expensive brain (Ketu 2026-08-24) ---
+  // Everything above this line is cheap-ish (two Haiku classifiers + embeddings). The reply call
+  // below is the ₹3+ one. The only cooldown re-check used to sit AFTER generation (~line 3200), so
+  // when Om typed his own reply while the clone was mid-flight we paid for a full Opus reply and
+  // then binned it — logged `superseded_by_intervention`, and still charged to dailySpentUsd.
+  // Reading cooldownUntil here costs one indexed lookup and saves the whole reply call. The
+  // post-generation re-check STAYS (the reply itself takes seconds; Om can intervene during it).
+  const preBrainCooldown = await db.buyerConversation.findUnique({
+    where: { whatsappNumber },
+    select: { cooldownUntil: true },
+  })
+  if (preBrainCooldown?.cooldownUntil && new Date() < new Date(preBrainCooldown.cooldownUntil)) {
+    cancelPendingDefer(whatsappNumber)
+    await createLog(db, conversationId, mergedText, messageIds, {
+      status: 'SKIPPED',
+      // Distinct from `superseded_by_intervention` on purpose: that reason means money was BURNED,
+      // this one means it was SAVED. Keeps the waste query honest and makes the saving measurable.
+      deferReason: 'superseded_before_generation',
+      costUsd: 0,
+      processingMs: Date.now() - startTime,
+    })
+    console.log(`[Full AI] ${whatsappNumber} — Om intervened before generation; skipping the reply call (no spend)`)
+    return
   }
 
   // --- Call Claude API ---
