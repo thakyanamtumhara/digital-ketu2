@@ -3318,12 +3318,27 @@ function buildSystemPrompt({ settings, styleGuide, stylePairs }) {
     for (const pair of stylePairs) {
       const meta = typeof pair.metadata === 'string' ? JSON.parse(pair.metadata) : pair.metadata
       if (meta?.buyerMessage && meta?.omReply) {
-        dynamicPrompt += `Buyer: ${meta.buyerMessage}\nOm: ${meta.omReply}\n\n`
+        // Style pairs teach PHRASING, not rates — redact prices here too (2026-08-26).
+        dynamicPrompt += `Buyer: ${redactPrices(meta.buyerMessage)}\nOm: ${redactPrices(meta.omReply)}\n\n`
       }
     }
   }
 
   return { staticPrompt, dynamicPrompt }
+}
+
+// STRIP PRICES OUT OF RETRIEVED CHUNKS (2026-08-26). Removing hardcoded prices from the prompt on
+// 08-23 was only half the job: the vector store is a SECOND frozen price source. 28 chunks across
+// CORRECTION / SAVED_REPLY / PREMIUM_PAIR / STYLE_PAIR still carried old rates, and one of them —
+// "240gsm Acid Wash Oversize ₹233" — was retrieved for a PREMIUM POLO question and quoted as
+// "₹233 hai sir" (buyer 9990753658; polo is ₹237). Corrections are ranked ABOVE everything, so a
+// stale number in one beats the live catalog.
+// These chunks exist to teach Ketu's PHRASING, not his prices, so every rupee figure is redacted
+// before they reach the model. The CATALOG block is untouched — it stays the single price source.
+function redactPrices(text) {
+  return String(text || '')
+    .replace(/₹\s?\d[\d,]*(?:\s*[-–]\s*₹?\s?\d[\d,]*)?/g, '₹[see CATALOG]')
+    .replace(/\b\d{2,5}\s?(?:rs\b|rupees\b|\/-|\/pc\b|per\s?pc\b)/gi, '₹[see CATALOG]')
 }
 
 function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conversationHistory, quotedText, priceTable }) {
@@ -3371,7 +3386,8 @@ function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conve
     for (const result of knowledgeResults) {
       const sim = (Number(result.similarity) * 100).toFixed(0)
       const prefix = result.source === 'CORRECTION' ? '⚠️ ' : ''
-      prompt += `---\n${prefix}[${result.source}] ${result.title || ''} (${sim}% match)\n${result.content}\n`
+      const chunkBody = result.source === 'CATALOG' ? result.content : redactPrices(result.content)
+      prompt += `---\n${prefix}[${result.source}] ${redactPrices(result.title || '')} (${sim}% match)\n${chunkBody}\n`
       if (result.source === 'CATALOG' && result.metadata) {
         const meta = typeof result.metadata === 'string' ? JSON.parse(result.metadata) : result.metadata
         // Inject the real deep product link so the bot can send it (like Om does) instead of
