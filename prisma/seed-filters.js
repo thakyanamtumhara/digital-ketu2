@@ -38,13 +38,15 @@ const SEED_FILTERS = [
     ].join(','),
     priority: 20,
   },
-  {
+      // DEFUSED 2026-08-27: never enable as auto_reply — 'Ok noted sir 👍' would fire on complaints, cancellations and bulk leads.
+{
     name: 'informing',
     displayName: 'Informing / Status Update',
     description: 'Auto-reply to buyer status updates and purchase confirmations — 0 tokens',
     filterType: 'keyword',
     matchType: 'partial',
-    action: 'auto_reply',
+    action: 'defer',
+    enabled: false,
     autoReplyText: 'Ok noted sir 👍',
     keywords: [
       'just to inform', 'inform', 'batana tha', 'bata raha', 'bata rahi',
@@ -68,13 +70,15 @@ const SEED_FILTERS = [
     ].join(','),
     priority: 30,
   },
-  {
+      // DEFUSED 2026-08-27: never enable as auto_reply — would tell a buyer whose payment is failing that the site is fine.
+{
     name: 'website_issue',
     displayName: 'Website Issue',
     description: 'Auto-reply to website/app access issues — 0 tokens',
     filterType: 'keyword',
     matchType: 'combo',
-    action: 'auto_reply',
+    action: 'defer',
+    enabled: false,
     autoReplyText: 'Sir, issue toh nahi hai. Network ya server ka temporary issue hoga. Thodi der baad try kariye, open ho jaayega 👍',
     keywords: JSON.stringify({
       siteWords: ['site', 'website', 'sale91', 'page'],

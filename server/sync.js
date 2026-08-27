@@ -186,8 +186,14 @@ export async function syncCatalog(db, anthropic) {
         metadata: {
           slug: product.slug,
           name: product.name,
-          bulkPrice: product.bulkPrice,
-          samplePrice: product.samplePrice,
+          // Live products.json uses bulkPriceFrom/To; the flat fields were retired, so these were
+          // silently undefined and JSON.stringify dropped them (audit 2026-08-27). The chunk TEXT
+          // already carries the correct price, so this was cosmetic — but the metadata price
+          // emitter in buildUserPrompt reads these, and was therefore dead.
+          bulkPrice: product.bulkPriceFrom ?? product.bulkPrice ?? null,
+          bulkPriceTo: product.bulkPriceTo ?? product.bulkPrice ?? null,
+          samplePrice: product.samplePriceFrom ?? product.samplePrice ?? null,
+          samplePriceTo: product.samplePriceTo ?? product.samplePrice ?? null,
           gsm: product.gsm,
           colors: product.colors,
           sizes: product.sizes,

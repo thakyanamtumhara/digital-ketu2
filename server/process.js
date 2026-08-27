@@ -81,6 +81,17 @@ export function stampHoldingLine(whatsappNumber) {
 }
 
 function scheduleDeferReply({ whatsappNumber, deferMessage, conversationId, mergedText, messageIds, logData, db, brainLabel = null }) {
+  // FAIL LOUDLY, NOT SILENTLY (audit 2026-08-27). One call site omitted `db`; the timer then threw
+  // on its first await 30s later, the blanket catch swallowed it, and the buyer got nothing at all.
+  // A missing db is a programming error — say so now, and still send the line rather than vanish.
+  if (!db && !pendingDefers.get(whatsappNumber)?.db) {
+    console.error(`[DeferBatch] ${whatsappNumber} — BUG: scheduleDeferReply called without db; sending the holding line immediately instead of queueing`)
+    if (!holdingLineJustSent(whatsappNumber)) {
+      stampHoldingLine(whatsappNumber)
+      sendReplyViaWwbun(whatsappNumber, deferMessage || 'Ketu will reply shortly sir 🙏', brainLabel || 'Rule').catch(() => {})
+    }
+    return
+  }
   const existing = pendingDefers.get(whatsappNumber)
   const messageEntry = { conversationId, mergedText, messageIds, logData }
 
@@ -2178,7 +2189,21 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
           })
         }
       } catch (err) {
+        // A first-contact lead must not die in a console line (audit 2026-08-27). The parent already
+        // returned after logging welcome_followup_scheduled, so nothing else will answer this
+        // buyer. Mirror the WhatsApp process-error guard: trace it, hold the buyer, alert Ketu.
         console.error(`[Followup Error] ${whatsappNumber}:`, err.message)
+        try {
+          await createLog(db, conversation.id, mergedText, [], {
+            status: 'FAILED', deferReason: `followup_error: ${String(err?.message || '').slice(0, 140)}`,
+            processingMs: 0,
+          })
+          if (!holdingLineJustSent(whatsappNumber)) {
+            stampHoldingLine(whatsappNumber)
+            await sendReplyViaWwbun(whatsappNumber, settings.deferMessage || 'Ketu will reply shortly sir 🙏', 'Rule').catch(() => {})
+          }
+          notifyOwner(`⚠️ dk2 followup error — "${String(err?.message || '').slice(0, 80)}" (${whatsappNumber}). Buyer ko holding line bhej diya.`).catch(() => {})
+        } catch { /* guard must never throw */ }
       }
     // Instagram: wwbun STOPPED sending the IG welcome (wwbun 1c8e7cf today), so on Instagram
     // this timer is no longer a follow-up TO a greeting - it IS the buyer's only reply, and it
@@ -3110,23 +3135,18 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     // Every Claude tier failed → hold the buyer with the defer line rather than answering as
     // someone else. Previously this path logged FAILED and sent NOTHING, so the buyer got silence.
     if (!aiReply) {
+      // `db` MUST be passed (audit 2026-08-27): every other scheduleDeferReply call site passes it,
+      // this one did not — so during a TOTAL Claude outage entry.db was undefined, the batch timer
+      // threw on its first await, the blanket catch swallowed it, and the send was never reached.
+      // Every buyer got silence and no log row, at exactly the moment things were already broken.
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId,
         mergedText, messageIds, logData: {
-          status: 'DEFERRED', deferReason: 'all_claude_models_failed',
+          status: 'DEFERRED', deferReason: `all_claude_models_failed: ${String(em || '').slice(0, 120)}`,
           processingMs: Date.now() - startTime,
-        },
+        }, db, brainLabel: modelLabel(usedFallbackBrain || replyModel),
       })
       console.log(`[BrainDown] ${whatsappNumber} — every Claude tier failed; sent the holding line`)
-      return
-    }
-    if (!aiReply) {
-      await createLog(db, conversationId, mergedText, messageIds, {
-        status: 'FAILED',
-        deferReason: err.message,
-        knowledgeChunks: vectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
-        processingMs: Date.now() - startTime,
-      })
       return
     }
   }
@@ -3494,8 +3514,8 @@ function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conve
         // guessing a slug. The slug comes from catalog metadata; never let the model invent URLs.
         if (meta.slug) prompt += `Product link: https://sale91.com/catalog/p/${meta.slug}\n`
         if (meta.gsm) prompt += `GSM: ${meta.gsm}\n`
-        if (meta.bulkPrice) prompt += `Bulk price: ₹${meta.bulkPrice}/pc\n`
-        if (meta.samplePrice) prompt += `Sample price: ₹${meta.samplePrice}/pc\n`
+        if (meta.bulkPrice) prompt += `Bulk price: ₹${meta.bulkPrice}${meta.bulkPriceTo && meta.bulkPriceTo !== meta.bulkPrice ? `–₹${meta.bulkPriceTo}` : ''}/pc\n`
+        if (meta.samplePrice) prompt += `Sample price: ₹${meta.samplePrice}${meta.samplePriceTo && meta.samplePriceTo !== meta.samplePrice ? `–₹${meta.samplePriceTo}` : ''}/pc\n`
         if (meta.colors) prompt += `Colors: ${meta.colors.join(', ')}\n`
         if (meta.sizes) prompt += `Sizes: ${meta.sizes.join(', ')}\n`
       }
