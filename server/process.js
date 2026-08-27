@@ -29,6 +29,21 @@ const DEFER_DELAY_MS = 30 * 1000 // 30 seconds — batch defers before sending
 // rule in the system prompt applies to the AI's GENERATED replies (don't dodge a real question with
 // empty filler), NOT to this canned nudge that follows a content-less greeting.
 const WELCOME_FOLLOWUP_GENERIC = 'Ask me if any questions sir?'
+// GREETING NUDGE (2026-08-27). Two of Ketu's own instructions collided here: he prescribed the
+// exact line above for a bare greeting (2026-08-07, buyer 9319092920), while the rulebook bans
+// "Ask me if any questions sir?" by name as standalone filler. Last night it cost a lead —
+// 8431063589 said "Hi sir", got the bare line, had to ask twice more, and Ketu stepped in 24
+// minutes later. Resolution keeps HIS words and adds the one thing that makes them work: a
+// specific question, in the buyer's own language. The share-details prefill still uses the
+// untouched constant, because there he was explicit: "not something like that, exactly like that".
+function greetingNudge(text) {
+  const t = String(text || '')
+  const hindiish = /[ऀ-ॿ]/.test(t)
+    || /\b(hai|kya|chahiye|chaiye|bhai|bhaiya|kitna|kitne|kaise|karna|milega|batao|bataiye|namaste|namaskar)\b/i.test(t)
+  return hindiish
+    ? 'Namaste sir 🙏 Bataiye kaunsa product chahiye?'
+    : 'Hello sir 🙏 Ask me if any questions — which product do you need?'
+}
 export const pendingWelcomeFollowups = new Map() // keyed by whatsappNumber
 export const pendingDefers = new Map() // keyed by whatsappNumber
 // whatsappNumber -> ms of the last reply actually SENT via wwbun. Lets the /api/incoming caller
@@ -1386,7 +1401,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       'gm', 'morning', 'evening', 'hy', 'hye', 'hola', 'yo',
     ]
     if (partialGreetingPatterns.includes(partialNormalizedGreeting)) {
-      const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC, 'Rule')
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, greetingNudge(mergedText), 'Rule')
       await createLog(db, conversation.id, mergedText, messageIds, {
         status: 'REPLIED',
         aiReply: WELCOME_FOLLOWUP_GENERIC,
@@ -2131,7 +2146,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 
         if (isGenericMessage(mergedText) || GREETING_PHRASE_RE.test(mergedText)) {
           // Generic message → send nudge
-          const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC, 'Rule')
+          const sendResult = await sendReplyViaWwbun(whatsappNumber, greetingNudge(mergedText), 'Rule')
           await createLog(db, conversation.id, mergedText, [], {
             status: 'REPLIED',
             aiReply: WELCOME_FOLLOWUP_GENERIC,
@@ -2207,10 +2222,10 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         || GREETING_PHRASE_RE.test(greetingProbe)
       )) {
     if (inDeferChain) { await suppressPrefillForDeferChain('bare-greeting nudge'); return }
-    const sendResult = await sendReplyViaWwbun(whatsappNumber, WELCOME_FOLLOWUP_GENERIC, 'Rule')
+    const sendResult = await sendReplyViaWwbun(whatsappNumber, greetingNudge(mergedText), 'Rule')
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'REPLIED',
-      aiReply: WELCOME_FOLLOWUP_GENERIC,
+      aiReply: greetingNudge(mergedText),
       deferReason: 'bare_greeting_deterministic',
       processingMs: Date.now() - startTime,
       sentViaWwbun: !!sendResult,
