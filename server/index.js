@@ -189,6 +189,43 @@ app.get('/api/buyer-memory/:number', async (c) => {
 // to CORRECT/replace it. This endpoint computes that + extracts the day's divergence pairs (AI reply
 // → Ketu's manual reply within 25min on the same conversation) so the daily audit loop can find,
 // judge, and fix them without Ketu hunting for bad replies himself. Lightweight (no promptSent).
+// RESCUABLE DEFERS (2026-08-27): defers/silences that Ketu then answered HIMSELF with a short
+// line. A short manual reply after a defer is the signature of "the clone already held this
+// answer" — it is how every manual audit has found its misses. Surfacing it daily turns those
+// audits into a standing signal instead of something only found when Ketu complains.
+async function computeRescuableDefers(days) {
+  const since = new Date(Date.now() - days * 86400000)
+  const logs = await db.messageLog.findMany({
+    where: { createdAt: { gte: since } },
+    select: { conversationId: true, status: true, deferReason: true, buyerMessage: true, aiReply: true, createdAt: true },
+    orderBy: { createdAt: 'asc' },
+  })
+  const byConv = {}
+  for (const l of logs) (byConv[l.conversationId] ||= []).push(l)
+  const NON_ANSWER = new Set(['claude_deferred', 'cheap_gate_deferred', 'ai_chose_silence', 'defer_repeat_suppressed'])
+  const items = []
+  for (const conv of Object.values(byConv)) {
+    for (let i = 0; i < conv.length; i++) {
+      const r = conv[i]
+      if (!NON_ANSWER.has(r.deferReason || '')) continue
+      for (let j = i + 1; j < conv.length; j++) {
+        const n = conv[j]
+        if (n.deferReason !== 'manual_reply') {
+          if (n.status === 'REPLIED' && !n.deferReason) break   // clone answered it after all
+          continue
+        }
+        const reply = (n.aiReply || '').trim()
+        // Short answers only. A long manual reply means real judgement, which is his job.
+        if (reply && reply.length <= 90 && (new Date(n.createdAt) - new Date(r.createdAt)) < 6 * 3600 * 1000) {
+          items.push({ buyer: (r.buyerMessage || '').replace(/\s+/g, ' '), ketu: reply.replace(/\s+/g, ' ') })
+        }
+        break
+      }
+    }
+  }
+  return { count: items.length, items }
+}
+
 async function computeFidelity(days, maxGapMin = 25) {
   const since = new Date(Date.now() - days * 86400000)
   const logs = await db.messageLog.findMany({
@@ -288,6 +325,7 @@ async function sendFidelityDigest(force = false) {
   lastFidelityDigestDay = istDay
   try {
     const f = await computeFidelity(1)
+    const rescuable = await computeRescuableDefers(1)
     const fidelity = f.paidReplies ? (100 - f.interventionRatePct).toFixed(1) : '100'
     let msg = `🤖 Digital Ketu — daily report\nClone fidelity (24h): ${fidelity}% — aap ne ${f.interventions}/${f.paidReplies} replies pe step-in kiya.`
     if (f.ackCount) msg += `\n(+${f.ackCount} baar sirf "ok/haan" bola — wo correction nahi, count nahi kiya.)`
@@ -299,6 +337,18 @@ async function sendFidelityDigest(force = false) {
         msg += `\n\n• Buyer: ${p.buyer.slice(0, 70)}\n  Clone: ${p.ai.slice(0, 70)}\n  Aap: ${p.ketu.slice(0, 70)}`
       }
       if (f.pairs.length > 6) msg += `\n\n…+${f.pairs.length - 6} aur.`
+    }
+    // SECOND failure mode (added 2026-08-27). The digest only ever reported cases where Ketu
+    // CORRECTED a reply. The bigger bucket is the opposite: chats the clone handed to him that it
+    // could have answered — every manual audit has found these, but he never saw them daily.
+    // Proxy: a defer/silence in the window that Ketu then answered himself with a SHORT line
+    // (canned-length), which is exactly what "the clone already had this answer" looks like.
+    if (rescuable.count) {
+      msg += `\n\n📥 Jo clone ne aapko bheja, par khud handle kar sakta tha (${rescuable.count}):`
+      for (const p of rescuable.items.slice(0, 5)) {
+        msg += `\n\n• Buyer: ${p.buyer.slice(0, 70)}\n  Aap: ${p.ketu.slice(0, 70)}`
+      }
+      if (rescuable.count > 5) msg += `\n\n…+${rescuable.count - 5} aur.`
     }
     await notifyOwner(msg)
     console.log(`[FidelityDigest] sent — ${fidelity}% fidelity, ${f.interventions} divergences`)
