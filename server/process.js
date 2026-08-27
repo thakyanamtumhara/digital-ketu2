@@ -2400,7 +2400,7 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
   // 17:07/17:08). None of the address phrasings below matched this regex, so removing the
   // Instagram nudge tier alone would still have left them to the Haiku silence gate. A buyer
   // asking where we are is never chatter — on either platform.
-  const FORCE_REPLY_RE = /\breturn\b|\brefund\b|\bexchange\b|wapas|वापस|\bdispatch|porter|pickup|\btrack|deliver|पहुंच|pahu?nch(a|e|eg)?|\b(shop|store|duk[a]?an|godam|warehouse|office)\b[^]{0,25}\b(clos|band|khul|open|tim|kab)|\b(kab|kitne)\b[^]{0,15}\b(khul|band|close|open)|\baddress\b|\blocation\b|\blocated\b|\bkaha[ni]?\b|\bkahan\b|\bkidhar\b|\bkidar\b|kha\s*se\b|कहाँ|कहां|किधर|\bvisit\b|\bpata\b|\bketu\b|\bowner\b|\bmalik\b|baat\s*kar(a|wa)?\s*(o|do|ne|na)|\bcall\s*(kar|kr)|^\s*[?!.]{1,4}\s*$|\br[ew]?ply\b/i
+  const FORCE_REPLY_RE = /\breturn\b|\brefund\b|\bexchange\b|wapas|वापस|\bdispatch|porter|pickup|\btrack|deliver|पहुंच|pahu?nch(a|e|eg)?|\b(shop|store|duk[a]?an|godam|warehouse|office)\b[^]{0,25}\b(clos|band|khul|open|tim|kab)|\b(kab|kitne)\b[^]{0,15}\b(khul|band|close|open)|\baddress\b|\blocation\b|\blocated\b|\bkaha[ni]?\b|\bkahan\b|\bkidhar\b|\bkidar\b|kha\s*se\b|कहाँ|कहां|किधर|\bvisit\b|\bpata\b|\bketu\b|\bowner\b|\bmalik\b|baat\s*kar(a|wa)?\s*(o|do|ne|na)|\bcall\s*(kar|kr)|^\s*[?!.]{1,4}\s*$|\br[ew]?ply\b|\b(aa?na|aa?ne|aa\s*raha|aa\s*rha|aa\s*rahe|nikal\s*raha)\b[^]{0,20}\b(hu|hun|h|hai|hain|tha|ho)\b|\b(aa?na|aa?ne)\s*(h|hai|hoga|padega)\b/i
   const forcedReply = FORCE_REPLY_RE.test(mergedText || '')
   if (forcedReply) console.log(`[Restraint] ${whatsappNumber} — force-reply intent, gate bypassed`)
 
