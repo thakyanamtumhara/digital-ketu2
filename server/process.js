@@ -3411,7 +3411,7 @@ function buildSystemPrompt({ settings, styleGuide, stylePairs }) {
       const meta = typeof pair.metadata === 'string' ? JSON.parse(pair.metadata) : pair.metadata
       if (meta?.buyerMessage && meta?.omReply) {
         // Style pairs teach PHRASING, not rates — redact prices here too (2026-08-26).
-        dynamicPrompt += `Buyer: ${redactPrices(meta.buyerMessage)}\nOm: ${redactPrices(meta.omReply)}\n\n`
+        dynamicPrompt += `Buyer: ${sanitizeChunk(meta.buyerMessage)}\nOm: ${sanitizeChunk(meta.omReply)}\n\n`
       }
     }
   }
@@ -3419,7 +3419,7 @@ function buildSystemPrompt({ settings, styleGuide, stylePairs }) {
   return { staticPrompt, dynamicPrompt }
 }
 
-// STRIP PRICES OUT OF RETRIEVED CHUNKS (2026-08-26). Removing hardcoded prices from the prompt on
+// SANITISE RETRIEVED CHUNKS (2026-08-26, extended 2026-08-27). Removing hardcoded prices from the prompt on
 // 08-23 was only half the job: the vector store is a SECOND frozen price source. 28 chunks across
 // CORRECTION / SAVED_REPLY / PREMIUM_PAIR / STYLE_PAIR still carried old rates, and one of them —
 // "240gsm Acid Wash Oversize ₹233" — was retrieved for a PREMIUM POLO question and quoted as
@@ -3427,10 +3427,18 @@ function buildSystemPrompt({ settings, styleGuide, stylePairs }) {
 // stale number in one beats the live catalog.
 // These chunks exist to teach Ketu's PHRASING, not his prices, so every rupee figure is redacted
 // before they reach the model. The CATALOG block is untouched — it stays the single price source.
-function redactPrices(text) {
+function sanitizeChunk(text) {
   return String(text || '')
     .replace(/₹\s?\d[\d,]*(?:\s*[-–]\s*₹?\s?\d[\d,]*)?/g, '₹[see CATALOG]')
     .replace(/\b\d{2,5}\s?(?:rs\b|rupees\b|\/-|\/pc\b|per\s?pc\b)/gi, '₹[see CATALOG]')
+    // RETIRED GODAM NUMBER (2026-08-27 sweep): 21 saved chunks still carried 7048954134, which Ketu
+    // retired and said must NEVER reach a buyer again. Redaction is wrong here — the answer needs a
+    // number — so it is rewritten to the live godown/visitor line instead.
+    .replace(/(?:\+?\s?91[-\s]?)?7048954134/g, '8368648533')
+    // DEAD POLICY frozen in old chunks: COD exists now (partial, 10-20% upfront). A chunk asserting
+    // prepaid-only would contradict the live rule, so the claim is neutralised rather than quoted.
+    .replace(/100%\s*Prepaid\s*only,?\s*no\s*COD\s*available/gi, 'payment options per the current COD rule')
+    .replace(/\bno\s+COD\s+available\b/gi, 'COD per the current rule')
 }
 
 function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conversationHistory, quotedText, priceTable }) {
@@ -3478,8 +3486,8 @@ function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conve
     for (const result of knowledgeResults) {
       const sim = (Number(result.similarity) * 100).toFixed(0)
       const prefix = result.source === 'CORRECTION' ? '⚠️ ' : ''
-      const chunkBody = result.source === 'CATALOG' ? result.content : redactPrices(result.content)
-      prompt += `---\n${prefix}[${result.source}] ${redactPrices(result.title || '')} (${sim}% match)\n${chunkBody}\n`
+      const chunkBody = result.source === 'CATALOG' ? result.content : sanitizeChunk(result.content)
+      prompt += `---\n${prefix}[${result.source}] ${sanitizeChunk(result.title || '')} (${sim}% match)\n${chunkBody}\n`
       if (result.source === 'CATALOG' && result.metadata) {
         const meta = typeof result.metadata === 'string' ? JSON.parse(result.metadata) : result.metadata
         // Inject the real deep product link so the bot can send it (like Om does) instead of
