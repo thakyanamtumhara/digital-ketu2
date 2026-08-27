@@ -4,7 +4,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt, resolveReplyModel, REPLY_MODEL_INFO, sendReplyViaWwbun } from './process.js'
+import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt, resolveReplyModel, REPLY_MODEL_INFO, sendReplyViaWwbun, holdingLineJustSent, stampHoldingLine } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { scanFollowupCandidates, handleOwnerShortlistReply, actOnDraft } from './followup.js'
@@ -949,10 +949,18 @@ async function enqueueIncoming(senderKey, message) {
         const holdingLine = settings.deferMessage || 'Ketu will reply shortly sir 🙏'
         let holdingSent = false
         const holdCtx = {}
-        try { holdingSent = !!(await sendReplyViaWwbun(senderKey, holdingLine, 'Rule', holdCtx)) } catch { /* retry below */ }
-        if (!holdingSent && !holdCtx.blocked) {
-          await new Promise(r => setTimeout(r, 5000))
-          try { holdingSent = !!(await sendReplyViaWwbun(senderKey, holdingLine, 'Rule', holdCtx)) } catch { /* give up */ }
+        // Shared in-memory clock (process.js): the other holding-line senders stamp it too, so an
+        // error here cannot re-send a line the buyer received seconds ago (audit 2026-08-27).
+        if (holdingLineJustSent(senderKey)) {
+          console.log(`[Process Error] ${senderKey} — holding line already sent moments ago; not repeating`)
+          holdingSent = true
+        } else {
+          stampHoldingLine(senderKey)
+          try { holdingSent = !!(await sendReplyViaWwbun(senderKey, holdingLine, 'Rule', holdCtx)) } catch { /* retry below */ }
+          if (!holdingSent && !holdCtx.blocked) {
+            await new Promise(r => setTimeout(r, 5000))
+            try { holdingSent = !!(await sendReplyViaWwbun(senderKey, holdingLine, 'Rule', holdCtx)) } catch { /* give up */ }
+          }
         }
         // 3. Tell Ketu, throttled, so a systemic break surfaces in minutes rather than hours.
         //    A bot-OFF chat is not a break — stay quiet about it.

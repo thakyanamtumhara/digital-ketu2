@@ -44,6 +44,27 @@ export const lastReplySentAt = new Map()
 // rulebook, at ₹3-8 a time) is model output — labelling it "Rule" made it look like nothing ran, so
 // Ketu saw only "Rule" tags and thought the model tagging was broken (2026-08-07). Genuinely
 // rule-based defers (budget trip, pre-AI filters) pass nothing and stay "Rule".
+// IN-MEMORY HOLDING-LINE CLOCK (audit 2026-08-27). Buyer 8802282463 received the identical
+// "Ketu will reply shortly" TWICE inside the same second. The 45-minute repeat guard lives in the
+// batcher's timer callback and reads messageLog — it cannot see a send from 22ms ago that has not
+// been committed yet, and the two IMMEDIATE senders (prefill-suppression here, the process-error
+// guard in index.js) never consulted it at all. This clock is the shared truth: every path stamps
+// it after sending and checks it before, so the line cannot go out twice in quick succession no
+// matter which code path fires.
+const lastHoldingLineAt = new Map()   // whatsappNumber → epoch ms
+const HOLDING_LINE_MIN_GAP_MS = 90 * 1000
+export function holdingLineJustSent(whatsappNumber) {
+  const at = lastHoldingLineAt.get(whatsappNumber)
+  return !!at && (Date.now() - at) < HOLDING_LINE_MIN_GAP_MS
+}
+export function stampHoldingLine(whatsappNumber) {
+  lastHoldingLineAt.set(whatsappNumber, Date.now())
+  if (lastHoldingLineAt.size > 5000) {
+    const cutoff = Date.now() - HOLDING_LINE_MIN_GAP_MS
+    for (const [k, v] of lastHoldingLineAt) if (v < cutoff) lastHoldingLineAt.delete(k)
+  }
+}
+
 function scheduleDeferReply({ whatsappNumber, deferMessage, conversationId, mergedText, messageIds, logData, db, brainLabel = null }) {
   const existing = pendingDefers.get(whatsappNumber)
   const messageEntry = { conversationId, mergedText, messageIds, logData }
@@ -130,6 +151,16 @@ function createDeferTimerCallback(whatsappNumber) {
       }
 
       // Send ONE defer message for all batched messages
+      if (holdingLineJustSent(whatsappNumber)) {
+        for (const msg of entry.messages) {
+          await createLog(entry.db, msg.conversationId, msg.mergedText, msg.messageIds, {
+            ...msg.logData, deferReason: 'defer_repeat_suppressed', aiReply: null, sentViaWwbun: false,
+          })
+        }
+        console.log(`[DeferBatch] ${whatsappNumber} — holding line went out moments ago; not repeating it`)
+        return
+      }
+      stampHoldingLine(whatsappNumber)
       const sendResult = await sendReplyViaWwbun(whatsappNumber, entry.deferMessage, entry.brainLabel || 'Rule')
 
       // Log each accumulated message
@@ -1841,6 +1872,11 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   })()
   const suppressPrefillForDeferChain = async (label) => {
     const line = settings.deferMessage || 'Ketu will reply shortly sir 🙏'
+    if (holdingLineJustSent(whatsappNumber)) {
+      console.log(`[Prefill] ${whatsappNumber} — ${label} suppressed and holding line already sent moments ago; staying quiet`)
+      return
+    }
+    stampHoldingLine(whatsappNumber)
     const sendResult = await sendReplyViaWwbun(whatsappNumber, line, 'Rule')
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'DEFERRED', aiReply: line, deferReason: 'prefill_suppressed_defer_chain',
@@ -1849,6 +1885,47 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
     })
     console.log(`[Prefill] ${whatsappNumber} — ${label} suppressed (active defer chain), re-sent holding line`)
+  }
+
+  // --- OUR OWN "ORDER CONFIRMED" TEMPLATE, PASTED BACK AS TEXT ---
+  // (Audit 2026-08-27.) Buyers routinely paste the confirmation our website sends them. The
+  // rulebook covered the IMAGE version and the CART share-block, but not this TEXT template, so
+  // handling was a coin-flip: three bare pastes got the right "Ok sir, dispatching ASAP 🚚" and
+  // one (buyer 8802282463, "Order #2627080011971 confirmed ✅ Rs. 3,226") got the holding line on
+  // a paid, placed order. It is OUR text and unambiguous — a placed AND paid order — so the bare
+  // case is decided in code, at zero cost.
+  // When the buyer APPENDS something ("1 orange kam aayi", "add 28 size", "when can i expect the
+  // tracking id"), that is the real message: fall through untouched so the model or Ketu handles
+  // it — those cases were already being handled correctly.
+  const ORDER_CONFIRMED_TPL = /order\s*#?\s*\d{6,}\s*confirmed|✅\s*order\s*confirmed!/i
+  if (ORDER_CONFIRMED_TPL.test(mergedText || '')) {
+    const leftover = String(mergedText || '')
+      .replace(/order\s*#?\s*\d{6,}\s*confirmed/ig, ' ')
+      .replace(/✅\s*order\s*confirmed!?/ig, ' ')
+      .replace(/your order id\s*\d+\s*worth\s*₹?[\d,]+\s*has been received and is now being prepared for dispatch\.?/ig, ' ')
+      .replace(/we are packing your order[^.]*\./ig, ' ')
+      .replace(/we will hand your parcel to the transport[^.]*\./ig, ' ')
+      .replace(/thank you for your order/ig, ' ')
+      .replace(/www\.bulkplaintshirt\.com/ig, ' ')
+      .replace(/ketu will reply shortly[^\n]*/ig, ' ')
+      .replace(/ask me if any questions[^\n]*/ig, ' ')
+      .replace(/rs\.?\s*[\d,]+|₹\s*[\d,]+/ig, ' ')
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
+    const filler = new Set(['ok','okay','okk','hi','hii','hello','helloo','ji','sir','bhaiya','bhai','thanks','thank','you','done','hn','han','haan','yes','k','kk'])
+    const substantive = leftover.split(' ').filter(w => w && !filler.has(w.toLowerCase()))
+    if (substantive.length < 2 && !(await ownerIsHandlingThread(db, conversation.id))) {
+      const ack = 'Ok sir, dispatching ASAP 🚚'
+      const sendResult = await sendReplyViaWwbun(whatsappNumber, ack, 'Rule')
+      await createLog(db, conversation.id, mergedText, messageIds, {
+        status: 'REPLIED', aiReply: ack, deferReason: 'order_confirmed_template',
+        processingMs: Date.now() - startTime,
+        sentViaWwbun: !!sendResult, wwbunMessageId: sendResult?.messageId || null,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0,
+      })
+      console.log(`[OrderConfirmed] ${whatsappNumber} — our own confirmation template, acked deterministically`)
+      return
+    }
+    console.log(`[OrderConfirmed] ${whatsappNumber} — confirmation template WITH an added message; letting the normal flow handle it`)
   }
 
   // --- WEBSITE CART BLOCK ("Ref: wo_") — deterministic order-intent routing ---
