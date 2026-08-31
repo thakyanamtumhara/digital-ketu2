@@ -78,7 +78,12 @@ function etaDays(dt) {
 }
 
 // Coming-soon bundles: supplier orders pinned WITHOUT "Delivered" → in production/transit.
-// Returns { "Product|Colour": minEtaDays } mapped to canonical website product names.
+// Returns { "Product|Colour": { eta: minDays, sizes: [...] } } mapped to canonical website names.
+//
+// SIZES ARE LOAD-BEARING (2026-08-31, buyer 9764372985): a bundle covers specific sizes only, and
+// the model was promising a date for sizes that were NOT in it. The supplier row is
+// {colour: {size: qty}} — we used to drop the sizes and key on colour alone, so "Kids Black 24 in
+// ~6 din" got emitted from a shipment that was Mustard Yellow 22/30/32/34. Keep the size set.
 async function fetchComingSoon() {
   const [pinMap, aliases] = await Promise.all([
     fetchJson(`${INSTOCK_DB}/appData/__pinMap__/pin.json`),
@@ -107,7 +112,12 @@ async function fetchComingSoon() {
         if (!colours || typeof colours !== 'object') continue
         for (const colour in colours) {
           const key = `${product}|${colour}`
-          if (!(key in coming) || eta < coming[key]) coming[key] = eta
+          const sizes = (colours[colour] && typeof colours[colour] === 'object')
+            ? Object.keys(colours[colour]).filter(s => Number(colours[colour][s]) > 0)
+            : []
+          if (!coming[key]) coming[key] = { eta, sizes: [] }
+          if (eta < coming[key].eta) coming[key].eta = eta
+          for (const s of sizes) if (!coming[key].sizes.includes(s)) coming[key].sizes.push(s)
         }
       }
     }
@@ -170,7 +180,7 @@ export function formatStockBlock(snapshot) {
   }
   const oosProducts = Object.keys(snapshot.oos || {})
   if (oosProducts.length) {
-    lines.push('OUT OF STOCK right now (product: colour [sizes out]):')
+    lines.push('OUT OF STOCK right now — each entry carries its OWN restock verdict; use ONLY that entry\'s verdict (product: colour [sizes out — restock verdict]):')
     for (const product of oosProducts) {
       const colours = snapshot.oos[product]
       if (!colours || typeof colours !== 'object') continue
@@ -178,24 +188,41 @@ export function formatStockBlock(snapshot) {
       for (const colour in colours) {
         const oosSizes = String(colours[colour] || '').split(',').map(s => s.trim()).filter(Boolean)
         const allSizes = Object.keys((snapshot.inStock[product] || {})[colour] || {})
+        // Restock verdict is resolved HERE, per exact product+colour+size, because the model
+        // proved it will not do this matching itself: it read "Kids Rneck — Mustard Yellow: ~6 din"
+        // and told a buyer Kids BLACK 24 was arriving in ~6 days, then did the same across colours
+        // for True Bio Navy 38 (2026-08-31, buyer 9764372985). Neither had a shipment at all.
+        // Same medicine as the Maroon-46 fix above: never leave a join to the model.
+        const verdict = (sizes) => {
+          const row = (snapshot.coming || {})[`${product}|${colour}`]
+          if (!row) return '⛔ NO shipment for this colour — give NO date, NO "din mein aayega"'
+          const incoming = row.sizes || []
+          const eta = row.eta === 0 ? 'arriving any day' : row.eta === 1 ? '~1 din' : `~${row.eta} din`
+          if (!incoming.length) return `↳ shipment coming ${eta} (sizes not listed — do NOT promise any specific size)`
+          const covered = sizes.filter(s => incoming.includes(s))
+          const missing = sizes.filter(s => !incoming.includes(s))
+          if (!covered.length) return `⛔ shipment coming ${eta} but ONLY sizes ${incoming.join(',')} — NOT ${sizes.join(',')}; give NO date for ${sizes.join(',')}`
+          return `↳ ${covered.join(',')} arriving ${eta}${missing.length ? `; ⛔ but NOT ${missing.join(',')} — no date for those` : ''}`
+        }
         // A colour missing entirely from the in-stock table = fully out.
-        if (allSizes.length === 0) { parts.push(`${colour} [ALL sizes out]`); continue }
+        if (allSizes.length === 0) { parts.push(`${colour} [ALL sizes out — ${verdict(oosSizes.length ? oosSizes : ['(all)'])}]`); continue }
         // Pre-compute what's LEFT so the model never has to subtract (gpt-4.1 pre-deploy test
         // suggested "Navy 44/42 available" when 44/42 were also in the out-list — spell it out).
         const remaining = allSizes.filter(s => !oosSizes.includes(s))
-        parts.push(`${colour} [out: ${oosSizes.join(',')}${remaining.length ? ` — still available: ${remaining.join(',')}` : ' — nothing left, ALL out'}]`)
+        parts.push(`${colour} [out: ${oosSizes.join(',')}${remaining.length ? ` — still available: ${remaining.join(',')}` : ' — nothing left, ALL out'} — ${verdict(oosSizes)}]`)
       }
       if (parts.length) lines.push(`- ${product}: ${parts.join(', ')}`)
     }
   }
   const comingKeys = Object.keys(snapshot.coming || {})
   if (comingKeys.length) {
-    lines.push('COMING SOON — already ordered into the Delhi godam, landing shortly (product|colour: ~days):')
+    lines.push('COMING SOON — the ONLY shipments that exist. A product/colour/size NOT listed here has NO known arrival date, no matter what else that product has coming (product — colour: ~days [exact sizes in the shipment]):')
     for (const key of comingKeys.sort()) {
-      const eta = snapshot.coming[key]
-      lines.push(`- ${key.replace('|', ' — ')}: ${eta === 0 ? 'arriving any day' : eta === 1 ? '~1 din' : `~${eta} din`}`)
+      const row = snapshot.coming[key] || {}
+      const eta = row.eta === 0 ? 'arriving any day' : row.eta === 1 ? '~1 din' : `~${row.eta} din`
+      lines.push(`- ${key.replace('|', ' — ')}: ${eta}${(row.sizes || []).length ? ` [ONLY sizes ${row.sizes.join(',')}]` : ''}`)
     }
   }
-  lines.push('HOW TO ANSWER FROM THIS DATA: each colour in IN STOCK already shows its EXACT orderable sizes — if the asked size appears next to that colour, it IS available; colours are INDEPENDENT, so NEVER say a size is out for one colour just because another colour has it out (e.g. do not claim Maroon 46 is out because Navy/Royal Blue 46 are out). Only call a size out if it is missing from that colour\'s IN STOCK sizes or explicitly in OUT OF STOCK for that exact colour. (1) asked colour/size IS in the IN STOCK list and NOT in OUT OF STOCK → "available hai sir" + order link. (2) It IS in OUT OF STOCK → "abhi out of stock hai sir"; if a matching COMING SOON row exists add "~N din mein aa jayega"; suggest 1-2 alternatives — ONLY colours/sizes that are genuinely orderable (use each OUT-OF-STOCK entry\'s "still available:" sizes; NEVER suggest a size/colour listed as out; if the buyer asked for a SPECIFIC size, suggest only colours that have THAT size available). (2b) The buyer asks WHEN something comes back ("kab tak aayegi", "kab aayega", "kab tak available ho jaayegi", "when will it be available / restock") → they want the TIMING, so LEAD with the matching COMING SOON ETA ("~N din mein aa jayega sir"), then add what is available meanwhile. Listing only what is in stock IGNORES the question (Ketu 2026-07-27: "acid wash kab tak available ho jaaegi" got a list of available colours; his own answer was the ETA — "Black XL in 2 to 3 days"). If NO COMING SOON row matches that product/colour, do NOT invent a date — say the restock timing shows in the website\'s Coming Soon tab. (3) Product/colour NOT confidently identifiable in this data (naming doubt, variant doubt) → [DEFER] as usual. NEVER state quantities. If Ketu said something different in this thread, HIS word wins.')
+  lines.push('HOW TO ANSWER FROM THIS DATA: each colour in IN STOCK already shows its EXACT orderable sizes — if the asked size appears next to that colour, it IS available; colours are INDEPENDENT, so NEVER say a size is out for one colour just because another colour has it out (e.g. do not claim Maroon 46 is out because Navy/Royal Blue 46 are out). Only call a size out if it is missing from that colour\'s IN STOCK sizes or explicitly in OUT OF STOCK for that exact colour. (1) asked colour/size IS in the IN STOCK list and NOT in OUT OF STOCK → "available hai sir" + order link. (2) It IS in OUT OF STOCK → "abhi out of stock hai sir"; then obey THAT ENTRY\'S OWN restock verdict, which is already resolved for you — "↳ ... arriving ~N din" → you MAY say "~N din mein aa jayega sir"; "⛔" → say NO date at all, not even "jaldi"/"soon"/"thoda time", and point at the Coming Soon tab instead 👉 https://www.bulkplaintshirt.com/delhi-stock.html. ⚠️ NEVER carry an ETA across a colour or a size: a date shown for one colour of a product does NOT apply to another colour of that product, and a shipment\'s sizes do NOT cover sizes missing from it (2026-08-31, buyer 9764372985: the clone read "Kids Rneck — Mustard Yellow ~6 din" and promised Kids BLACK 24 in ~6 days, and read "True Bio Rneck — Black" to promise Navy 38 — neither colour had any shipment; Ketu: "there is nothing in transit for Black 24, how are you saying that?"). An invented arrival date is the single most damaging thing you can say — the buyer waits, nothing comes. If the verdict is ⛔ or you are unsure the row matches the EXACT product+colour+size asked, give no date; suggest 1-2 alternatives — ONLY colours/sizes that are genuinely orderable (use each OUT-OF-STOCK entry\'s "still available:" sizes; NEVER suggest a size/colour listed as out; if the buyer asked for a SPECIFIC size, suggest only colours that have THAT size available). (2b) The buyer asks WHEN something comes back ("kab tak aayegi", "kab aayega", "kab tak available ho jaayegi", "when will it be available / restock") → they want the TIMING, so LEAD with the ETA from that OUT-OF-STOCK entry\'s own verdict ("~N din mein aa jayega sir") — but ONLY if the verdict shows "↳" for the exact colour AND size asked; if it shows "⛔", the honest answer is that you cannot give a date (Coming Soon tab pointer), NOT a borrowed one. Then add what is available meanwhile. Listing only what is in stock IGNORES the question (Ketu 2026-07-27: "acid wash kab tak available ho jaaegi" got a list of available colours; his own answer was the ETA — "Black XL in 2 to 3 days"). If NO COMING SOON row matches that product/colour, do NOT invent a date — say the restock timing shows in the website\'s Coming Soon tab. (3) Product/colour NOT confidently identifiable in this data (naming doubt, variant doubt) → [DEFER] as usual. NEVER state quantities. If Ketu said something different in this thread, HIS word wins.')
   return lines.join('\n')
 }
