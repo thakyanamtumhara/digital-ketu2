@@ -1,5 +1,5 @@
 // Regression: reconcile.js — merge, ordering, double-reply guards, sweep window. Pure, no network.
-import { mergeUnseenInbound, pickSweepCandidates, markSeen, wasSeen, pruneSeen, rowToMessage, orderBurst, isExcludedRow, SEEN_TTL_MS } from '../server/reconcile.js'
+import { mergeUnseenInbound, pickSweepCandidates, markSeen, wasSeen, pruneSeen, rowToMessage, orderBurst, isExcludedRow, SEEN_TTL_MS, syntheticFromPendingDefer, partialDeferSplit } from '../server/reconcile.js'
 
 let pass = 0, total = 0
 const t = (name, got, want) => { total++; const ok = JSON.stringify(got) === JSON.stringify(want); if (ok) pass++; console.log(`${ok ? '✅' : '❌'} ${name.padEnd(50)} ${ok ? '' : 'got=' + JSON.stringify(got) + ' want=' + JSON.stringify(want)}`) }
@@ -55,6 +55,28 @@ const ob = orderBurst([
   { messageId: 'wamid.A', timestamp: T1 },
 ])
 t('orderBurst: synthetic pinned first, then by time', ob.map(m => m.messageId), [null, 'wamid.A', 'wamid.B'])
+
+// 2026-08-31 for real: a pending defer is CARRIED into the next burst, never dropped
+const pend = { messages: [{ conversationId: 'c1', mergedText: 'Hi\nBhai shorts ka stock refill kab kroge aap', messageIds: ['wamid.B'], logData: {} }], deferMessage: 'Ketu will reply shortly sir 🙏' }
+const syn = syntheticFromPendingDefer(pend, 'Off white, beige ka stock nhi h website pe')
+t('carried defer → synthetic with text',          syn && syn.messageText, 'Hi\nBhai shorts ka stock refill kab kroge aap')
+t('carried defer keeps the held message ids',     syn && syn.carriedMessageIds, ['wamid.B'])
+t('carried defer has no id of its own (pinned)',  syn && syn.messageId, null)
+t('carried defer is pinned first by orderBurst',  orderBurst([{ messageId: 'wamid.C', timestamp: T2 }, syn]).map(m => m.messageId), [null, 'wamid.C'])
+t('same text re-sent → ownership carried, no text', (s => [s.messageText, s.carriedDefer, s.carriedMessageIds])(syntheticFromPendingDefer({ messages: [{ mergedText: 'rate?', messageIds: ['w9'] }] }, 'rate?')), ['', true, ['w9']])
+t('empty pending → null',                         syntheticFromPendingDefer({ messages: [] }, 'x'), null)
+
+// partial defer: answer + [DEFER] → send the answer, hold the rest; bare marker → full defer
+t('pure [DEFER] is a full defer',                 partialDeferSplit('[DEFER]'), { isDefer: true, isPartial: false, text: '' })
+t('[DEFER] with stray words is still full',       partialDeferSplit('Sir 🙏 [DEFER]').isPartial, false)
+t('answer + [DEFER] is partial, marker stripped', partialDeferSplit('Hoodie 430gsm ₹402/pc sir 👉 https://sale91.com/catalog/p/hoodie-430gsm\n[DEFER]'), { isDefer: true, isPartial: true, text: 'Hoodie 430gsm ₹402/pc sir 👉 https://sale91.com/catalog/p/hoodie-430gsm' })
+t('marker mid-line also stripped cleanly',        partialDeferSplit('Price ₹402 sir [DEFER] ').text, 'Price ₹402 sir')
+t('no marker → plain reply untouched',            partialDeferSplit('Ok sir 🙏'), { isDefer: false, isPartial: false, text: 'Ok sir 🙏' })
+t('narration + [DEFER] is a FULL defer',          partialDeferSplit('This is an order tracking request which I cannot handle.\n[DEFER]').isPartial, false)
+t('holding line + [DEFER] is a FULL defer',       partialDeferSplit('Ketu will reply shortly sir 🙏 [DEFER]').isPartial, false)
+t('"I cannot check" + [DEFER] is a FULL defer',   partialDeferSplit('I cannot check order status sir [DEFER]').isPartial, false)
+t('carried defer keeps the original entry',       !!(syn && syn.deferEntry && syn.deferEntry.messages.length === 1 && syn.deferEntry.deferMessage), true)
+t('carried partial exposes the answered part',    syntheticFromPendingDefer({ messages: [{ mergedText: 'not received + price?', messageIds: ['w1'], answered: 'Hoodie ₹402 sir' }] }, 'x').carriedAnswered, 'Hoodie ₹402 sir')
 
 console.log(`\n${pass}/${total} passed`)
 process.exit(pass === total ? 0 : 1)

@@ -126,13 +126,26 @@ coupon and photo cases are still open (see below).
   went stale the day the season turned. Now `winterStockLine()` in process.js builds it from the IST
   month and injects it only on winter-item messages. Any other date-bound fact in the prompt is the
   same bug waiting to happen (grep for "abhi", "temporary", "currently").
-- **Dropped middle message** — buyer 9818070935 sent 3 messages on 2026-08-31 (Hi / "shorts ka
-  stock refill kab" / "off white beige stock nahi"); the middle one never reached the model and the
-  clone answered about the wrong product. Root cause under investigation (ingest/merge path). *(HIGH)*
+- ~~Dropped middle message~~ — ROOT CAUSE FOUND AND FIXED 2026-09-02, and it was NOT the forward.
+  The production log shows buyer 9818070935's "shorts ka stock refill kab" DID reach dk2: the
+  model deferred it (correctly), the holding line was queued on the 30s defer batch, the next
+  message became its own burst and was answered — and `cancelPendingDefer()` right before that
+  send deleted the queued defer: no holding line, no row, no carry. Fix (`server/reconcile.js`
+  + index.js + process.js): a pending defer is now CARRIED into the next burst as a synthetic
+  message (model reads both questions together); cancelled defers always leave a SKIPPED row; the
+  pre-send cancel is gone; and a reply may be PARTIAL — text + `[DEFER]` sends the answer now and
+  the holding line for the rest (`claude_partial_defer`), so "not received yet + hoodie price"
+  gets both. Prompt got one sentence for partial defers.
+  The earlier same-day change (dk2 23a83ca + wwbun 334f932: forward retry ×3, `GET
+  /api/dk/recent-inbound`, per-burst reconcile + 2-min sweep) stays as a safety net for the OTHER
+  loss path (wwbun saves, then throws or times out before the forward — real in code, not what
+  happened on 31-Aug). Watch `[Reconcile]` / `[DeferBatch] … carried` log lines and the 🧩 alert.
+  Instagram has the retry but not the reconcile. *(open, low)*
 - ~~Corrections DB poisoning~~ — DONE 2026-09-02: full audit of all 1,253 CORRECTION chunks
   (14 finder agents + refute pass, quotes required) → **358 deleted** (190 stored defers, 68 with
   the retired phone, 36 frozen prices incl. the dead "extra ₹2" discount, 32 other harmful, 19 stale
-  timings, 12 mispaired, 2 Drive links, 1 payment line). 1,253 → 895. Backup + delete log in
+  timings, 12 mispaired, 2 Drive links, 1 payment line), then 57 more once the last refute
+  batches finished. 1,253 → 838. Backup + delete log in
   `~/dk2_corpus/` (chunks_backup_2026-09-02.json, deleted_corrections_2026-09-02.json). By origin:
   reviewer_ai 166/265 bad (63%) → **the AI reviewer no longer writes CORRECTION chunks** (its
   suggestions stay in DeferToKetu for the dashboard); intervention/edit 141/592; reviewed manual

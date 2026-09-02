@@ -33,6 +33,56 @@ export function isExcludedRow(r) {
   return OPERATOR_LAST10.some(n => num.endsWith(n))
 }
 
+// ---- burst integrity: carry a pending defer, split a partial defer ----
+// THE 2026-08-31 LOSS, FOR REAL (audit trace 2026-09-02, from the production log): "Bhai shorts ka
+// stock refill kab kroge" DID reach dk2; the model deferred it (correctly — a Ketu-only timing
+// question) and the holding line was queued on the 30s defer batch. The next message arrived,
+// became its own burst, was answered — and just before that send, cancelPendingDefer() deleted the
+// queued defer: no holding line, no log row, no carry. The buyer got an answer to the wrong
+// product and nothing at all for the real question. Two rules now:
+//  1. A pending, unanswered defer is CARRIED into the next burst as a synthetic message (same
+//     pattern as the welcome swallow-carry), so the model reads both questions together and one
+//     holding line covers whatever it still cannot answer.
+//  2. A reply may be PARTIAL: text + a [DEFER] marker means "send this, and hold the rest" — the
+//     answerable part goes out now, the holding line follows for the rest, and the question lands
+//     in Ketu's Waiting list. Before this, ANY [DEFER] collapsed the whole reply into a holding line.
+export function syntheticFromPendingDefer(entry, incomingText = '') {
+  const msgs = (entry && entry.messages) || []
+  const texts = msgs.map(m => String(m.mergedText || '').trim()).filter(Boolean)
+  const text = texts.join('\n')
+  if (!text) return null
+  // An identical re-send still hands the burst OWNERSHIP of the hold (ids + entry), but carries no
+  // text — the real message already says it once. Otherwise a model answer to the re-send would be
+  // followed by the stale holding line 30s later (review 2026-09-02).
+  const identical = text === String(incomingText || '').trim()
+  const carriedMessageIds = msgs.flatMap(m => m.messageIds || []).filter(Boolean)
+  const carriedAnswered = msgs.map(m => m.answered).filter(Boolean).join('\n') || null
+  return {
+    messageText: identical ? '' : text, messageId: null, carriedMessageIds, carriedDefer: true, carriedAnswered,
+    // The original entry rides along so the burst can RE-QUEUE it if it ends without a reply or a
+    // fresh defer (model [SKIP], gate SILENT, a filter skip…) — a carried question must never die
+    // on a silent exit (review 2026-09-02).
+    deferEntry: { messages: msgs, deferMessage: entry && entry.deferMessage, db: entry && entry.db, brainLabel: (entry && entry.brainLabel) || null },
+    messageType: 'text', hasMedia: false, timestamp: new Date(0).toISOString(),   // epoch → pinned first by orderBurst
+    senderName: null, quotedText: null, mediaUrl: null, wwbunMessageId: null,
+  }
+}
+
+const DEFER_MARK_RE = /\[DEFER\]/g
+// Text the model sometimes writes NEXT TO the marker that is narration, not an answer for the buyer.
+// A bare defer (holding line only) is the safe outcome for these (review 2026-09-02).
+const DEFER_NARRATION_RE = /^(this|that|it|the (buyer|customer|user|message)) (is|looks|seems|needs|requires)\b|\b(I|we) (cannot|can'?t|can not|am unable to|need to|will) (handle|check|answer|look|see|verify|track|help)\b|\bneeds? ketu\b|\bwhich (I|we) (cannot|can'?t)\b|ketu\s+will\s+reply\s+shortly|ketu\s+(bhai\s+)?(reply|batayenge|check)/i
+export function partialDeferSplit(aiReply) {
+  const raw = String(aiReply || '')
+  if (!DEFER_MARK_RE.test(raw)) return { isDefer: false, isPartial: false, text: raw }
+  DEFER_MARK_RE.lastIndex = 0
+  const text = raw.replace(DEFER_MARK_RE, '').replace(/[ \t]+\n/g, '\n').trim()
+  const words = text.split(/\s+/).filter(Boolean).length
+  // A real answer has a few words and is not narration / a holding line of its own.
+  const isPartial = words >= 3 && !DEFER_NARRATION_RE.test(text)
+  return { isDefer: true, isPartial, text: isPartial ? text : '' }
+}
+
 // ---- seen-set ----
 export const SEEN_TTL_MS = 30 * 60 * 1000
 const seen = new Map()   // messageId → first-seen epoch ms

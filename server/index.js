@@ -4,14 +4,14 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt, resolveReplyModel, REPLY_MODEL_INFO, sendReplyViaWwbun, holdingLineJustSent, stampHoldingLine } from './process.js'
+import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt, resolveReplyModel, REPLY_MODEL_INFO, sendReplyViaWwbun, holdingLineJustSent, stampHoldingLine, isPureEnder } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine, hasGarbledTranscript, replyAnswersBuyer } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { scanFollowupCandidates, handleOwnerShortlistReply, actOnDraft } from './followup.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
 import { transcribeAudio, transcribeAudioDebug, isTranscriptionConfigured, getTranscriptionProvider, getTranscriptionHealth } from './transcribe.js'
 import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
-import { fetchRecentInbound, mergeUnseenInbound, pickSweepCandidates, orderBurst, markSeen, wasSeen, pruneSeen } from './reconcile.js'
+import { fetchRecentInbound, mergeUnseenInbound, pickSweepCandidates, orderBurst, markSeen, wasSeen, pruneSeen, syntheticFromPendingDefer } from './reconcile.js'
 
 const app = new Hono()
 const db = new PrismaClient()
@@ -203,7 +203,7 @@ async function computeRescuableDefers(days) {
   })
   const byConv = {}
   for (const l of logs) (byConv[l.conversationId] ||= []).push(l)
-  const NON_ANSWER = new Set(['claude_deferred', 'cheap_gate_deferred', 'ai_chose_silence', 'defer_repeat_suppressed'])
+  const NON_ANSWER = new Set(['claude_deferred', 'claude_partial_defer', 'cheap_gate_deferred', 'ai_chose_silence', 'defer_repeat_suppressed'])
   const items = []
   for (const conv of Object.values(byConv)) {
     for (let i = 0; i < conv.length; i++) {
@@ -873,6 +873,11 @@ app.put('/api/settings', async (c) => {
 
 // Buffer for message merging (same sender within 3 sec = one thought)
 const messageBuffer = new Map()
+// PER-BUYER SERIALIZATION (2026-09-02): one burst at a time per sender. A second burst used to run
+// while the first was still inside its model call — it then read stale history, and with carried
+// defers it could steal or double the first burst's hold. Each burst waits for the previous one
+// (capped at 120s so a hung call can never block a buyer for good).
+const inFlightBySender = new Map()
 // whatsappNumber -> { messages: [], timer: null }
 let lastProcessErrorAlertAt = 0   // throttles the process-error alert to once per 30 min
 
@@ -919,8 +924,15 @@ async function enqueueIncoming(senderKey, message) {
     console.log(`[Welcome] ${senderKey} — cancelled pending followup (new message received${swallowed ? ', swallowed text carried into burst' : ''})`)
   }
 
-  // Pause pending defer timer — new message arrived, let it process first
-  // The defer will be restarted/batched/cancelled by processIncomingMessage
+  // A pending, unanswered defer is CARRIED into this burst (2026-09-02, see reconcile.js): the
+  // buyer's deferred question rides along as a synthetic message so the model judges both
+  // together, and the entry leaves pendingDefers (this burst owns it now — it cannot double-fire).
+  // Before this the timer was merely "paused", and the reply to the new burst then deleted it
+  // silently — the 2026-08-31 "shorts ka stock refill" loss.
+  // Pause a pending defer timer — a new message is buffering. Whether that defer is CARRIED into
+  // the burst is decided in the settle callback below, AFTER the buyer's turn is taken (a defer
+  // scheduled by a burst still in flight must be seen there too). Not carried → the finally in
+  // processIncomingMessage restarts this timer.
   if (pendingDefers.has(senderKey)) {
     const pending = pendingDefers.get(senderKey)
     clearTimeout(pending.timer)
@@ -957,9 +969,41 @@ async function enqueueIncoming(senderKey, message) {
   const FULL_AI_SETTLE_MS = 15000
   const windowMs = settings.isActive ? FULL_AI_SETTLE_MS : settings.mergeWindowMs
   buffer.timer = setTimeout(async () => {
+    // Take the per-buyer turn BEFORE anything else — before even taking the buffer, so messages
+    // that arrive while we wait join THIS burst instead of starting another. Registered first,
+    // then awaited, so a third burst queues behind us. Released in the finally below.
+    const prevRun = inFlightBySender.get(bufferKey)
+    let releaseRun = () => {}
+    const thisRun = new Promise(resolve => { releaseRun = resolve })
+    inFlightBySender.set(bufferKey, thisRun)
+    try {
+    if (prevRun) {
+      await Promise.race([prevRun, new Promise(r => setTimeout(r, 120000))])
+    }
     const merged = messageBuffer.get(bufferKey)
     messageBuffer.delete(bufferKey)
     if (!merged || merged.messages.length === 0) return
+
+    // CARRY A PENDING DEFER (2026-09-02, see reconcile.js) — decided here, after the turn, so a
+    // defer scheduled by the burst that just finished is seen too. The deferred question rides
+    // along as a synthetic message (the model judges both together; one holding line covers what
+    // it still cannot answer) and the entry leaves pendingDefers — this burst owns it now. A burst
+    // that is ONLY enders / media placeholders does not carry: the old zero-cost path (timer
+    // paused at enqueue, restarted by processIncomingMessage's finally) sends the holding line.
+    if (pendingDefers.has(bufferKey)) {
+      const pending = pendingDefers.get(bufferKey)
+      const newText = merged.messages.map(m => String(m.messageText || '').trim()).filter(Boolean).join('\n')
+      const substantive = newText && !isPureEnder(newText) && !/^(\[[^\]]+\]\s*)+$/.test(newText)
+      const carried = substantive ? syntheticFromPendingDefer(pending, newText) : null
+      clearTimeout(pending.timer)
+      if (carried) {
+        pendingDefers.delete(bufferKey)
+        merged.messages.unshift(carried)
+        console.log(`[DeferBatch] ${bufferKey} — pending defer carried into this burst (${pending.messages.length} deferred message(s))`)
+      } else {
+        pending.timer = null
+      }
+    }
 
     // RECONCILE WITH wwbun'S INBOX (2026-09-02, see reconcile.js): before this burst is judged,
     // pull the buyer's inbound messages of the last few minutes and merge any the forward never
@@ -1064,6 +1108,11 @@ async function enqueueIncoming(senderKey, message) {
     const repliedThisTurn = (lastReplySentAt.get(senderKey) || 0) >= startedAt
     if (!repliedThisTurn && !pendingDefers.has(senderKey) && !pendingWelcomeFollowups.has(senderKey)) {
       notifySkippedViaWwbun(senderKey)
+    }
+    } finally {
+      // Hand the buyer's turn to the next burst — on every exit, including the early return.
+      releaseRun()
+      if (inFlightBySender.get(bufferKey) === thisRun) inFlightBySender.delete(bufferKey)
     }
   }, windowMs)
 
@@ -2147,7 +2196,7 @@ app.get('/api/filters/stats', async (c) => {
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'welcome_bypass' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'defer_to_ketu' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'empty_knowledge_base' } }),
-    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'claude_deferred' } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: { in: ['claude_deferred', 'claude_partial_defer'] } } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'order_id_detected' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'angry_buyer' } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, deferReason: 'informing' } }),

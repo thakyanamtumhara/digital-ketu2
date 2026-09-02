@@ -77,7 +77,7 @@
     "history": [{ "buyer": "true bio round neck ka photo bhejo", "ai": "https://www.bulkplaintshirt.com/?photos=true-bio-rneck" }],
     "msg": "Can you please send a different image.",
     "photo": true,
-    "must": ["swipe|saare|sare|all"],
+    "must": ["swipe|saare|sare|sab|sabhi|poore|pure|all|gallery|camera"],
     "mustNot": ["only this|sirf yahi|ek hi photo|only one"]
   },
   {

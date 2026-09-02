@@ -1,0 +1,35 @@
+[
+  {
+    "id": "partial-not-received-plus-price",
+    "why": "2026-09-01 buyer 9888371770 — clone answered the price and dropped 'Not received yet'; now: price + [DEFER] on its own line",
+    "history": [
+      { "buyer": "Not received", "ai": "Ketu will reply shortly sir 🙏", "deferred": true },
+      { "buyer": "1 week hogea", "ai": "Ketu will reply shortly sir 🙏", "deferred": true }
+    ],
+    "msg": "Not received Yet —- Terry cotton hoodie Price Share pics",
+    "photo": true,
+    "must": ["hoodie", "\\[DEFER\\]"],
+    "mustNot": ["^\\[DEFER\\]$"]
+  },
+  {
+    "id": "control-pure-complaint-full-defer",
+    "why": "CONTROL — a message entirely for Ketu stays exactly [DEFER]",
+    "msg": "Order aaya but 2 piece missing hai, aur ek tshirt ka colour bhi galat hai",
+    "must": ["^\\[DEFER\\]$"]
+  },
+  {
+    "id": "carried-shorts-plus-offwhite",
+    "why": "2026-08-31 buyer 9818070935 as ONE burst (carried defer + new message) — must be about SHORTS, not oversize 240",
+    "msg": "Hi\nBhai shorts ka stock refill kab kroge aap\nOff white, beige ka stock nhi h website pe",
+    "stock": true,
+    "must": ["shorts"],
+    "mustNot": ["oversize|240gsm|240 gsm", "\\d+\\s*(din|days)"]
+  },
+  {
+    "id": "control-plain-price-no-marker",
+    "why": "CONTROL — a fully answerable message must not grow a spurious [DEFER]",
+    "msg": "premium polo ka bulk rate kya hai?",
+    "must": ["₹"],
+    "mustNot": ["\\[DEFER\\]"]
+  }
+]
