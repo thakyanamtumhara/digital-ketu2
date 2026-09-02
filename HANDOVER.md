@@ -152,6 +152,14 @@ coupon and photo cases are still open (see below).
   pairs 50/396. Every remaining write path now runs `replyAnswersBuyer()` (one Haiku yes/no,
   fail-open) + `hasGarbledTranscript()` before storing. Re-audit monthly with the same workflow
   shape; a correction is Ketu's words about THAT buyer text, nothing else.
+- **Prompt map exists now (2026-09-02)** — `~/dk2_corpus/audit_2026-09-02_full.json` holds a
+  structured index of all 137 rule lines (`rules`) plus `conflicts` (33 — e.g. rate-ask-once-a-fit-
+  is-named L68 vs L95/L37; colour-availability-without-product L8 vs L94/L96; the two greeting
+  lines L112 vs L135; "EXACTLY [DEFER]" vs "[DEFER] with the line" in 14 places; aap-form rule vs
+  Ketu-verbatim tum-form templates), `duplicates` (30), `staleFacts` (24 — several fixed same day:
+  260gsm XXXL, family/slug lists, "LAUNCHING"), `codeCandidates` (42, ranked by chars saved; L134
+  VERIFIED FACTS, L81 stock tree, L128 fabric tables, the address/porter blocks) and the implicit
+  `priorityOrder`. Start consolidation from that file, not from a fresh read.
 - **Prompt consolidation** — ~156k chars, rules stacked for months and now interacting in ways
   nobody tracks. Roughly ₹1,400/month per 10% trimmed. **This is the one genuinely hard design
   problem left** and the best first task for a fresh pair of eyes. Build a regression suite first;
