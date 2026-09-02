@@ -11,6 +11,7 @@ import { scanFollowupCandidates, handleOwnerShortlistReply, actOnDraft } from '.
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
 import { transcribeAudio, transcribeAudioDebug, isTranscriptionConfigured, getTranscriptionProvider, getTranscriptionHealth } from './transcribe.js'
 import { runReviewJob, reviewBacklog, pullAndReviewHistory } from './reviewer.js'
+import { fetchRecentInbound, mergeUnseenInbound, pickSweepCandidates, orderBurst, markSeen, wasSeen, pruneSeen } from './reconcile.js'
 
 const app = new Hono()
 const db = new PrismaClient()
@@ -960,6 +961,37 @@ async function enqueueIncoming(senderKey, message) {
     messageBuffer.delete(bufferKey)
     if (!merged || merged.messages.length === 0) return
 
+    // RECONCILE WITH wwbun'S INBOX (2026-09-02, see reconcile.js): before this burst is judged,
+    // pull the buyer's inbound messages of the last few minutes and merge any the forward never
+    // delivered — the 2026-08-31 "shorts ka stock" message would have been picked up right here.
+    // WhatsApp buyers only; fail-open (a fetch error changes nothing).
+    if (!/^ig:/.test(senderKey)) {
+      try {
+        // 30 min, not 10: wwbun's createdAt is Meta's SEND time, and a phone that was offline can
+        // deliver minutes late (review 2026-09-02). Same span as the seen-set TTL.
+        const rows = await fetchRecentInbound({ number: senderKey, minutes: 30 })
+        if (rows.length) {
+          const candidateIds = rows.map(r => r.whatsappId).filter(id => id && !merged.messages.some(m => m.messageId === id) && !wasSeen(id))
+          let logged = new Set()
+          if (candidateIds.length) {
+            const hits = await db.messageLog.findMany({ where: { messageIds: { hasSome: candidateIds } }, select: { messageIds: true } }).catch(() => [])
+            logged = new Set(hits.flatMap(h => h.messageIds || []))
+          }
+          const { messages, added } = mergeUnseenInbound(merged.messages, rows, id => wasSeen(id) || logged.has(id))
+          if (added.length) {
+            for (const m of added) markSeen(m.messageId)
+            merged.messages = messages
+            console.log(`[Reconcile] ${senderKey} — recovered ${added.length} message(s) wwbun had but dk2 never received: ${added.map(m => JSON.stringify((m.messageText || '').slice(0, 60))).join(', ')}`)
+          }
+        }
+      } catch (err) {
+        console.error(`[Reconcile] ${senderKey} — per-burst reconcile failed (ignored):`, err.message)
+      }
+    }
+    // Always read the burst in WhatsApp-timestamp order: a retried forward can land message A after
+    // message B (review 2026-09-02). Synthetic carried entries stay pinned first.
+    merged.messages = orderBurst(merged.messages)
+
     const startedAt = Date.now()
     try {
       await processIncomingMessage({
@@ -1057,13 +1089,23 @@ app.post('/api/incoming', async (c) => {
     return c.json({ error: 'Missing whatsappNumber or messageId' }, 400)
   }
 
-  // Duplicate protection: check if we already processed this messageId
+  // Duplicate protection — in-memory first (ids accepted in the last 30 min, incl. ones the
+  // reconciler pulled from wwbun's inbox before the forward arrived), then the log table.
+  if (wasSeen(messageId)) {
+    return c.json({ status: 'duplicate', message: 'Already accepted' })
+  }
   const existing = await db.messageLog.findFirst({
     where: { messageIds: { has: messageId } }
   })
   if (existing) {
     return c.json({ status: 'duplicate', message: 'Already processed' })
   }
+  // Re-check after the await: a concurrent forward of the same id (or the reconciler) may have
+  // claimed it meanwhile. Check+mark is synchronous, so exactly one caller wins.
+  if (wasSeen(messageId)) {
+    return c.json({ status: 'duplicate', message: 'Already accepted' })
+  }
+  markSeen(messageId)
 
   const bufferSize = await enqueueIncoming(whatsappNumber, {
     messageText, messageId, messageType, hasMedia, timestamp, senderName, quotedText, mediaUrl, wwbunMessageId,
@@ -3067,6 +3109,42 @@ async function runScheduledReview() {
 
 // Poll every 6h; runScheduledReview internally gates on learningIntervalHours (default weekly = 168h)
 setInterval(runScheduledReview, 6 * 60 * 60 * 1000)
+
+// RECONCILE SWEEP (2026-09-02, reconcile.js): every 2 min, ask wwbun for inbound WhatsApp messages
+// of the last 30 min across all buyers and enqueue any that never reached dk2 at all — a lost
+// message with no sibling to trigger a burst. 90s minimum age so the normal forward (and its
+// retries) always gets first go; max age = the seen-set TTL; seen-set + messageLog ids stop
+// double replies.
+async function reconcileSweep() {
+  try {
+    pruneSeen()
+    const rows = await fetchRecentInbound({ minutes: 30 })
+    if (!rows.length) return
+    const fresh = pickSweepCandidates(rows, id => wasSeen(id))
+    if (!fresh.length) return
+    const ids = fresh.map(f => f.message.messageId)
+    const hits = await db.messageLog.findMany({ where: { messageIds: { hasSome: ids } }, select: { messageIds: true } }).catch(() => [])
+    const logged = new Set(hits.flatMap(h => h.messageIds || []))
+    let n = 0
+    for (const f of fresh) {
+      const id = f.message.messageId
+      // Re-check the seen-set AFTER the awaits above: a burst reconcile or a late forward may have
+      // claimed this id meanwhile (review 2026-09-02) — check+mark is synchronous, one winner.
+      if (logged.has(id) || wasSeen(id)) continue
+      // A burst already open for this buyer will reconcile itself when it fires.
+      if (messageBuffer.has(f.number)) continue
+      markSeen(id)
+      await enqueueIncoming(f.number, f.message)
+      n++
+      console.log(`[Reconcile] sweep — enqueued lost message for ${f.number}: ${JSON.stringify((f.message.messageText || '').slice(0, 60))}`)
+    }
+    if (n) notifyOwner(`🧩 dk2 recovered ${n} buyer message(s) that never reached the clone (wwbun → dk2 forward lost). Answering now.`).catch(() => {})
+  } catch (err) {
+    console.error('[Reconcile] sweep failed (ignored):', err.message)
+  }
+}
+setInterval(reconcileSweep, 2 * 60 * 1000)
+setTimeout(reconcileSweep, 60 * 1000)
 // BOOT-KICK (2026-07-30): setInterval alone never fires the FIRST poll until 6h after start, and the
 // timer resets on every deploy — so a day of frequent deploys starved the review completely
 // (lastReviewAt sat at 29-Jul 08:30 while the interval said every 24h, and nothing ran). A delayed
