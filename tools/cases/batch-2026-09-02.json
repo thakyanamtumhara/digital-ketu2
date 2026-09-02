@@ -1,0 +1,90 @@
+[
+  {
+    "id": "coupon-ask-no-count",
+    "why": "REAL MISS 2026-09-01 buyer 9936905574 — clone said no codes exist; Ketu asks piece count then mints a code",
+    "msg": "As I had to do some changes n pay thru credit card.. if u can provide code den i wil order from ur website",
+    "must": ["pieces|pcs|piece"],
+    "mustNot": ["no coupon", "no code", "koi code nahi", "fixed price", "\\[DEFER\\]"]
+  },
+  {
+    "id": "coupon-ask-count-known",
+    "why": "same rule — count already known → hand to Ketu",
+    "history": [{ "buyer": "500 pcs oversize 240 black chahiye", "ai": "Ji sir, website se order kar lijiye 👉 https://sale91.com/catalog/p/oversize-240gsm" }],
+    "msg": "koi coupon code hai? code de do to order kar deta hu",
+    "must": ["^\\[DEFER\\]$"]
+  },
+  {
+    "id": "control-discount-haggle-100pcs",
+    "why": "CONTROL — plain haggle under 500 pcs must stay Fixed price (no code talk)",
+    "msg": "100 pcs lene hai, thoda discount kar do bhai",
+    "must": ["fixed price|fixed"],
+    "mustNot": ["code|coupon|₹4|1000"]
+  },
+  {
+    "id": "code-not-working",
+    "why": "MEDIUM MISS 2026-08-31 buyer 8971239020 — remedy is copy the FULL code (RV-)",
+    "history": [{ "buyer": "Ok", "ai": "Sorry about the issue 🙏 Copy your discount code and paste on website at the time of order. Code - RV-6G2ZSAADMR59CRF0" }],
+    "msg": "Sir not working. Sir kidar add karneka",
+    "must": ["RV-", "poora|pura|full|complete"],
+    "mustNot": ["Pay Now", "\\[DEFER\\]"]
+  },
+  {
+    "id": "control-rs4-not-applying",
+    "why": "CONTROL — ₹4 website discount not applying → the video, not the RV- line",
+    "msg": "₹4 discount apply nahi ho raha order pe",
+    "must": ["dnFWXQW5yqk"],
+    "mustNot": ["RV-"]
+  },
+  {
+    "id": "are-you-ai",
+    "why": "POLICY 2026-09-02 — genuine one-liner, no denial, then answer",
+    "history": [{ "buyer": "oversize 240 ka rate?", "ai": "Bulk ₹195/pc sir 👉 https://sale91.com/catalog/p/oversize-240gsm" }],
+    "msg": "Again AI reply😊 sample 1 pc mil jayega?",
+    "must": ["help", "sample|1 pc|ek pc"],
+    "mustNot": ["nahi.{0,20}AI|not an AI|not AI|main Ketu hoon|I am Ketu|\\[DEFER\\]"]
+  },
+  {
+    "id": "label-truebio-vs-bio",
+    "why": "FACT MISS 2026-09-01 buyer 8579946345 — RED = True Bio, YELLOW = Bio",
+    "msg": "Ketu ji can you tell which one is true bio washed and bio washed tshirt",
+    "must": ["red", "yellow"],
+    "mustNot": ["\\[DEFER\\]", "photo bhej"]
+  },
+  {
+    "id": "winter-restock-september",
+    "why": "STALE FACT 2026-09-02 buyer 7701911454 — winter stock has started arriving, not 'after September'",
+    "msg": "Hello sir Sweatshirt and Hoodies 320 gsm ka Restock kbtk aayega",
+    "winter": true,
+    "must": ["start|aa raha|aana"],
+    "mustNot": ["September ke baad|after September", "\\d+\\s*(din|days)", "\\[DEFER\\]"]
+  },
+  {
+    "id": "acid-wash-fade",
+    "why": "HIGH open item — clone denied fading; Ketu says it lightens gradually, care tip",
+    "msg": "Hello sir aapse 10 pics acid wash liya tha hamne saab me colour jaa rha hai pura t shirt black ho gya hai",
+    "must": ["light|halka|fade|normal"],
+    "mustNot": ["issue nahi|no fade|nahi hota", "^\\[DEFER\\]$"]
+  },
+  {
+    "id": "control-regular-tee-bleeding",
+    "why": "CONTROL — colour bleeding on a REGULAR tee is still a defect → defer",
+    "msg": "Bio round neck black liya tha, dhone pe colour nikal raha hai, saare kapde kharab ho gaye",
+    "must": ["^\\[DEFER\\]$"]
+  },
+  {
+    "id": "photo-different-image",
+    "why": "HIGH open item — never 'only this photo'; invite swipe, offer live godam camera",
+    "history": [{ "buyer": "true bio round neck ka photo bhejo", "ai": "https://www.bulkplaintshirt.com/?photos=true-bio-rneck" }],
+    "msg": "Can you please send a different image.",
+    "photo": true,
+    "must": ["swipe|saare|sare|all"],
+    "mustNot": ["only this|sirf yahi|ek hi photo|only one"]
+  },
+  {
+    "id": "control-store-hours",
+    "why": "CONTROL — unrelated rule must be unchanged",
+    "msg": "kal godam khula hai? kitne baje tak",
+    "must": ["10|11", "6|4"],
+    "mustNot": ["\\[DEFER\\]"]
+  }
+]

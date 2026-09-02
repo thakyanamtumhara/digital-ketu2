@@ -114,12 +114,23 @@ coupon and photo cases are still open (see below).
 
 ## Open items
 
-- **Coupon/discount-code asks** — clone denies codes exist; Ketu mints them per buyer. *(HIGH)*
-- **Photo scarcity** — clone says "only this photo available" while pasting a full gallery link.
-  Should invite the swipe and offer the live godam camera. *(HIGH)*
-- **Acid-wash fade** — clone claims "no fade issue"; Ketu says it does gradually lighten. *(HIGH)*
-- **Discount code "not working"** — clone diagnoses but gives no fix; the remedy is to copy the
-  full code. *(MEDIUM)*
+- ~~Coupon/discount-code asks~~ — DONE 2026-09-02: clone asks the piece count once, then hands to
+  Ketu (his policy: codes are his call).
+- ~~Photo scarcity~~ — DONE 2026-09-02: never "only this photo"; invite the swipe + live godam
+  camera `https://www.youtube.com/@BulkPlainTshirt_com/live`.
+- ~~Acid-wash fade~~ — DONE 2026-09-02, in Ketu's words (fading is normal, don't soak, 15-20 min).
+- ~~Discount code "not working"~~ — DONE 2026-09-02: "poora code copy karo, RV- se shuru hota hai".
+- ~~"Again AI reply😊"~~ — POLICY SET 2026-09-02: never deny, never volunteer; if asked, "Main Ketu
+  ki buyers se chat mein help karta hoon sir 🙏" then answer the question.
+- **Seasonal facts must be computed, not written** — the "Winter stock September ke baad" sentence
+  went stale the day the season turned. Now `winterStockLine()` in process.js builds it from the IST
+  month and injects it only on winter-item messages. Any other date-bound fact in the prompt is the
+  same bug waiting to happen (grep for "abhi", "temporary", "currently").
+- **Dropped middle message** — buyer 9818070935 sent 3 messages on 2026-08-31 (Hi / "shorts ka
+  stock refill kab" / "off white beige stock nahi"); the middle one never reached the model and the
+  clone answered about the wrong product. Root cause under investigation (ingest/merge path). *(HIGH)*
+- **Corrections DB poisoning** — 1,253 CORRECTION chunks (602 in June). A mispaired one landed
+  2026-09-02 08:50 IST ("yes send qr" → a reply about XXL). Audit + guard pending. *(HIGH)*
 - **Prompt consolidation** — ~156k chars, rules stacked for months and now interacting in ways
   nobody tracks. Roughly ₹1,400/month per 10% trimmed. **This is the one genuinely hard design
   problem left** and the best first task for a fresh pair of eyes. Build a regression suite first;
@@ -135,10 +146,15 @@ coupon and photo cases are still open (see below).
 | `node tools/stock-block.mjs` | Print the live stock block exactly as the model sees it |
 | `node tools/guard-tests.mjs` | Regression: canned dispatch-ack guards |
 | `node tools/clock-scrub-tests.mjs` | Regression: dispatch clock-hour scrub |
-| `node tools/replay.mjs` | Replay cases against the live prompt on production Opus 5 (**costs money**) |
+| `node tools/replay.mjs tools/cases/<file>.json --prompt local` | Replay a case file against the prompt you are ABOUT to ship, on production Opus 5 (**costs money**: ~₹60 cache write + ~₹3.5/case). `--prompt live` = what is live now. `--dump <dir>` writes the exact prompts without calling the API (free proxy runs). |
+| `node tools/winter-line-tests.mjs` | Regression: the date-computed ❄️ winter-stock line + its trigger regex |
 
-`replay.mjs` needs `ANTHROPIC_API_KEY` (pull from Railway) and a saved `live_prompt.txt` from
-`/api/settings`. It is the only honest way to check a prompt change before shipping.
+`replay.mjs` reads the key from `~/.dk2_anthropic_key` (chmod 600; Ketu pastes it from Railway →
+digital-ketu2 → Variables) or `ANTHROPIC_API_KEY`. It rebuilds the request the way `runAiFlow` does
+(static prompt + catalog block cached, stock/photo/winter blocks per case, RECENT CONVERSATION).
+Cases live in `tools/cases/` — each has `must` / `mustNot` regexes and a `why` citing the buyer and
+date. Add a case for every miss you fix, plus a CONTROL case for the neighbouring rule that must
+NOT change. Run the free `--dump` + operator-model proxy first, the paid run once before shipping.
 
 ## Do not
 
