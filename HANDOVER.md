@@ -129,8 +129,16 @@ coupon and photo cases are still open (see below).
 - **Dropped middle message** — buyer 9818070935 sent 3 messages on 2026-08-31 (Hi / "shorts ka
   stock refill kab" / "off white beige stock nahi"); the middle one never reached the model and the
   clone answered about the wrong product. Root cause under investigation (ingest/merge path). *(HIGH)*
-- **Corrections DB poisoning** — 1,253 CORRECTION chunks (602 in June). A mispaired one landed
-  2026-09-02 08:50 IST ("yes send qr" → a reply about XXL). Audit + guard pending. *(HIGH)*
+- ~~Corrections DB poisoning~~ — DONE 2026-09-02: full audit of all 1,253 CORRECTION chunks
+  (14 finder agents + refute pass, quotes required) → **358 deleted** (190 stored defers, 68 with
+  the retired phone, 36 frozen prices incl. the dead "extra ₹2" discount, 32 other harmful, 19 stale
+  timings, 12 mispaired, 2 Drive links, 1 payment line). 1,253 → 895. Backup + delete log in
+  `~/dk2_corpus/` (chunks_backup_2026-09-02.json, deleted_corrections_2026-09-02.json). By origin:
+  reviewer_ai 166/265 bad (63%) → **the AI reviewer no longer writes CORRECTION chunks** (its
+  suggestions stay in DeferToKetu for the dashboard); intervention/edit 141/592; reviewed manual
+  pairs 50/396. Every remaining write path now runs `replyAnswersBuyer()` (one Haiku yes/no,
+  fail-open) + `hasGarbledTranscript()` before storing. Re-audit monthly with the same workflow
+  shape; a correction is Ketu's words about THAT buyer text, nothing else.
 - **Prompt consolidation** — ~156k chars, rules stacked for months and now interacting in ways
   nobody tracks. Roughly ₹1,400/month per 10% trimmed. **This is the one genuinely hard design
   problem left** and the best first task for a fresh pair of eyes. Build a regression suite first;

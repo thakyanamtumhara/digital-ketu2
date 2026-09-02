@@ -10,7 +10,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { chargeSpend } from './process.js'
 import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
-import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine, hasGarbledTranscript } from './stock-question.js'
+import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine, hasGarbledTranscript, replyAnswersBuyer } from './stock-question.js'
 
 // Quality filter: both sides need 4+ words, no media/reaction placeholders
 const wordCount = (s) => (s || '').split(/\s+/).filter(w => w.length > 0).length
@@ -190,13 +190,13 @@ export async function reviewAiReplies(db) {
           INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")
           VALUES (${deferId}, ${msg.buyerMessage}, ${msg.aiReply}, ${result.suggestedReply}, ${embedding}::vector, 0, NOW(), NOW())
         `
-        // Also write to KnowledgeChunk(CORRECTION) — the table the live AI actually reads.
-        // (DeferToKetu alone is never queried by the reply pipeline.)
-        const ccContent = `Buyer: ${msg.buyerMessage}\nCorrect reply: ${result.suggestedReply}`
-        await db.$executeRaw`
-          INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
-          VALUES (${crypto.randomUUID()}, 'CORRECTION', ${deferId}, ${msg.buyerMessage.substring(0, 80)}, ${ccContent}, ${embedding}::vector, ${JSON.stringify({ aiWrongReply: msg.aiReply || '', correctReply: result.suggestedReply, source: 'reviewer_ai' })}::jsonb, NOW(), NOW())
-        `
+        // REVIEWER-WRITTEN CORRECTIONS NO LONGER REACH THE LIVE AI (2026-09-02). The audit of all
+        // 1,253 CORRECTION chunks found 166 of this reviewer's 265 (63%) were poison: defers stored
+        // as answers, a denial of the real ₹4 website discount ("Sir price fix hai, discount nahi
+        // hota"), "kaunsa product chahiye?" where Ketu had sent the link, frozen prices. A reply
+        // INVENTED by a cheaper model must never be injected under "ALWAYS follow corrections" —
+        // that channel is for Ketu's own words (intervention / edit / reviewed manual pairs).
+        // The suggestion still lands in DeferToKetu for the dashboard; it is just not a rule.
         corrections++
       } catch (err) {
         console.error(`[Reviewer] Failed to add correction for ${msg.id}:`, err.message)
@@ -337,7 +337,11 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
     const pair = pairs.find(p => p.id === result.id)
     if (!pair) continue
 
-    if (result.aiWouldFail && isQualityPair(pair.buyerMessage, pair.ketuReply)) {
+    if (result.aiWouldFail && isQualityPair(pair.buyerMessage, pair.ketuReply)
+      // MISPAIRED GUARD (2026-09-02): manual pairs are stapled together by timing in /api/intervention,
+      // so Ketu's reply to an earlier message / photo / voice note can sit under the wrong buyer text.
+      // 50 of this path's 396 stored corrections were bad in the 2026-09-02 audit. Haiku yes/no, fail-open.
+      && await replyAnswersBuyer(anthropic, pair.buyerMessage, pair.ketuReply)) {
       try {
         const embedding = await getEmbedding(null, pair.buyerMessage)
         // Context-dependent replies → store with empty correctReply (triggers defer to Ketu)

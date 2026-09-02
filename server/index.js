@@ -5,7 +5,7 @@ import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt, resolveReplyModel, REPLY_MODEL_INFO, sendReplyViaWwbun, holdingLineJustSent, stampHoldingLine } from './process.js'
-import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine } from './stock-question.js'
+import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine, hasGarbledTranscript, replyAnswersBuyer } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { scanFollowupCandidates, handleOwnerShortlistReply, actOnDraft } from './followup.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
@@ -1395,7 +1395,12 @@ app.post('/api/intervention', async (c) => {
       learned = 'intervention_skipped_point_in_time'
       console.log(`[AutoLearn] Intervention SKIPPED — point-in-time/transactional, not learnable: "${buyerMessage.substring(0, 50)}..."`)
     }
-  } else if (isQualityPair && isIntervention && buyerMessage && ketuReply) {
+  } else if (isQualityPair && isIntervention && buyerMessage && ketuReply
+    // MISPAIRED / GARBLED GUARD (2026-09-02): the pair is made by timing, so Ketu answering an
+    // earlier message, a photo or a voice note gets stapled to the wrong buyer text ("yes send qr"
+    // → "XXL add kar raha hoon", 2026-09-02). One Haiku yes/no (~₹0.05, fail-open) before the
+    // write; garbled voice transcripts never become rules either (reviewer already had this).
+    && !hasGarbledTranscript(ketuReply) && await replyAnswersBuyer(anthropic, buyerMessage, ketuReply)) {
     try {
       const embedding = await getEmbedding(anthropic, buyerMessage)
       const deferId = crypto.randomUUID()
@@ -1468,6 +1473,17 @@ app.post('/api/correction', async (c) => {
     }
     console.log(`[Correction] SKIPPED — point-in-time/transactional/defer, not saved: "${buyerQuestion.substring(0, 50)}..."`)
     return c.json({ status: 'skipped_point_in_time', reason: 'Stock/availability, dispatch/tracking and defer-line replies are not saved as corrections (they go stale, leak a one-order link, or suppress real answers).' })
+  }
+
+  // MISPAIRED / GARBLED GUARD (2026-09-02) — same as the intervention path: wwbun pairs an edit
+  // with the last DELIVERED buyer text, which for an image+caption can be the wrong message.
+  if (hasGarbledTranscript(correctReply)) {
+    console.log(`[Correction] SKIPPED — garbled transcript, not saved: "${correctReply.substring(0, 50)}..."`)
+    return c.json({ status: 'skipped', reason: 'Reply looks like a garbled voice transcript; not saved as a rule.' })
+  }
+  if (!(await replyAnswersBuyer(anthropic, buyerQuestion, correctReply))) {
+    console.log(`[Correction] SKIPPED — reply does not answer the paired buyer text: "${buyerQuestion.substring(0, 50)}..."`)
+    return c.json({ status: 'skipped', reason: 'Reply does not answer the paired buyer text (mispaired); not saved as a rule.' })
   }
 
   // Generate embedding for the buyer question
