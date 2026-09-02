@@ -3,3 +3,5 @@ dist/
 .env
 *.log
 .prisma/
+tools/interventions.json
+tools/live_prompt.txt
