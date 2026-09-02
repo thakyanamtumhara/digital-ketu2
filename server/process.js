@@ -383,7 +383,7 @@ async function isInvoiceImage(anthropic, mediaUrl, db = null) {
           mediaContent,
           {
             type: 'text',
-            text: 'Is this a FINALIZED purchase BILL / tax INVOICE / payment RECEIPT — a generated document with a bill/invoice number, or a completed-payment confirmation (e.g. a UPI/bank "payment successful" screen)? A screenshot of a WEBSITE, shopping CART, CHECKOUT page, an "Order Now" / "Add to cart" / "Place order" button, or a product listing is NOT a bill (the buyer hasn\'t paid yet) — reply NO for those. Reply only YES or NO.',
+            text: 'Is this a FINALIZED purchase BILL / tax INVOICE / payment RECEIPT — a generated document with a bill/invoice number, or a completed-payment confirmation (e.g. a UPI/bank "payment successful" screen)? A screenshot of a WEBSITE, shopping CART, CHECKOUT page, an "Order Now" / "Add to cart" / "Place order" button, or a product listing is NOT a bill (the buyer hasn\'t paid yet) — reply NO for those.\nIf it IS a bill, say WHICH kind:\n- Reply FRESH if the bill/receipt is essentially ALONE in the frame — a clean screenshot, scan or photo of just the document.\n- Reply STALE if the bill is photographed TOGETHER WITH physical goods or their context: garments, fabric, a parcel or opened package, packing bags, a shipping/courier label, a weighing scale, a measuring tape, or any visible defect/stain/damage. Also reply STALE if the document is clearly an OLD bill being re-sent as evidence.\nA buyer complaining about a wrong or damaged item almost always photographs the invoice lying ON TOP OF the goods — that is STALE, not FRESH.\nReply with exactly one word: FRESH, STALE, or NO.',
           },
         ],
       }],
@@ -393,7 +393,15 @@ async function isInvoiceImage(anthropic, mediaUrl, db = null) {
     const _u = result.usage || {}
     await chargeSpend(db, ((_u.input_tokens || 0) * 1e-6) + ((_u.output_tokens || 0) * 5e-6), 'job')
     console.log(`[InvoiceDetect] Vision result: ${answer}`)
-    return answer.startsWith('YES')
+    // 3-WAY (2026-09-02, buyer 9146636503): the old YES/NO could not tell a fresh bill from a bill
+    // photographed ON TOP of the wrong goods — so a wrong-item complaint got "dispatching ASAP" and
+    // Ketu had to apologise, reship free and eat the freight. Every text guard is blind here: the
+    // message was a bare [Image] with no words to match. Vision is the only thing that can see it,
+    // and it costs nothing extra — same call, richer question.
+    // 'FRESH' → canned dispatch ack allowed. 'STALE' → bill is evidence, hand it to Ketu. false → not a bill.
+    if (answer.startsWith('STALE')) return 'STALE'
+    if (answer.startsWith('FRESH') || answer.startsWith('YES')) return 'FRESH'
+    return false
   } catch (err) {
     console.error('[InvoiceDetect] Detection error:', err.message)
     return false
@@ -414,7 +422,7 @@ const DELAY_COMPLAINT_RE = /abhi\s*t[ak]+\b[^]{0,25}\b(nahi|nhi|nahin|nehi|nai)|
 // got "dispatching ASAP").
 // Includes MISSING-PIECE / short-shipment complaint phrasings (2026-07-05, buyer 6353441274:
 // "ordered 2 pcs & received only 1 pcs" — a bill + such TEXT must defer, not "dispatching ASAP").
-const NON_DISPATCH_INTENT_RE = /\breturn\b|\brefund\b|\bcancel\b|\bexchange\b|\breplace\b|wapas|वापस|लौटा|रिफंड|कैंसल|रिटर्न|band\s*(karna|kar\s*rah|ho\s*rah)|बंद\s*(करना|कर\s*रह|हो\s*रह)|बदल\s*(do|दो|na|ना)|received only|\bonly\s*\d+\s*(pc|pcs|piece)|sirf\s*\d+\s*(aaya|aaye|mila|mile)|kam\s*(mila|mile|aaya|aaye|nikla|nikle|hai|the)\b|(pc|pcs|piece[s]?)\s*kam\b|\bmissing\b|\bshort\s*(aaya|mila|received)|नहीं\s*(आया|आये|मिला|मिले)|कम\s*(मिला|मिले|आया|आये|निकला|निकले)|\bwrong\s*(size|colour|color|item)|galat\s*(size|colour|color|item|maal)|गलत\s*(साइज|कलर|आइटम|माल)/i
+const NON_DISPATCH_INTENT_RE = /\breturn\b|\brefund\b|\bcancel\b|\bexchange\b|\breplace\b|wapas|वापस|लौटा|रिफंड|कैंसल|रिटर्न|band\s*(karna|kar\s*rah|ho\s*rah)|बंद\s*(करना|कर\s*रह|हो\s*रह)|बदल\s*(do|दो|na|ना)|received only|\bonly\s*\d+\s*(pc|pcs|piece)|sirf\s*\d+\s*(aaya|aaye|mila|mile)|kam\s*(mila|mile|aaya|aaye|nikla|nikle|hai|the)\b|(pc|pcs|piece[s]?)\s*kam\b|\bmissing\b|\bshort\s*(aaya|mila|received)|\b(nahi|nhi|nai|nehi)\s*(aa?ya|aa?ye|aa?yi|mila|mile|pahu?ncha)\b|नहीं\s*(आया|आये|मिला|मिले)|कम\s*(मिला|मिले|आया|आये|निकला|निकले)|\bwrong\s*(size|colour|color|item)|galat\s*(size|colour|color|item|maal)|गलत\s*(साइज|कलर|आइटम|माल)/i
 // A BILL IMAGE WITH REAL WORDS BESIDE IT IS NOT AUTOMATICALLY A NEW ORDER (Ketu 2026-08-19,
 // buyer 9719928873): he sent an old bill with "17 Aug ko maine samaan mangaya tha / Wo ye tha /
 // But mujhe receive hua h / Navy Blue L 11 / Navy Blue S 9" — a SHORT-DELIVERY complaint — and the
@@ -456,8 +464,42 @@ async function ownerIsHandlingThread(db, conversationId) {
 // never match here (that is a delivery complaint — see the Niraj case).
 function billTextConfirmsOrder(text) {
   const t = String(text || '')
-  if (/\b(receiv|recieve|mila|mili|mile|aaya|aayi|pahu?nch|damag|defect|wrong|galat|kam\s*niklе?|short)/i.test(t)) return false
+  // Single-'a' romanisations ("aya", "aye", "ayi") slipped past the old aaya|aayi list.
+  if (/\b(receiv|recieve|mila|mili|mile|aa?ya|aa?yi|aa?ye|pahu?nch|damag|defect|wrong|galat|kam\s*niklе?|short)/i.test(t)) return false
+  // "Sample order kiya, koi confirmation nai aya" is order-STATUS DOUBT, not a confirmation
+  // (2026-08-28, buyer 8000770749 got "dispatching ASAP" for exactly this). Past-tense ordering
+  // language is necessary but NOT sufficient — a sentence that also says nothing arrived is a
+  // complaint about the order not registering, and only Ketu can check that.
+  if (/confirmation|confirm/i.test(t) && /\b(nahi|nhi|nai|nahin|nehi|no|not|koi)\b/i.test(t)) return false
+  if (/no\s*confirmation|nothing\s*received|koi\s*(msg|message|mail|email|sms|call|reply)\s*(nahi|nhi|nai)|order\s*(id|number|no)\s*(nahi|nhi|nai)/i.test(t)) return false
   return /\b(i\s*(have\s*)?ordered|have\s*placed|just\s*ordered|order\s*(kar\s*)?(diya|kiya|kar\s*di|place\s*kiya|placed|ho\s*gaya|laga\s*diya)|maine\s*order|payment\s*(done|ho\s*gaya|kar\s*diya)|paid)\b/i.test(t)
+}
+
+// A SHIPMENT HELD PENDING MONEY is never a dispatch confirmation (2026-08-31, buyer 9804561285:
+// "payment kar diya, shipment release karwa do" got "dispatching ASAP" while Ketu was still asking
+// when the payment was made and for the screenshot). "Release" means it is stuck, not moving.
+const PAYMENT_HOLD_RE = /release\s*(karwa|kawra|karva|kar)\s*(do|dijiye|de)|shipment\s*release|order\s*release|\bhold\b\s*(hai|ho\s*gaya|par|kyun|kyu)|payment[^]{0,30}(release|screenshot|receipt|verify)|(release|chhod|chod)[^]{0,15}\bshipment\b/i
+function hasPaymentHoldText(text) {
+  return PAYMENT_HOLD_RE.test(text || '')
+}
+
+// AN OPEN MONEY MATTER KEEPS A THREAD ON KETU'S DESK FOR DAYS (2026-08-31, buyer 8780843499 sent a
+// bill PDF into a live coupon/settlement thread and got "dispatching ASAP"; Ketu had to ask which
+// one was pending and whether a code was issued). ownerIsHandlingThread only looks back 3h, which
+// is far too short for a settlement — so scan a week for money vocabulary on either side.
+async function threadHasOpenMoneyMatter(db, conversationId) {
+  try {
+    const recent = await db.messageLog.findMany({
+      where: { conversationId, createdAt: { gt: new Date(Date.now() - 7 * 24 * 3600 * 1000) } },
+      orderBy: { createdAt: 'desc' }, take: 40,
+      select: { buyerMessage: true, aiReply: true },
+    })
+    const MONEY_RE = /coupon|कूपन|pending|settle(d|ment)?|सिटल|adjust|credit\s*note|claim|baaki\s*(paisa|amount|pesa)|बाकी\s*(पैसा|अमाउंट)|refund|रिफंड/i
+    for (const r of recent) {
+      if (MONEY_RE.test(r.buyerMessage || '') || MONEY_RE.test(r.aiReply || '')) return true
+    }
+  } catch { /* fail-open: behave exactly as before */ }
+  return false
 }
 
 function billImageHasRealText(text) {
@@ -1204,7 +1246,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       // at night for a delivered order (1 pc missing) and got "dispatching ASAP" twice (2026-07-05,
       // Ketu: "you should have understood the context and deferred"). Defer instead.
       const hasPhotoInBurst = messages.some(m => m.messageType === 'image') || /\[(product photo|Image)\]/i.test(mergedText || '')
-      if (hasPhotoInBurst || (billImageHasRealText(mergedText) && !billTextConfirmsOrder(mergedText)) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+      if (hasPhotoInBurst || (billImageHasRealText(mergedText) && !billTextConfirmsOrder(mergedText)) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || hasPaymentHoldText(mergedText) || await hasRecentDelayComplaint(db, conversation.id) || await threadHasOpenMoneyMatter(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
           mergedText, messageIds, logData: {
@@ -1241,10 +1283,23 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         invoiceMediaUrl = await downloadMediaFromWwbun(mediaMsg.wwbunMessageId)
       }
     }
-    if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl, db)) {
+    const invoiceKind = invoiceMediaUrl ? await isInvoiceImage(anthropic, invoiceMediaUrl, db) : false
+    if (invoiceKind === 'STALE') {
+      // The bill is EVIDENCE, not an order: Ketu inspects defect/wrong-item photos personally.
+      scheduleDeferReply({
+        whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+        mergedText, messageIds, logData: {
+          status: 'DEFERRED', deferReason: 'bill_photographed_with_goods',
+          processingMs: Date.now() - startTime,
+        }, db,
+      })
+      console.log(`[InvoiceDetect] ${whatsappNumber} — bill photographed with goods/packaging, deferring to Ketu (evidence, not a fresh order)`)
+      return
+    }
+    if (invoiceKind === 'FRESH') {
       // Same bill+photo evidence guard as the bill-doc path above (2026-07-05, buyer 6353441274).
       const hasExtraPhotoInBurst = messages.filter(m => m.messageType === 'image').length > 1 || /\[product photo\]/i.test(mergedText || '')
-      if (hasExtraPhotoInBurst || (billImageHasRealText(mergedText) && !billTextConfirmsOrder(mergedText)) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
+      if (hasExtraPhotoInBurst || (billImageHasRealText(mergedText) && !billTextConfirmsOrder(mergedText)) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || hasPaymentHoldText(mergedText) || await hasRecentDelayComplaint(db, conversation.id) || await threadHasOpenMoneyMatter(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
           mergedText, messageIds, logData: {
@@ -1751,7 +1806,20 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       invoiceMediaUrl = await downloadMediaFromWwbun(mediaMsg.wwbunMessageId)
     }
   }
-  if (invoiceMediaUrl && await isInvoiceImage(anthropic, invoiceMediaUrl, db)) {
+  const invoiceKind = invoiceMediaUrl ? await isInvoiceImage(anthropic, invoiceMediaUrl, db) : false
+    if (invoiceKind === 'STALE') {
+      // The bill is EVIDENCE, not an order: Ketu inspects defect/wrong-item photos personally.
+      scheduleDeferReply({
+        whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+        mergedText, messageIds, logData: {
+          status: 'DEFERRED', deferReason: 'bill_photographed_with_goods',
+          processingMs: Date.now() - startTime,
+        }, db,
+      })
+      console.log(`[InvoiceDetect] ${whatsappNumber} — bill photographed with goods/packaging, deferring to Ketu (evidence, not a fresh order)`)
+      return
+    }
+    if (invoiceKind === 'FRESH') {
     if (await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
