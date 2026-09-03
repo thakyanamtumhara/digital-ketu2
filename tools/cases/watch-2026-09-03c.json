@@ -1,0 +1,23 @@
+[
+  {
+    "id": "pickup-status-call-godam",
+    "why": "2026-09-03 buyer 6393840975: 'parcel pick ho gya mera k ni' after our pickup-ready notice → clone deferred; Ketu: call the godam and ask",
+    "history": [{ "buyer": "[product photo]", "ai": "Order #12536 ready hai sir, pickup ke liye porter bhej dijiye 👍 Search - OWN KNITTED BLANK WEARS, mobile - 8368648533" }],
+    "msg": "Sir please ek chiz bta dijiye parcel pick ho gya mera k ni",
+    "must": ["8368648533", "call|pooch|confirm"],
+    "mustNot": ["\\[DEFER\\]", "7048954134"]
+  },
+  {
+    "id": "control-courier-status-defers",
+    "why": "CONTROL — a courier-shipped 'dispatched or not?' without a lookup block still defers",
+    "msg": "mera order dispatch hua ya nahi? 3 din ho gaye",
+    "must": ["^\\[DEFER\\]$"]
+  },
+  {
+    "id": "control-porter-instructions-unchanged",
+    "why": "CONTROL — 'how do I send a pickup' keeps the porter instructions",
+    "msg": "order ready hai? porter bhej du kaise karna hai pickup",
+    "must": ["OWN KNITTED|8368648533|porter"],
+    "mustNot": ["\\[DEFER\\]"]
+  }
+]
