@@ -1,0 +1,29 @@
+[
+  {
+    "id": "return-no-reason-asks-bill-and-issue",
+    "why": "2026-09-03 buyer 9818155720: bare 'how do i return' got a flat refusal; Ketu asked for the bill and the issue",
+    "msg": "i would like to return oversized tshirts purchased few days back how do i return",
+    "must": ["bill", "issue|problem"],
+    "mustNot": ["not allowed", "\\[DEFER\\]"]
+  },
+  {
+    "id": "control-return-subjective-refusal",
+    "why": "CONTROL — a stated subjective reason keeps Ketu's standard refusal",
+    "msg": "not satisfied with the quality, want to return the tshirts",
+    "must": ["not allowed"],
+    "mustNot": ["\\[DEFER\\]", "bill bhej|send your bill"]
+  },
+  {
+    "id": "control-return-defect-defers",
+    "why": "CONTROL — a defect/wrong item still defers to Ketu",
+    "msg": "2 tshirts mein hole nikla, wapas karna hai",
+    "must": ["^\\[DEFER\\]$"]
+  },
+  {
+    "id": "control-policy-hypothetical",
+    "why": "CONTROL — pre-order hypothetical keeps the policy line",
+    "msg": "what is your return policy if something is defective?",
+    "must": ["not allowed|nahi hota"],
+    "mustNot": ["\\[DEFER\\]", "bill"]
+  }
+]
