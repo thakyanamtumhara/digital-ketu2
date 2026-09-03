@@ -1,0 +1,26 @@
+[
+  {
+    "id": "english-pls-repeats-question",
+    "why": "2026-09-03 buyer 9496015493: 'English pls' after the Hinglish coupon question → clone went silent; must repeat in English",
+    "history": [{ "buyer": "Coupon code pls", "ai": "Sir total kitne pieces ka order hai? Uske hisaab se Ketu code de denge 🙏" }],
+    "msg": "English pls",
+    "must": ["how many|pieces|quantity"],
+    "mustNot": ["kitne|hisaab", "\\[DEFER\\]", "\\[SKIP\\]"]
+  },
+  {
+    "id": "coupon-ask-english-buyer",
+    "why": "same rule, English buyer → English wording",
+    "history": [{ "buyer": "Do you have cotton polo in stock?", "ai": "Yes sir, Cotton Polo is available 👉 https://sale91.com/catalog/p/cotton-polo" }],
+    "msg": "Coupon code pls",
+    "must": ["how many|pieces"],
+    "mustNot": ["kitne|hisaab", "no coupon|no code"]
+  },
+  {
+    "id": "control-hindi-switch",
+    "why": "CONTROL — switch the other way: repeat in Hinglish, no silence",
+    "history": [{ "buyer": "price of oversize 240?", "ai": "Bulk ₹195/pc sir 👉 https://sale91.com/catalog/p/oversize-240gsm" }],
+    "msg": "hindi me bolo",
+    "must": ["₹195|195"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]"]
+  }
+]
