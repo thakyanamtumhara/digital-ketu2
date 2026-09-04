@@ -1,0 +1,22 @@
+[
+  {
+    "id": "payment-error-defers",
+    "why": "2026-09-03 buyer 9794490949: payment error → clone invented '10 minute wait karke dobara order' (banned); must defer",
+    "msg": "Bhaiya payment now kar rha to error aa rha hai, 3 baar try kiya card se",
+    "must": ["^\\[DEFER\\]$"]
+  },
+  {
+    "id": "control-how-to-pay",
+    "why": "CONTROL — a payment-method question is answered, not deferred",
+    "msg": "kaise pay karu? UPI chalega?",
+    "must": ["upi|website|sale91"],
+    "mustNot": ["\\[DEFER\\]", "\\d+\\s*min"]
+  },
+  {
+    "id": "control-otp-check-line",
+    "why": "CONTROL — OTP not arriving keeps Ketu's email/spam check line",
+    "msg": "checkout pe OTP nahi aa raha email pe",
+    "must": ["email|spam"],
+    "mustNot": ["^\\[DEFER\\]$", "\\d+\\s*min"]
+  }
+]

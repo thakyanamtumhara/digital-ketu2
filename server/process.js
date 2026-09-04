@@ -2619,6 +2619,14 @@ function formatIgLinkSpacing(text) {
   return out + tail
 }
 
+// PAYMENT-FIX FABRICATION GUARD regexes (2026-09-04, see runAiFlow). Buyer side: a payment that is
+// failing / erroring / stuck (a screenshot caption counts). Reply side: any "wait N minutes",
+// "thodi der baad", "dobara try/order/payment" instruction — the class of fix the clone invents.
+// Legitimate lines stay clear of this: the OTP email check has no wait/retry wording, and the
+// payment-METHOD answer ("website pe UPI/card se pay kar sakte ho") has no failure on the buyer side.
+export const PAYMENT_TROUBLE_RE = /\b(payment|pay(ment)?\s*now|paying|upi|gpay|phonepe|paytm|card|net\s*banking|checkout|transaction)\b[^]{0,60}\b(fail|failed|failing|error|issue|problem|stuck|declin|cancel|nahi\s*ho|nhi\s*ho|na?hi\s*ho\s*(raha|rha|rahi)|ho\s*nahi|aa\s*rh?a\s*hai|aa\s*rahi|atak|ruk)|\b(fail|failed|error|issue|problem|declin)\w*\b[^]{0,60}\b(payment|pay|upi|gpay|phonepe|paytm|card|checkout|transaction)\b/i
+export const INVENTED_RETRY_RE = /\b\d+\s*(min|mint|minute|minutes|ghante|hour|hours)\w*\s*(wait|baad|ke\s*baad|ruk|later|after)|\b(wait|ruk|rukiye|thodi\s*der)\w*[^]{0,20}\b(karke|kar\s*ke|ke\s*baad|baad|then|and)\s*(dobara|phir|fir|again|retry|try)|\b(dobara|phir\s*se|fir\s*se|again)\s*(try|order|payment|pay|koshish|attempt)|\b(retry|try\s*again)\b/i
+
 // ❄️ WINTER STOCK LINE (2026-09-02): the seasonal restock answer for hoodie/sweatshirt/zip asks used
 // to be a FIXED sentence in the rulebook ("Winter stock September ke baad aayega") and went stale the
 // day the season turned — buyer 7701911454 got "September ke baad" on 2 Sep while Ketu told him the
@@ -3410,6 +3418,17 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     if (normalizedText && !carriedHere && normalizedText.split(/\s+/).filter(Boolean).length <= 4) await autoLearnAcknowledgment(db, normalizedText)
     console.log(`[Skip] ${whatsappNumber} — conversation ender detected by Claude`)
     return
+  }
+
+  // --- PAYMENT-FIX FABRICATION GUARD (2026-09-04) ---
+  // The prompt has banned invented payment troubleshooting since 2026-08-13 ("NEVER invent retry
+  // timing"), and the model still wrote "10 minute wait karke dobara order daal dijiye" to a payment
+  // error screenshot (buyer 9794490949, 2026-09-03; Ketu's own answer was a plain "try once more").
+  // A ban that fails twice moves to code: a payment-trouble message answered with a wait/retry
+  // instruction becomes the holding line — Ketu fixes payments personally.
+  if (PAYMENT_TROUBLE_RE.test(mergedText || '') && INVENTED_RETRY_RE.test(aiReply || '') && !/\[DEFER\]/.test(aiReply || '')) {
+    console.log(`[PaymentFixGuard] ${whatsappNumber} — invented payment retry advice blocked: "${String(aiReply).slice(0, 80)}"`)
+    aiReply = '[DEFER]'
   }
 
   // --- DISPATCH-ACK DEFER OVERRIDE (audit 2026-08-13) ---
