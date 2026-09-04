@@ -93,11 +93,28 @@ function etaDays(dt) {
 // the model was promising a date for sizes that were NOT in it. The supplier row is
 // {colour: {size: qty}} — we used to drop the sizes and key on colour alone, so "Kids Black 24 in
 // ~6 din" got emitted from a shipment that was Mustard Yellow 22/30/32/34. Keep the size set.
+// Supplier design names are typed by hand and several of them carry a trailing space —
+// "Honey White ", "SS Black ", "RNYL White ", "RNRL WHITE ", "KIDS RN WHITE ",
+// "FINE DS WHITE " — present in every month node we scan. An exact alias lookup missed
+// all of them, so the name stayed raw supplier jargon and getStockSnapshot's
+// known-products filter then deleted the whole row. Net effect: the WHITE/Black half of
+// six real products (Premium Polo, Sweatshirt, Bio Rneck, True Bio Rneck, Kids Rneck,
+// Oversize 180gsm) never had an ETA here, every month, while their COLORS siblings did.
+// delhi-stock.html normType() and Employee_Khata lookupAlias() both normalise already;
+// this matches them. Falls back to the trimmed name so unaliased jargon is at least clean.
+function resolveProduct(aliases, aliasNorm, supplierName) {
+  return (aliases && aliases[supplierName])
+    || aliasNorm[String(supplierName).trim().toLowerCase()]
+    || String(supplierName).trim()
+}
+
 async function fetchComingSoon() {
   const [pinMap, aliases] = await Promise.all([
     fetchJson(`${INSTOCK_DB}/appData/__pinMap__/pin.json`),
     fetchJson(`${OFFLINE_DB}/config/productAliases.json`),
   ])
+  const aliasNorm = {}
+  for (const k in (aliases || {})) aliasNorm[String(k).trim().toLowerCase()] = aliases[k]
   if (!pinMap || typeof pinMap !== 'object') return {}
   const coming = {}
   for (const mk of supplierMonthKeys()) {
@@ -116,7 +133,7 @@ async function fetchComingSoon() {
       const eta = etaDays(o.dt)
       if (eta === null) continue
       for (const supplierName in o.od) {
-        const product = (aliases && aliases[supplierName]) || supplierName
+        const product = resolveProduct(aliases, aliasNorm, supplierName)
         const colours = o.od[supplierName]
         if (!colours || typeof colours !== 'object') continue
         for (const colour in colours) {
