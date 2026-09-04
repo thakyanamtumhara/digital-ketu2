@@ -3299,10 +3299,15 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     if (isTransient || isHardDown) {
       const siblings = REPLY_MODEL_INFO.allow.filter(m => m !== replyModel)
       // Credits/auth failures hit every model, so don't waste a retry on the same one.
-      const attempts = isTransient ? [replyModel, ...siblings] : siblings
+      // 2026-09-04: two buyers were held with "all_claude_models_failed: 529 Overloaded" inside one
+      // afternoon — all three tiers were tried within ~4s, shorter than the overload burst. Spread
+      // the attempts over ~25s (3s / 6s / 15s) and end with one more go on the primary model: a
+      // 25s-late Opus answer beats a holding line, and the buyer's next message merges anyway.
+      const attempts = isTransient ? [replyModel, ...siblings, replyModel] : siblings
+      const RETRY_DELAYS_MS = isTransient ? [0, 3000, 6000, 15000] : [0, 1200, 2400]
       for (let i = 0; i < attempts.length && !aiReply; i++) {
         try {
-          if (i > 0) await new Promise(r => setTimeout(r, 1200 * i))
+          if (i > 0) await new Promise(r => setTimeout(r, RETRY_DELAYS_MS[i] ?? 3000))
           const alt = await anthropic.messages.create({
             model: attempts[i], max_tokens: 500, thinking: { type: 'disabled' },
             system: buildSystemBlocks(false), messages: userMessages,
