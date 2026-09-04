@@ -64,11 +64,20 @@ function supplierMonthKeys() {
 }
 
 // "02/Jul/2026" → Date (page's parseDtString equivalent, month-name format only)
-const DT_MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 }
+// September arrives as "Sept", not "Sep": CLDR 42 renamed the en-GB/en-IN short
+// month, and the supplier app builds the string with toLocaleDateString. Four
+// letters is real data. Before this accepted it, every September shipment was
+// dropped whole by the `eta === null` guard below and the bot told buyers
+// nothing was on the way.
+const DT_MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11 }
 function parseDt(dt) {
-  const m = /^(\d{1,2})\/([A-Za-z]{3})\/(\d{4})$/.exec(String(dt || '').trim())
-  if (!m || !(m[2] in DT_MONTHS)) return null
-  return new Date(Number(m[3]), DT_MONTHS[m[2]], Number(m[1]))
+  const m = /^(\d{1,2})\/([A-Za-z]{3,4})\/(\d{4})$/.exec(String(dt || '').trim())
+  if (!m) return null
+  const mo = DT_MONTHS[m[2].toLowerCase()]
+  if (mo === undefined) return null
+  const day = Number(m[1])
+  if (day < 1 || day > 31) return null
+  return new Date(Number(m[3]), mo, day)
 }
 function etaDays(dt) {
   const d = parseDt(dt)
