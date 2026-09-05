@@ -252,3 +252,104 @@ export function formatStockBlock(snapshot) {
   lines.push('HOW TO ANSWER FROM THIS DATA: each colour in IN STOCK already shows its EXACT orderable sizes — if the asked size appears next to that colour, it IS available; colours are INDEPENDENT, so NEVER say a size is out for one colour just because another colour has it out (e.g. do not claim Maroon 46 is out because Navy/Royal Blue 46 are out). Only call a size out if it is missing from that colour\'s IN STOCK sizes or explicitly in OUT OF STOCK for that exact colour. (1) asked colour/size IS in the IN STOCK list and NOT in OUT OF STOCK → "available hai sir" + order link. (2) It IS in OUT OF STOCK → "abhi out of stock hai sir"; then obey THAT ENTRY\'S OWN restock verdict, which is already resolved for you — "↳ ... arriving ~N din" → you MAY say "~N din mein aa jayega sir"; "⛔" → say NO date at all, not even "jaldi"/"soon"/"thoda time", and point at the Coming Soon tab instead 👉 https://www.bulkplaintshirt.com/delhi-stock.html. ⚠️ NEVER carry an ETA across a colour or a size: a date shown for one colour of a product does NOT apply to another colour of that product, and a shipment\'s sizes do NOT cover sizes missing from it (2026-08-31, buyer 9764372985: the clone read "Kids Rneck — Mustard Yellow ~6 din" and promised Kids BLACK 24 in ~6 days, and read "True Bio Rneck — Black" to promise Navy 38 — neither colour had any shipment; Ketu: "there is nothing in transit for Black 24, how are you saying that?"). An invented arrival date is the single most damaging thing you can say — the buyer waits, nothing comes. If the verdict is ⛔ or you are unsure the row matches the EXACT product+colour+size asked, give no date; suggest 1-2 alternatives — ONLY colours/sizes that are genuinely orderable (use each OUT-OF-STOCK entry\'s "still available:" sizes; NEVER suggest a size/colour listed as out; if the buyer asked for a SPECIFIC size, suggest only colours that have THAT size available). (2b) The buyer asks WHEN something comes back ("kab tak aayegi", "kab aayega", "kab tak available ho jaayegi", "when will it be available / restock") → they want the TIMING, so LEAD with the ETA from that OUT-OF-STOCK entry\'s own verdict ("~N din mein aa jayega sir") — but ONLY if the verdict shows "↳" for the exact colour AND size asked; if it shows "⛔", the honest answer is that you cannot give a date (Coming Soon tab pointer), NOT a borrowed one. Then add what is available meanwhile. Listing only what is in stock IGNORES the question (Ketu 2026-07-27: "acid wash kab tak available ho jaaegi" got a list of available colours; his own answer was the ETA — "Black XL in 2 to 3 days"). If NO COMING SOON row matches that product/colour, do NOT invent a date — say the restock timing shows in the website\'s Coming Soon tab. (3) Product/colour NOT confidently identifiable in this data (naming doubt, variant doubt) → [DEFER] as usual. NEVER state quantities. If Ketu said something different in this thread, HIS word wins.')
   return lines.join('\n')
 }
+
+// ---------------------------------------------------------------------------------------------
+// PRODUCT-NOT-NAMED RESOLVER (2026-09-05, Ketu). Buyer 8595383520 wrote "White and nevy 38 kab tak
+// restock hoga?" — colour + size, no product. The live block was in the prompt, but the model
+// would not pick the product itself (Navy 38 is IN STOCK in Bio Rneck and OUT with no shipment
+// in True Bio Rneck) and deferred. Ketu: "you should have asked Bio or True Bio, or checked
+// yourself and informed." Same medicine as every other stock fix: do the join in code. When the
+// text names a colour and/or size but NO product, append a 🔎 section listing, per colour+size,
+// every product that carries that colour/size and its exact verdict, and tell the model to ask
+// which product in ONE line (or answer directly when only one product fits / the thread already
+// names it).
+// ---------------------------------------------------------------------------------------------
+const COLOUR_ALIASES = [
+  ['Navy', /\bn[ae]v[iy]e?\b|\bnavy\s*blue\b|\bnevy\s*blue\b/i],
+  ['White', /\bwh?ite\b|\bsafed\b|\bwhyte\b/i],
+  ['Off-white', /\boff[\s-]*white\b|\bcream\b/i],
+  ['Black', /\bbla?ck\b|\bkala\b|\bkaala\b/i],
+  ['Grey', /\bgr[ae]y\b|\bmelange\b/i],
+  ['Charcoal', /\bcharco[al]l?\b/i],
+  ['Maroon', /\bmaro+[nm]\b/i],
+  ['Red', /\bred\b|\blal\b/i],
+  ['Royal Blue', /\broyal(\s*blue)?\b/i],
+  ['Sky', /\bsky(\s*blue)?\b/i],
+  ['Powder Blue', /\bpowder(\s*blue)?\b/i],
+  ['Bottle Green', /\bbottle(\s*green)?\b/i],
+  ['Army Green', /\barmy(\s*green)?\b|\bolive\b/i],
+  ['Flag Green', /\bflag(\s*green)?\b/i],
+  ['Sage Green', /\bsage(\s*green)?\b/i],
+  ['Mustard Yellow', /\bmustard\b|\byellow\b|\bpeela\b/i],
+  ['Orange', /\borange\b/i],
+  ['Baby Pink', /\bbaby\s*pink\b|\bpink\b/i],
+  ['Rose Pink', /\brose(\s*pink)?\b/i],
+  ['Lavender', /\blavender\b|\bpurple\b/i],
+  ['Beige', /\bb[ei]{2}ge\b|\bbiege\b/i],
+  ['Brown', /\bbrown\b/i],
+  ['Bhagwa', /\bbhagwa\b|\bsaffron\b|\bkesari\b/i],
+]
+// Product words = the buyer DID name a product → the normal block is enough, no resolver.
+export const PRODUCT_NAMED_RE = /\b(bio|true\s*bio|non\s*bio|polo|oversize[d]?|over\s*size|drop\s*shoulder|acid|acidwash|hoodie|hoody|sweat\s*shirt|kids?|bachch?o?n?|sublimation|shorts?|zip|zipper|varsity|jacket|boxy|\d{3}\s*gsm|rneck|round\s*neck|premium|cotton\s*polo)\b/i
+const SIZE_RE = /\b(xxs|xs|s|m|l|xl|xxl|xxxl|2xl|3xl|20|22|24|26|28|30|32|34|36|38|40|42|44|46)\b/gi
+// Colour spellings the snapshot itself uses inconsistently (Charcol/Charcoal, Biege/Beige).
+const SNAPSHOT_COLOUR_TWINS = { Charcoal: ['Charcol'], Beige: ['Biege'] }
+
+export function detectColoursAndSizes(text) {
+  const t = String(text || '')
+  const colours = []
+  for (const [name, re] of COLOUR_ALIASES) if (re.test(t) && !colours.includes(name)) colours.push(name)
+  // "Baby Pink" also matches plain "pink"; "Royal Blue" vs "Sky" are distinct words — fine as-is.
+  const sizes = []
+  for (const m of t.matchAll(SIZE_RE)) {
+    let s = m[1].toUpperCase()
+    if (s === '2XL') s = 'XXL'
+    if (s === '3XL') s = 'XXXL'
+    if (!sizes.includes(s)) sizes.push(s)
+  }
+  // A bare "s" / "m" / "l" is too common in Hinglish ("s" = "is", "m" = "main") — only trust
+  // single-letter alpha sizes when a numeric or two-letter size, or a colour, sits beside them.
+  const trusted = sizes.filter(s => !(s.length === 1 && !colours.length && sizes.length === 1))
+  return { colours, sizes: trusted, productNamed: PRODUCT_NAMED_RE.test(t) }
+}
+
+function productVerdict(snapshot, product, colour, size) {
+  const names = [colour, ...(SNAPSHOT_COLOUR_TWINS[colour] || [])]
+  const inTable = (snapshot.inStock[product] || {})
+  const oosTable = (snapshot.oos && snapshot.oos[product]) || {}
+  const c = names.find(n => inTable[n] || oosTable[n])
+  if (!c) return null // this product has no such colour at all
+  const gridSizes = Object.keys(inTable[c] || {})
+  const outSizes = String(oosTable[c] || '').split(',').map(s => s.trim()).filter(Boolean)
+  const sizeKnown = !size || gridSizes.includes(size) || outSizes.includes(size)
+  if (!sizeKnown) return null // e.g. size 38 on an alpha-sized product → not a candidate
+  if (size && !outSizes.includes(size) && gridSizes.includes(size)) return { product, status: '✅ IN STOCK — orderable now' }
+  if (!size && gridSizes.some(s => !outSizes.includes(s))) return { product, status: `✅ IN STOCK (sizes ${gridSizes.filter(s => !outSizes.includes(s)).join(',')})` }
+  const row = (snapshot.coming || {})[`${product}|${c}`]
+  if (!row) return { product, status: '⛔ OUT, NO shipment — no date' }
+  const eta = row.eta === 0 ? 'arriving any day' : row.eta === 1 ? '~1 din' : `~${row.eta} din`
+  const incoming = row.sizes || []
+  if (size && incoming.length && !incoming.includes(size)) return { product, status: `⛔ OUT — shipment ${eta} but NOT size ${size}; no date for ${size}` }
+  return { product, status: `⏳ OUT — shipment ${eta}${incoming.length ? ` [sizes ${incoming.join(',')}]` : ' (sizes not listed)'}` }
+}
+
+export function resolveUnnamedProduct(snapshot, text) {
+  if (!snapshot || !snapshot.inStock) return null
+  const { colours, sizes, productNamed } = detectColoursAndSizes(text)
+  if (productNamed || !colours.length) return null
+  const lines = []
+  const products = Object.keys(snapshot.inStock)
+  for (const colour of colours) {
+    for (const size of (sizes.length ? sizes : [null])) {
+      const hits = products.map(p => productVerdict(snapshot, p, colour, size)).filter(Boolean)
+      if (!hits.length) continue
+      lines.push(`- ${colour}${size ? ' ' + size : ''}: ${hits.map(h => `${h.product} ${h.status}`).join(' · ')}`)
+    }
+  }
+  if (!lines.length) return null
+  return [
+    '🔎 PRODUCT NOT NAMED — the buyer gave a colour/size but no product, and the answer DIFFERS by product (resolved in code from the block above; trust these exactly):',
+    ...lines,
+    'HOW TO ANSWER: (a) if the RECENT CONVERSATION already names the product, answer for THAT product only from its verdict — do not ask. (b) Otherwise do NOT [DEFER]: ask which product in ONE short line naming the candidates the way Ketu does ("Bio ya True Bio, sir?"), and fold the verdicts into that same line when they split (e.g. "Bio mein 38 available hai 👉 link, True Bio mein 38 out hai — kaunsa chahiye?"). (c) If only ONE product fits, answer it directly. Never invent a date the verdict does not give.',
+  ].join('\n')
+}

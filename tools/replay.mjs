@@ -63,12 +63,12 @@ for (const c of (cat.chunks || cat.items || [])) {
 const catalogBlock = lines.length ? `AUTHORITATIVE CATALOG — the COMPLETE, current product list. This is the ONLY source of product FACTS: every price, GSM, fabric, colour, size and link the buyer could ask about is here. If you state ANY price/gsm/colour/size, it MUST be copied EXACTLY from this list (never round, never guess, never use a number from memory or the chat). "bulk" = 10+ pcs, "sample" = under 10 pcs — counted on the buyer's TOTAL order across ALL products combined, NOT per product (a 3-pc line inside an 18-pc total order is still BULK rate). A colour NOT listed for a product = we don't make it in that colour (send HD Photos). A product NOT in this list = we don't make it. If a listed detail isn't shown, don't invent it. (The KNOWLEDGE BASE in the user message is only for STYLE/how-Ketu-phrases-it — NOT for facts.)\n${lines.sort().join('\n')}` : null
 
 // ---- optional per-case blocks ----
-const { getStockSnapshot, formatStockBlock } = await import('../server/stock-lookup.js')
+const { getStockSnapshot, formatStockBlock, resolveUnnamedProduct } = await import('../server/stock-lookup.js')
 const { getPhotoIndex, formatPhotoBlock } = await import('../server/photo-links.js')
-const { winterStockLine } = await import('../server/process.js')
-let stockBlock = null, photoBlock = null
+const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT } = await import('../server/process.js')
+let stockBlock = null, photoBlock = null, stockSnapshot = null
 const cases = JSON.parse(readFileSync(file, 'utf8')).filter(c => !ONLY.length || ONLY.includes(c.id))
-if (cases.some(c => c.stock)) stockBlock = formatStockBlock(await getStockSnapshot())
+if (cases.some(c => c.stock)) { stockSnapshot = await getStockSnapshot(); stockBlock = formatStockBlock(stockSnapshot) }
 if (cases.some(c => c.photo)) photoBlock = formatPhotoBlock(await getPhotoIndex())
 
 function userPromptFor(c) {
@@ -80,7 +80,11 @@ function userPromptFor(c) {
   p += `BUYER'S NEW MESSAGE:\n${c.msg}\n\nReply as Ketu's assistant:`
   if (c.winter) p = `❄️ WINTER STOCK LINE (the seasonal restock answer for hoodie / sweatshirt / zip-hoodie / any winter item, computed for today's date in Ketu's words — relay it for a winter restock-timing ask unless a ⏰ entry above or a 📦 LIVE STOCK DATA in-stock listing answers more specifically; never add a date of your own): "${winterStockLine()}"\n\n${p}`
   if (c.photo && photoBlock) p = photoBlock + '\n\n' + p
-  if (c.stock && stockBlock) p = stockBlock + '\n\n' + p
+  if (c.stock && stockBlock) {
+    const unnamed = resolveUnnamedProduct(stockSnapshot, c.msg) // mirrors runAiFlow (2026-09-05)
+    p = stockBlock + (unnamed ? '\n' + unnamed : '') + '\n\n' + p
+  }
+  if (EXPORT_ASK_RE.test(c.msg)) p = EXPORT_HINT + '\n\n' + p // mirrors runAiFlow (2026-09-05)
   return p
 }
 

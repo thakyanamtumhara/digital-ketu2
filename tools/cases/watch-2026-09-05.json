@@ -1,0 +1,48 @@
+[
+  {
+    "id": "navy-white-38-unnamed",
+    "why": "2026-09-04 buyer 8595383520: colour+size, no product → clone deferred with the stock block present; Ketu: ask Bio vs True Bio / check yourself and inform",
+    "stock": true,
+    "msg": "White and nevy 38 kab tak restock hoga?",
+    "must": ["bio", "true\\s*bio|polo|kaun|konsa|kaunsa|which"],
+    "mustNot": ["\\[DEFER\\]", "\\d+\\s*din", "website pe check"]
+  },
+  {
+    "id": "navy-38-thread-names-bio",
+    "why": "CONTROL — thread already names the product (Bio) → answer for Bio only, no 'which product' question",
+    "stock": true,
+    "history": [{ "buyer": "Bio wash regular fit ka rate kya hai", "ai": "Bio Rneck ₹ catalog rate hai sir 👉 https://sale91.com/catalog/p/bio-rneck" }],
+    "msg": "nevy 38 hai abhi?",
+    "must": ["available|hai sir|in stock"],
+    "mustNot": ["\\[DEFER\\]", "true\\s*bio"]
+  },
+  {
+    "id": "control-true-bio-named-restock",
+    "why": "CONTROL — product named (True Bio) → the normal block answers: out, no shipment → Coming Soon pointer, no invented date",
+    "stock": true,
+    "msg": "True Bio navy 38 kab tak aayega?",
+    "must": ["coming\\s*soon|delhi-stock|out|nahi"],
+    "mustNot": ["\\[DEFER\\]", "\\d+\\s*din", "kaunsa|which product"]
+  },
+  {
+    "id": "canada-export-ddp",
+    "why": "2026-09-05 buyer +1 437: 50-pc acid-wash quote incl. DDP to Canada → clone deferred; Ketu: 'We dont export sir. Within india only we sell.'",
+    "msg": "Hi, I need 50 blank heavyweight acid-wash oversized T-shirts for my printing business in Canada.\n\nSpecification:\n100% cotton\n240–250 GSM\nOversized/drop shoulder\nAcid/vintage wash\nNo print\nNo outside branding\nBlack/charcoal colours\nSizes S–2XL\n\nPlease quote your best price for 50 pcs including DDP shipping to Brampton, Ontario, Canada. Please also send actual photos/video, size chart, shrinkage percentage and fabric details.",
+    "must": ["don.?t export|do not export|no export", "within india|india only|indian"],
+    "mustNot": ["\\[DEFER\\]", "₹", "ddp", "sir 🙏 —\\s*par|hum khud bahar", "\\bkar|\\bhai\\b"]
+  },
+  {
+    "id": "out-of-india-hinglish",
+    "why": "CONTROL — the 08-28 phrasing keeps the fact + the door line, in Hinglish",
+    "msg": "kya aap out of india delivery krte ho?",
+    "must": ["export|bahar|india", "forwarder|shipping khud|apna|address"],
+    "mustNot": ["\\[DEFER\\]"]
+  },
+  {
+    "id": "control-domestic-english-50pc",
+    "why": "CONTROL — formal English 50-pc domestic quote is NOT an export ask: no 'we don't export' line",
+    "msg": "Please quote your best price for 50 pcs of 240 GSM oversized black tees, sizes S-XL, delivery to Bangalore.",
+    "must": ["240|oversize"],
+    "mustNot": ["export", "\\[DEFER\\]"]
+  }
+]
