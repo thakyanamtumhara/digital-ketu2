@@ -1,0 +1,72 @@
+[
+  {
+    "id": "difference-no-product-no-numbers",
+    "why": "2026-09-05 buyer 8131051569: bare Share Details → 'Minimum order?' → 'Whats the difference' → clone quoted ₹177/₹212 of a product it picked itself",
+    "history": [
+      {
+        "buyer": "Share Details",
+        "ai": "Ask me if any questions sir?"
+      },
+      {
+        "buyer": "Minimum order?",
+        "ai": "Koi minimum nahi sir — 10+ pcs pe bulk rate, usse kam pe sample rate 👉 https://sale91.com"
+      }
+    ],
+    "msg": "Whats the difference",
+    "must": [
+      "bulk|sample"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]",
+      "₹|\\b1\\d\\d\\b|\\b2\\d\\d\\b"
+    ]
+  },
+  {
+    "id": "control-difference-with-product",
+    "why": "CONTROL — product named in the thread → the two tier prices are given",
+    "history": [
+      {
+        "buyer": "180 gsm oversize ka rate kya hai",
+        "ai": "Oversize 180gsm ₹177/pc bulk rate hai sir 👉 https://sale91.com/catalog/p/oversize-180gsm"
+      },
+      {
+        "buyer": "Minimum order?",
+        "ai": "Koi minimum nahi sir — 10+ pcs pe bulk rate, usse kam pe sample rate 👉 https://sale91.com"
+      }
+    ],
+    "msg": "Whats the difference",
+    "must": [
+      "177",
+      "212"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "black-hoodie-colour-row",
+    "why": "2026-09-05 buyer 9166286949 'Share Details Full black hoodie' → ₹307 (8-colour page) paired with the -black link (its page shows ₹295)",
+    "msg": "Share Details Full black hoodie",
+    "must": [
+      "295",
+      "hoodie-320gsm-black"
+    ],
+    "mustNot": [
+      "307",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "control-navy-hoodie-multi-row",
+    "why": "CONTROL — a colour with no colour-specific row keeps the multi-colour page price",
+    "msg": "hoodie 320gsm navy ka rate kya hai",
+    "must": [
+      "307",
+      "hoodie-320gsm"
+    ],
+    "mustNot": [
+      "295",
+      "\\[DEFER\\]"
+    ]
+  }
+]
