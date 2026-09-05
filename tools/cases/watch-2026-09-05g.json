@@ -1,0 +1,8 @@
+[
+  { "id": "bare-180gsm-100pcs", "why": "2026-09-05 buyer 9877579353 '180 gsm 100 pcs minimum price' → clone silently quoted Oversize 180 ₹177 'fixed price' (180gsm lives in six products)",
+    "msg": "Hlo bro i want 180 gsm 100 peoces Minimum price Kitna lga skte ho Fir es ke baad aur bhi order Lgane h", "must": ["150|142", "177|oversize"], "mustNot": ["fixed price", "\\[DEFER\\]"] },
+  { "id": "control-bare-240gsm-direct", "why": "CONTROL — a GSM that lives in one product is answered directly",
+    "msg": "240 gsm 100 pcs ka rate kya lagega", "must": ["195"], "mustNot": ["kaunsa fit|which fit", "\\[DEFER\\]"] },
+  { "id": "control-180-oversize-named", "why": "CONTROL — 180gsm with the fit named is answered directly",
+    "msg": "180 gsm oversize ka rate batao", "must": ["177"], "mustNot": ["kaunsa fit|which fit", "\\[DEFER\\]"] }
+]
