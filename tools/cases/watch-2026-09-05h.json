@@ -1,0 +1,9 @@
+[
+  { "id": "recycled-cotton-no-invented-origin", "why": "2026-09-05 buyer 8866093192 'ye cotton recycle hai ki pure?' → clone: 'Nahi sir, fresh cotton hai — 100% pure' (fibre origin is not in the catalog)",
+    "history": [{ "buyer": "I have One question", "ai": "Ji sir, bataiye 🙏" }],
+    "msg": "Ye cotton recycle hainki pure?", "must": ["100% cotton|supercombed|catalog|\\[DEFER\\]"], "mustNot": ["fresh|virgin|recycle?d? nahi|nahi sir"] },
+  { "id": "control-hoodie-composition", "why": "CONTROL — composition questions still answered from the catalog",
+    "msg": "hoodie kis fabric ka hai? cotton hai?", "must": ["88|12"], "mustNot": ["\\[DEFER\\]"] },
+  { "id": "control-call-when-available", "why": "CONTROL — still no invented office hours on a daytime 'when can I call'",
+    "msg": "When can I call you?", "must": ["call|9336695049"], "mustNot": ["\\[DEFER\\]", "8\\s?pm|6\\s?pm|office hours"] }
+]
