@@ -1,0 +1,72 @@
+[
+  {
+    "id": "dtf-print-jargon",
+    "why": "2026-09-05 buyer 9555211194 '150 ruppee meter dtf' → clone deferred; Ketu: blanks only + printer link",
+    "msg": "150 ruppee meter dtf",
+    "must": [
+      "918810256726"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "control-print-request",
+    "why": "CONTROL — a plain print request keeps the printer line",
+    "msg": "logo print karwana hai 50 pcs pe, ho jayega?",
+    "must": [
+      "918810256726|printer"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "cotton-100-enumerate",
+    "why": "2026-09-05 buyer 9079608113 'I want 100% cotton t shirt' → clone: 'saari t-shirts 100% cotton' (Non-Bio/Cotton Polo/Sublimation are not)",
+    "msg": "I want 100% cotton t shirt",
+    "must": [
+      "bio|oversize|premium"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]",
+      "saari|all (our |the )?t-?shirts|every",
+      "non.?bio",
+      "sublimation"
+    ]
+  },
+  {
+    "id": "sublimation-steer-says-poly",
+    "why": "2026-09-05 buyer 7796654975 '200 GSM regular fit' → steered to Sublimation without saying polyester; had to come back 'but I want colours'",
+    "msg": "So muzhe around 200 GSM me plain and regular fit tshirt cahiye",
+    "must": [
+      "poly"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "control-fabric-range",
+    "why": "CONTROL — fabric-range answer: Ketu's own two-fabric framing (single jersey / terry) OR the three compositions; never a defer",
+    "msg": "what fabrics do you have?",
+    "must": [
+      "jersey|terry|88|12|poly"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "control-hoodie-fabric",
+    "why": "CONTROL — hoodie fabric is 88/12, not 100% cotton",
+    "msg": "hoodie 100% cotton hai kya?",
+    "must": [
+      "88|12"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]",
+      "haan sir,? 100% cotton"
+    ]
+  }
+]
