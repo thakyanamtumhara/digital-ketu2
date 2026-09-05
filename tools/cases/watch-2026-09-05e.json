@@ -1,0 +1,49 @@
+[
+  {
+    "id": "220gsm-blank-tshirt-1000pcs",
+    "why": "2026-09-05 buyer 9199221233 '1000 piece 220 GSM blank t shirts ka value' → clone answered Cotton Polo ₹187 as if 220gsm were a tee",
+    "msg": "Mai bol raha hu ki agr maine 1000 piece mangvaya 220 GSM vala blank t shirts to par  tshirt ka value kitana hoga",
+    "must": [
+      "sirf polo|only.*polo|polo mein hi|polo me hi"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "220gsm-white-round-neck",
+    "why": "2026-09-05 buyer 9891790148 '220 gsm white Round neck S to XXL' → only the 210gsm dropshoulder link, no 180 regular option",
+    "msg": "220 gsm Hai white Round neck And rate S to xxl mai",
+    "must": [
+      "polo|nahi hota",
+      "180|210"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "control-220-polo-ask",
+    "why": "CONTROL — a 220gsm POLO ask is answered straight with the polo price",
+    "msg": "220 gsm polo ka rate kya hai?",
+    "must": [
+      "187|237"
+    ],
+    "mustNot": [
+      "nahi hota",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "control-240-oversize-unchanged",
+    "why": "CONTROL — a real GSM ask is unchanged",
+    "msg": "240 gsm oversize ka rate",
+    "must": [
+      "195"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]",
+      "polo"
+    ]
+  }
+]
