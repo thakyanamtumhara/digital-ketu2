@@ -193,3 +193,10 @@ NOT change. Run the free `--dump` + operator-model proxy first, the paid run onc
 - Do not add a rule to fix a bug in a canned path. Fix the path.
 - Do not report a fix as shipped until the exact SHA is live **and** the rule greps in
   `/api/settings`.
+
+## 2026-09-05 additions (Fable 5.1 watch)
+- **Product-not-named resolver** — `server/stock-lookup.js` `resolveUnnamedProduct()`: colour/size but no product → per-product verdicts appended to the stock block; model asks "Bio ya True Bio?" in one line or answers directly. Tests: `node tools/unnamed-product-tests.mjs` (35). Live log line: `[StockLookup] … + product-not-named resolver`.
+- **Export ask detector** — `EXPORT_ASK_RE` + `EXPORT_HINT` in `server/process.js`: explicit export words or a foreign destination near a shipping/business word → 🌍 line in front of the model → export rule answer (we don't export, India only, buy + own forwarder), never a defer. Live log line: `[Export] … export hint injected`.
+- **Replay harness** mirrors both (`tools/replay.mjs`). Cases: `tools/cases/watch-2026-09-05.json` (6/6, ₹90).
+- **Watch cadence**: 2-hourly ticks during 09:13–23:13 IST only (night ticks found nothing on three nights; the hourly cloud report-only routine still covers nights). Each tick also lists DEFERRED rows Ketu answered himself with a policy line — those are misses too.
+- **Two more test suites since the tools table**: `payment-fix-guard-tests.mjs`, `force-reply-tests.mjs`, `reconcile-tests.mjs`, `winter-line-tests.mjs`, `correction-guard-tests.mjs`, `clock-scrub-tests.mjs`, `guard-tests.mjs` — run all before a push.
