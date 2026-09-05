@@ -1,0 +1,9 @@
+[
+  { "id": "print-outcome-no-guarantee", "why": "2026-09-05 buyer 8468864515 'printing ke baad koi issue nahi hoga, design nahi fategi na' → clone: 'Print acche se chipak jaata hai, koi issue nahi hota' (invented promise about the printer's work)",
+    "history": [{ "buyer": "DDF printing ke liya chahiya", "ai": "We only sell blanks sir. Print ke liye printer se baat karo 👉 https://wa.me/918810256726" }],
+    "msg": "Bro ko har par sir par printing hone ke bad me koyi issu nahi hoga degine nahi fatehi na", "must": ["printer|8810256726"], "mustNot": ["\\[DEFER\\]", "koi issue nahi|chipak|no issue|guarantee"] },
+  { "id": "control-acidwash-fade-explanation", "why": "CONTROL — an acid-wash fading complaint keeps Ketu's fading-is-normal explanation, not the printer line",
+    "msg": "acid wash tshirt ka colour dhone pe halka ho gaya, ye kya hai", "must": ["normal|halka|fade|acid"], "mustNot": ["8810256726", "^\\[DEFER\\]$"] },
+  { "id": "control-our-fabric-fact", "why": "CONTROL — a fabric question about our own tee is still answered from the catalog",
+    "msg": "true bio 100% cotton hai na?", "must": ["100% cotton|haan"], "mustNot": ["8810256726", "\\[DEFER\\]"] }
+]
