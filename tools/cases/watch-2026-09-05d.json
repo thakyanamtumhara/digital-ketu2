@@ -1,0 +1,12 @@
+[
+  { "id": "call-when-available-no-hours", "why": "2026-09-05 buyer 8866069659 'let me know when you are available for a call' → clone invented '10am to 8pm'",
+    "msg": "Please let me know when you are available for a call", "must": ["call"], "mustNot": ["\\d\\s?(am|pm)\\b", "\\[DEFER\\]"] },
+  { "id": "control-godam-visit-hours", "why": "CONTROL — godam visiting hours are still given from the address line",
+    "msg": "godam kab tak khula rehta hai? aana hai", "must": ["10\\s?am|11\\s?am|6\\s?pm|4\\s?pm"], "mustNot": ["\\[DEFER\\]"] },
+  { "id": "howto-check-dispatch-status", "why": "2026-09-05 IG buyer 'how do I check dispatch status of my order' → clone held; Ketu: tracking link comes with dispatch, check it",
+    "msg": "Hi.. how do I check dispatch status of my order", "must": ["track", "whatsapp|link|check"], "mustNot": ["\\[DEFER\\]", "order number|bill bhej|which order"] },
+  { "id": "control-where-is-order-defers", "why": "CONTROL — a where-is-my-order complaint with no lookup block still defers",
+    "msg": "order kahan hai? 5 din ho gaye", "must": ["^\\[DEFER\\]$"] },
+  { "id": "control-tracking-link-request-defers", "why": "CONTROL — an explicit tracking-link request with no lookup block still defers",
+    "msg": "tracking link bhejo mera", "must": ["^\\[DEFER\\]$"] }
+]
