@@ -1,20 +1,107 @@
 [
-  { "id": "mix-5-hoodie-5-sweatshirt", "why": "2026-09-06 03:16 buyer 9051038049 '5 hoodie + 5 sweatshirt mixed' → 'mix nahi chalega, har product ka alag 5/10 pcs' (Ketu's rule: total order counts)",
-    "msg": "Is mey mixed 5 products Lena h ye har products ka 5 products Hoodie or sweatshirt", "must": ["bulk|mix"], "mustNot": ["mix nahi|alag-alag|alag alag|har product ka", "\\[DEFER\\]"] },
-  { "id": "mix-10-total-across-products", "why": "same buyer 03:22 'agar 10 piece products le tu sab mixed le sakte h' → 'mix nahi hota'",
-    "history": [{ "buyer": "M size Black 240 cotton French Terry", "ai": "240gsm Oversize black hai sir, ₹195/pc bulk 👉 https://sale91.com/catalog/p/oversize-240gsm" }],
-    "msg": "Agar 10 piece products lle tu sab mixed products le sakte h", "must": ["haan|yes|ha sir|bilkul|mix kar"], "mustNot": ["mix nahi|alag-alag|alag alag|har product ka", "\\[DEFER\\]"] },
-  { "id": "control-3pcs-is-sample-rate", "why": "CONTROL — a 3-pc total is still sample rate",
-    "msg": "sirf 3 hoodie lene hai, kya rate lagega", "must": ["sample|378"], "mustNot": ["\\[DEFER\\]"] },
-  { "id": "print-business-no-print-claim", "why": "2026-09-06 IG buyer starting a printing business → 'print acche se aata hai' as a selling point, three times",
-    "msg": "Naya printing business start kar raha hu, mere liye kaun sa kapda sahi rahega print ke liye?", "must": ["gsm|oversize|round neck|catalog"], "mustNot": ["print acch|print accha|print usme|acche se aata", "\\[DEFER\\]"] },
-  { "id": "fabric-feel-sample-not-local-shop", "why": "2026-09-06 01:06 same IG buyer 'GSM size samajh nahi aata' → 'local shop pe jaake hath se check kar lijiye'",
-    "history": [{ "buyer": "240gsm bol ta ha asche a kisk liya", "ai": "240gsm heavy fabric hai sir, ek sample mangwa ke dekh lijiye 👉 https://sale91.com/catalog/p/oversize-240gsm" }],
-    "msg": "Mera Cyber cafe ka business hai to main shirt ke bare mein kuchh ata pata nahin hai mera size, GSM, a kaise sanjunga", "must": ["sample|size ?chart"], "mustNot": ["local shop|dukaan|dukan", "\\[DEFER\\]"] },
-  { "id": "godown-stock-overview-has-link", "why": "2026-09-06 08:36 buyer 9691417349 'check stock availability at your Delhi godown' → 'Check here once sir' with no link",
-    "msg": "Hi, I wanted to check stock availability at your Delhi godown", "must": ["delhi-stock"], "mustNot": ["\\[DEFER\\]"] },
-  { "id": "polo-biowash-no-invented-negative", "why": "2026-09-06 09:11 buyer 9427740665 'cotton polo / premium polo biowash?' → 'both polos are non-biowash' (Ketu's own video says Premium is)",
-    "msg": "Is your cotton polo or premium polo t shirts is Bio wash or not?", "must": ["\\[DEFER\\]|confirm"], "mustNot": ["non-biowash|non biowash|not biowash|doesn't have biowash|nahi hai biowash|biowash nahi"] },
-  { "id": "control-true-bio-biowash-yes", "why": "CONTROL — True Bio biowash ask still answered yes from the catalog",
-    "msg": "true bio round neck biowash hai na?", "must": ["haan|yes|biowash"], "mustNot": ["\\[DEFER\\]"] }
+  {
+    "id": "mix-5-hoodie-5-sweatshirt",
+    "why": "2026-09-06 03:16 buyer 9051038049 '5 hoodie + 5 sweatshirt mixed' → 'mix nahi chalega, har product ka alag 5/10 pcs' (Ketu's rule: total order counts)",
+    "msg": "Is mey mixed 5 products Lena h ye har products ka 5 products Hoodie or sweatshirt",
+    "must": [
+      "bulk|mix"
+    ],
+    "mustNot": [
+      "mix nahi|alag-alag|alag alag|har product ka",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "mix-10-total-across-products",
+    "why": "same buyer 03:22 'agar 10 piece products le tu sab mixed le sakte h' → 'mix nahi hota'",
+    "history": [
+      {
+        "buyer": "M size Black 240 cotton French Terry",
+        "ai": "240gsm Oversize black hai sir, ₹195/pc bulk 👉 https://sale91.com/catalog/p/oversize-240gsm"
+      }
+    ],
+    "msg": "Agar 10 piece products lle tu sab mixed products le sakte h",
+    "must": [
+      "haan|yes|ha sir|bilkul|mix kar"
+    ],
+    "mustNot": [
+      "mix nahi|alag-alag|alag alag|har product ka",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "control-3pcs-is-sample-rate",
+    "why": "CONTROL — a 3-pc total is still sample rate",
+    "msg": "sirf 3 hoodie lene hai, kya rate lagega",
+    "must": [
+      "sample|378"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "print-business-no-print-claim",
+    "why": "2026-09-06 IG buyer starting a printing business → 'print acche se aata hai' as a selling point, three times",
+    "msg": "Naya printing business start kar raha hu, mere liye kaun sa kapda sahi rahega print ke liye?",
+    "must": [
+      "gsm|oversize|round neck|catalog"
+    ],
+    "mustNot": [
+      "print acch|print accha|print usme|acche se aata",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "fabric-feel-sample-not-local-shop",
+    "why": "2026-09-06 01:06 same IG buyer 'GSM size samajh nahi aata' → 'local shop pe jaake hath se check kar lijiye'",
+    "history": [
+      {
+        "buyer": "240gsm bol ta ha asche a kisk liya",
+        "ai": "240gsm heavy fabric hai sir, ek sample mangwa ke dekh lijiye 👉 https://sale91.com/catalog/p/oversize-240gsm"
+      }
+    ],
+    "msg": "Mera Cyber cafe ka business hai to main shirt ke bare mein kuchh ata pata nahin hai mera size, GSM, a kaise sanjunga",
+    "must": [
+      "sample|size ?chart"
+    ],
+    "mustNot": [
+      "local shop|dukaan|dukan",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "godown-stock-overview-has-link",
+    "why": "2026-09-06 08:36 buyer 9691417349 'check stock availability at your Delhi godown' → 'Check here once sir' with no link",
+    "msg": "Hi, I wanted to check stock availability at your Delhi godown",
+    "must": [
+      "delhi-stock"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "polo-biowash-no-invented-negative",
+    "why": "2026-09-06 buyer 9427740665 'cotton polo / premium polo biowash?' → clone: 'both polos are non-biowash'; Ketu: Premium IS biowash, Cotton is non-biowash but good quality",
+    "msg": "Is your cotton polo or premium polo t shirts is Bio wash or not?",
+    "must": [
+      "premium[^.]{0,40}biowash|biowash[^.]{0,40}premium"
+    ],
+    "mustNot": [
+      "both[^.]{0,30}non",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "control-true-bio-biowash-yes",
+    "why": "CONTROL — True Bio biowash ask still answered yes from the catalog",
+    "msg": "true bio round neck biowash hai na?",
+    "must": [
+      "haan|yes|biowash"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ]
+  }
 ]
