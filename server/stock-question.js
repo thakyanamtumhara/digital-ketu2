@@ -90,10 +90,17 @@ export function isStockAvailabilityQuestion(text) {
 // the clone is explicitly forbidden to guess; and (d) personal FOLLOW-UP PROMISES ("I will inform
 // then book", "baaki update karta hun") — commitments Ketu fulfills himself; the auto-bot can't
 // message a buyer later, so replaying these would falsely promise a follow-up it never delivers.
-export function isTransactionalReply(reply) {
+// forTiming (2026-09-06): when the BUYER asked a stock/launch TIMING question, Ketu's "30 to 45 days
+// max" is exactly the perishable timed fact we want to keep — not a one-order delivery promise — so
+// the duration / month / follow-up-promise clauses are skipped and only links, tracking, credentials
+// and bill-asks still disqualify the reply.
+const TRANSACTIONAL_LINKS_RE = /porter\.in\/|\/rd\/|porter mini|via (porter|dunzo|shiprocket|delhivery)|shiprocket|delhivery|\bdtdc\b|bluedart|ekart|xpressbees|\/tracking|\/track\/|\btracking\b|\bawb\b|\bdispatch(?:ing|ed)?\b|\basap\b|sending you (some )?goods|track (the |your |this )?order|referral code|book.{0,10}porter|order here:|genrate shp|complaint (daal|dal|kar|likh|raise|file)|complain (daal|kar)|shikayat (daal|kar)/
+const TRANSACTIONAL_TIMING_RE = /\bnext day\b|\bsame day\b|agle din|kal tak|aaj hi (mil|aa|nikal|dispatch|bhej)|\b\d+\s*(-|to|–|\s)?\s*\d*\s*(din|days?|ghant[ae]|hours?|hrs?)\b|\bby (train|air)\b|train se|\b(i will|i'll) (inform|update|let you know|tell you)\b|\bwill (inform|update) you\b|update (karta|kar) (hun|dunga|denge|dunga)|inform (karta|kar) (hun|dunga)|baaki update/
+export function isTransactionalReply(reply, opts = {}) {
   if (!reply || !reply.trim()) return false
   const t = reply.toLowerCase()
-  if (/porter\.in\/|\/rd\/|porter mini|via (porter|dunzo|shiprocket|delhivery)|shiprocket|delhivery|\bdtdc\b|bluedart|ekart|xpressbees|\/tracking|\/track\/|\btracking\b|\bawb\b|\bdispatch(?:ing|ed)?\b|\basap\b|sending you (some )?goods|track (the |your |this )?order|referral code|book.{0,10}porter|order here:|genrate shp|complaint (daal|dal|kar|likh|raise|file)|complain (daal|kar)|shikayat (daal|kar)|\bnext day\b|\bsame day\b|agle din|kal tak|aaj hi (mil|aa|nikal|dispatch|bhej)|\b\d+\s*(-|to|–|\s)?\s*\d*\s*(din|days?|ghant[ae]|hours?|hrs?)\b|\bby (train|air)\b|train se|\b(i will|i'll) (inform|update|let you know|tell you)\b|\bwill (inform|update) you\b|update (karta|kar) (hun|dunga|denge|dunga)|inform (karta|kar) (hun|dunga)|baaki update/.test(t)) return true
+  if (TRANSACTIONAL_LINKS_RE.test(t)) return true
+  if (!opts.forTiming && TRANSACTIONAL_TIMING_RE.test(t)) return true
   // A reply carrying a buyer's ACCOUNT CREDENTIALS (their login email / a password) is per-buyer
   // private data — replaying it would send one buyer's credentials to another (caught live
   // 2026-06-12: "Email: <buyer>@gmail.com Password: 12345678" auto-captured as a correction).
@@ -106,6 +113,7 @@ export function isTransactionalReply(reply) {
   // Month-named restock/launch dates ("September ke baad milega", "October mein aayega") are
   // point-in-time like "7 din mein" — a month + timing particle must never become a correction.
   // (Particle required so plain English "you may order" can't false-positive.)
+  if (opts.forTiming) return false
   if (/\b(jan(uary)?|feb(ruary)?|march|april|may|june|july|aug(ust)?|sept(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\s*(ke\s*(baad|pehle)|mein|me\b|tak|se\b|end|start|last|first)/i.test(t)) return true
   return /(जनवरी|फरवरी|मार्च|अप्रैल|मई|जून|जुलाई|अगस्त|सितंबर|सितम्बर|अक्टूबर|नवंबर|दिसंबर)\s*(के\s*(बाद|पहले)|में|तक|से)/.test(t)
 }

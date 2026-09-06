@@ -1477,7 +1477,7 @@ app.post('/api/intervention', async (c) => {
     // stored as a correction it would teach the clone to defer instead of answering (see
     // isDeferLine in stock-question.js). Stock-TIMING answers become auto-expiring TIMED facts
     // instead of vanishing (2026-08-14, the "not remembering my edits" zipper case).
-    if (isStockAvailabilityQuestion(buyerMessage) && !isDeferLine(ketuReply) && !isMediaPlaceholder(buyerMessage) && !isTransactionalReply(ketuReply)) {
+    if (isStockAvailabilityQuestion(buyerMessage) && !isDeferLine(ketuReply) && !isMediaPlaceholder(buyerMessage) && !isTransactionalReply(ketuReply, { forTiming: true })) {
       try {
         await storeTimedFact(db, buyerMessage, ketuReply, 'intervention')
         learned = 'intervention_timed_fact'
@@ -1556,7 +1556,7 @@ app.post('/api/correction', async (c) => {
   // Those now become auto-expiring TIMED facts instead of vanishing.
   if (isStockAvailabilityQuestion(buyerQuestion) || isTransactionalReply(correctReply) || isMediaPlaceholder(buyerQuestion) || isDeferLine(correctReply)) {
     const isTimingAnswer = isStockAvailabilityQuestion(buyerQuestion)
-      && !isDeferLine(correctReply) && !isMediaPlaceholder(buyerQuestion) && !isTransactionalReply(correctReply)
+      && !isDeferLine(correctReply) && !isMediaPlaceholder(buyerQuestion) && !isTransactionalReply(correctReply, { forTiming: true })
     if (isTimingAnswer) {
       try {
         await storeTimedFact(db, buyerQuestion, correctReply, 'edit')
