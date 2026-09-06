@@ -3614,14 +3614,7 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
     // Switchable buyer-reply brain (2026-07-26) — Opus 5 is the baseline since 27-Jul (fresh installs only; the live row is set explicitly)
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "replyModel" TEXT NOT NULL DEFAULT 'claude-opus-5'`)
     await db.$executeRawUnsafe(`ALTER TABLE "Settings" ADD COLUMN IF NOT EXISTS "replyModelSetAt" TIMESTAMP(3)`)
-    // Always sync: code (process.js) is the single source of truth for system prompt
-    const settings = await db.settings.findUnique({ where: { id: 'default' } })
-    if (settings) {
-      await db.$executeRawUnsafe(
-        `UPDATE "Settings" SET "systemPrompt" = $1, "promptUpdatedAt" = NOW() WHERE id = 'default'`,
-        DEFAULT_SYSTEM_PROMPT
-      )
-    }
+    // (prompt sync moved to its own guarded block below — 2026-09-06)
     // Fix broken STYLE_PAIR metadata (omReply was stored as "undefined")
     const brokenSample = await db.knowledgeChunk.findFirst({
       where: { source: 'STYLE_PAIR' },
@@ -3637,6 +3630,30 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
   } catch (err) {
     if (!err.message.includes('already exists')) {
       console.error('[Migration] Error:', err.message)
+    }
+  }
+  // PROMPT SYNC — its own guarded block, retried, and logged (2026-09-06). It used to sit inside
+  // the migration try: any earlier statement throwing (a Neon hiccup on an ALTER) silently skipped
+  // it, and the build e8ae275 ran for 10+ minutes with the previous prompt (promptUpdatedAt never
+  // moved). Code (process.js) is the single source of truth for the system prompt; the DB copy must
+  // follow every boot.
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const settings = await db.settings.findUnique({ where: { id: 'default' } })
+      if (!settings) break
+      if (settings.systemPrompt === DEFAULT_SYSTEM_PROMPT) { console.log('[PromptSync] DB prompt already matches code'); break }
+      await db.$executeRawUnsafe(
+        `UPDATE "Settings" SET "systemPrompt" = $1, "promptUpdatedAt" = NOW() WHERE id = 'default'`,
+        DEFAULT_SYSTEM_PROMPT
+      )
+      cachedSettings = null
+      settingsCacheExpiry = 0
+      console.log(`[PromptSync] DB prompt updated from code (${DEFAULT_SYSTEM_PROMPT.length} chars, attempt ${attempt})`)
+      break
+    } catch (err) {
+      console.error(`[PromptSync] attempt ${attempt} failed:`, err.message)
+      if (attempt < 3) await new Promise(r => setTimeout(r, 5000 * attempt))
+      else notifyOwner(`⚠️ dk2 prompt sync FAILED on boot after 3 attempts: ${err.message}`).catch(() => {})
     }
   }
 })()
