@@ -1,0 +1,10 @@
+[
+  { "id": "kids-bestseller-no-ranking", "why": "2026-09-06 12:22 buyer 7905167033 'which colour and size sells the most in kids?' → 'Black, White and Red sell the most', '20-28 sell the most' (no sales data exists)",
+    "msg": "Which colour and size goes the most and sells fast in kids?", "must": ["sample|catalog|customer|safe|size ?chart"], "mustNot": ["sell the most|sells the most|sabse zyada bik|most selling|most popular|fastest", "\\[DEFER\\]"] },
+  { "id": "control-kids-colours-fact", "why": "CONTROL — the kids colour list is still a catalog fact",
+    "msg": "kids round neck kin colours mein hai?", "must": ["black|white|red|baby pink|mustard"], "mustNot": ["\\[DEFER\\]"] },
+  { "id": "other-website-not-ours", "why": "2026-09-06 11:47 same buyer 'plaintshirtswholesale.com — this is also yours?' → held; Ketu: 'No sir'",
+    "msg": "https://plaintshirtswholesale.com/\n\nThis is also yours? Same setup hai website ka", "must": ["no sir|nahi sir|hamari nahi|not ours"], "mustNot": ["\\[DEFER\\]"] },
+  { "id": "control-our-site-yes", "why": "CONTROL — our own site is confirmed",
+    "msg": "sale91.com aapki hi site hai na?", "must": ["haan|yes|ji sir|hamari hi"], "mustNot": ["\\[DEFER\\]"] }
+]
