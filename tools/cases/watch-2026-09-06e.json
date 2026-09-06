@@ -1,0 +1,10 @@
+[
+  { "id": "gst-including-ask", "why": "2026-09-06: the website adds 5% GST at checkout (Order Summary: Taxable Value → 5% GST → Total); Ketu the same morning: '195+5% gst per pc'. Old rule said 'GST usi mein hai' — wrong today",
+    "msg": "ye 195 wala rate GST including hai ya alag lagega?", "must": ["5%|GST"], "mustNot": ["usi mein|already|shamil|inclusive hai|included hai|final hai", "204|205", "\\[DEFER\\]"] },
+  { "id": "gst-english-ask", "why": "same, English buyer",
+    "msg": "Is the price inclusive of GST?", "must": ["5%"], "mustNot": ["is inclusive|already included|includes GST|GST is included", "\\[DEFER\\]"] },
+  { "id": "control-plain-rate-no-gst-tack-on", "why": "CONTROL — a plain rate ask gets the catalog number without an unprompted +5%",
+    "msg": "240 gsm oversize ka rate kya hai?", "must": ["195"], "mustNot": ["5%|GST", "\\[DEFER\\]"] },
+  { "id": "control-gst-bill-yes", "why": "CONTROL — GST bill is given via the GST number at checkout",
+    "msg": "GST bill milega kya?", "must": ["GST number|gst no|bill"], "mustNot": ["\\[DEFER\\]"] }
+]
