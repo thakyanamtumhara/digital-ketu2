@@ -12,6 +12,7 @@ import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } 
 import { evaluateIgGate } from './ig-gate.js'
 import { lookupOrdersByPhone, formatOrderLookupBlock, getBuyerProfile, formatBuyerProfileBlock } from './order-lookup.js'
 import { getStockSnapshot, formatStockBlock, resolveUnnamedProduct } from './stock-lookup.js'
+import { catalogProductsFromChunks, gsmAmbiguityHint } from './gsm-hint.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
 import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
 import { partialDeferSplit } from './reconcile.js'
@@ -3054,11 +3055,13 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   // slips, the size-chart error, etc. RAG now only supplies STYLE examples + corrections; the FACTS
   // come from here, deterministically. Grew out of the 2026-06-23 price-table fix.
   let priceTable = null
+  let catalogProducts = []
   try {
     const catalogChunks = await db.knowledgeChunk.findMany({
       where: { source: 'CATALOG' },
       select: { title: true, content: true, metadata: true },
     })
+    catalogProducts = catalogProductsFromChunks(catalogChunks)
     const lines = []
     for (const c of catalogChunks) {
       const m = typeof c.metadata === 'string' ? JSON.parse(c.metadata) : (c.metadata || {})
@@ -3203,6 +3206,14 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   if (EXPORT_ASK_RE.test(mergedText || '')) {
     userPrompt = EXPORT_HINT + '\n\n' + userPrompt
     console.log(`[Export] ${whatsappNumber} — outside-India ask detected, export hint injected`)
+  }
+
+  // GSM ALONE (2026-09-06): a GSM shared by several products, no fit/product word → the options
+  // with catalog prices go in front of the model (see gsm-hint.js).
+  const gsmHint = gsmAmbiguityHint(catalogProducts, mergedText || '')
+  if (gsmHint) {
+    userPrompt = gsmHint + '\n\n' + userPrompt
+    console.log(`[GsmHint] ${whatsappNumber} — bare GSM shared by several products, options injected`)
   }
 
   // PHOTO / VIDEO DEEP LINKS (2026-08-16, Ketu-approved): on a "dikhao / photo bhejo / video"

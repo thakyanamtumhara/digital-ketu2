@@ -66,6 +66,8 @@ const catalogBlock = lines.length ? `AUTHORITATIVE CATALOG — the COMPLETE, cur
 const { getStockSnapshot, formatStockBlock, resolveUnnamedProduct } = await import('../server/stock-lookup.js')
 const { getPhotoIndex, formatPhotoBlock } = await import('../server/photo-links.js')
 const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT } = await import('../server/process.js')
+const { catalogProductsFromChunks, gsmAmbiguityHint } = await import('../server/gsm-hint.js')
+const catalogProducts = catalogProductsFromChunks(cat.chunks || cat.items || [])
 let stockBlock = null, photoBlock = null, stockSnapshot = null
 const cases = JSON.parse(readFileSync(file, 'utf8')).filter(c => !ONLY.length || ONLY.includes(c.id))
 if (cases.some(c => c.stock)) { stockSnapshot = await getStockSnapshot(); stockBlock = formatStockBlock(stockSnapshot) }
@@ -85,6 +87,8 @@ function userPromptFor(c) {
     p = stockBlock + (unnamed ? '\n' + unnamed : '') + '\n\n' + p
   }
   if (EXPORT_ASK_RE.test(c.msg)) p = EXPORT_HINT + '\n\n' + p // mirrors runAiFlow (2026-09-05)
+  const gsmHint = gsmAmbiguityHint(catalogProducts, c.msg) // mirrors runAiFlow (2026-09-06)
+  if (gsmHint) p = gsmHint + '\n\n' + p
   return p
 }
 

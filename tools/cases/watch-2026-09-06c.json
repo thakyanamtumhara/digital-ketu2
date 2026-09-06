@@ -1,0 +1,51 @@
+[
+  {
+    "id": "bare-180gsm-thread-no-fit",
+    "why": "2026-09-06 15:36 buyer 9525834529 '180 gsm pe 10+ piece pe kya price' (thread: plain tshirts, no fit) → '180gsm oversize ₹177' despite yesterday's rule; now resolved in code",
+    "history": [
+      {
+        "buyer": "Online seller h hm Cotton m black white mein plain tshirts Minimum order kya h ?",
+        "ai": "Kuch bhi lelo sir, no minimum — 10+ pcs pe bulk rate, usse kam pe sample rate 👉 https://sale91.com/catalog"
+      }
+    ],
+    "msg": "180 gsm pe\n10+ piece pe kya price lgega??",
+    "must": [
+      "150|142",
+      "177|oversize"
+    ],
+    "mustNot": [
+      "fixed price",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "control-180-thread-names-oversize",
+    "why": "CONTROL — the thread already fixed the fit → direct price",
+    "history": [
+      {
+        "buyer": "oversize drop shoulder chahiye black",
+        "ai": "Oversize 180/210/240/260gsm mein hai sir 👉 https://sale91.com/catalog"
+      }
+    ],
+    "msg": "180 gsm ka 10+ pe kya price lagega",
+    "must": [
+      "177"
+    ],
+    "mustNot": [
+      "kaunsa fit|which fit",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "control-240gsm-leads-with-oversize",
+    "why": "CONTROL — 240gsm is shared with AcidWash/Shorts but those are not a different fit: lead with Oversize ₹195, no 'which?'",
+    "msg": "240 gsm 10+ piece pe kya price lgega",
+    "must": [
+      "195"
+    ],
+    "mustNot": [
+      "kaunsa chahiye|kaunsa fit|which (one|fit)",
+      "\\[DEFER\\]"
+    ]
+  }
+]
