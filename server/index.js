@@ -115,10 +115,14 @@ for (const p of [
 // --- Health Check ---
 // /api/health does a real DB probe so external monitors (UptimeRobot) see RED when Neon is
 // down — the missing signal that let both outages run for days. Point UptimeRobot here.
+// build = Railway's commit sha (RAILWAY_GIT_COMMIT_SHA), bootedAt = process start — so a deploy can be
+// confirmed from outside without Railway access (2026-09-06; code-only deploys had no visible marker).
+const BOOTED_AT = new Date().toISOString()
+const BUILD = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_SHA || '').slice(0, 7) || null
 app.get('/api/health', async (c) => {
   try {
     await db.$queryRaw`SELECT 1`
-    return c.json({ status: 'ok', service: 'digital-ketu2', db: 'connected' })
+    return c.json({ status: 'ok', service: 'digital-ketu2', db: 'connected', build: BUILD, bootedAt: BOOTED_AT })
   } catch (err) {
     return c.json({ status: 'degraded', service: 'digital-ketu2', db: 'disconnected', error: err.message }, 503)
   }
