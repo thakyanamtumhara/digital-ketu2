@@ -65,7 +65,7 @@ const catalogBlock = lines.length ? `AUTHORITATIVE CATALOG — the COMPLETE, cur
 // ---- optional per-case blocks ----
 const { getStockSnapshot, formatStockBlock, resolveUnnamedProduct } = await import('../server/stock-lookup.js')
 const { getPhotoIndex, formatPhotoBlock } = await import('../server/photo-links.js')
-const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT } = await import('../server/process.js')
+const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock } = await import('../server/process.js')
 const { catalogProductsFromChunks, gsmAmbiguityHint } = await import('../server/gsm-hint.js')
 const catalogProducts = catalogProductsFromChunks(cat.chunks || cat.items || [])
 let stockBlock = null, photoBlock = null, stockSnapshot = null
@@ -80,6 +80,7 @@ function userPromptFor(c) {
     for (const h of c.history) p += h.deferred ? `Buyer: ${h.buyer}\n[DEFERRED TO KETU — Ketu is handling this]\n\n` : `Buyer: ${h.buyer}\nAssistant: ${h.ai}\n\n`
   }
   p += `BUYER'S NEW MESSAGE:\n${c.msg}\n\nReply as Ketu's assistant:`
+  p = istTimeBlock(c.at ? Date.parse(c.at) : Date.now()) + p // mirrors buildUserPrompt; case.at = ISO with +05:30 to pin a moment
   if (c.winter) p = `❄️ WINTER STOCK LINE (the seasonal restock answer for hoodie / sweatshirt / zip-hoodie / any winter item, computed for today's date in Ketu's words — relay it for a winter restock-timing ask unless a ⏰ entry above or a 📦 LIVE STOCK DATA in-stock listing answers more specifically; never add a date of your own): "${winterStockLine()}"\n\n${p}`
   if (c.photo && photoBlock) p = photoBlock + '\n\n' + p
   if (c.stock && stockBlock) {

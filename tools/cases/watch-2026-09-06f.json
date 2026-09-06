@@ -1,0 +1,11 @@
+[
+  { "id": "ship-today-after-hours-sunday", "why": "2026-09-06 18:45 IST (Sunday) buyer 9559982818 pasted his order confirmation + 'Kb tk niklega' → 'It will ship out today'; godam closed at 4pm; Ketu corrected it himself",
+    "at": "2026-09-06T18:45:00+05:30",
+    "msg": "Order #2627090012735 confirmed ✅ Rs. 20,591\nWe are packing your order — a bike rider will deliver it to you soon.\nKb tk niklega", "must": ["kal|tomorrow|monday|next"], "mustNot": ["today|aaj hi|aaj nikal", "\\[DEFER\\]"] },
+  { "id": "control-ship-today-monday-noon", "why": "CONTROL — same message on a working day at noon keeps the sanctioned same-day line",
+    "at": "2026-09-07T12:00:00+05:30",
+    "msg": "Order #2627090012735 confirmed ✅ Rs. 20,591\nWe are packing your order — a bike rider will deliver it to you soon.\nKb tk niklega", "must": ["aaj|today"], "mustNot": ["kal nikal|tomorrow", "\\[DEFER\\]", "\\d\\s?(baje|pm)"] },
+  { "id": "control-open-question-sunday-evening", "why": "CONTROL — 'aaj open hai?' on Sunday evening says closed, 4pm",
+    "at": "2026-09-06T18:45:00+05:30",
+    "msg": "aaj open hai abhi?", "must": ["band|closed|4"], "mustNot": ["\\[DEFER\\]"] }
+]
