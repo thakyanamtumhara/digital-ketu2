@@ -1955,14 +1955,20 @@ app.get('/api/learning/pulled-pairs', async (c) => {
 
 // Recent message logs
 app.get('/api/logs', async (c) => {
-  const limit = parseInt(c.req.query('limit') || '50')
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 1000)
   const offset = parseInt(c.req.query('offset') || '0')
+  // lite=1 drops promptSent (~200KB per paid reply — 300 rows ≈ 60MB, which is what made the watch
+  // tooling time out on 2026-09-06); since=<ISO> bounds the window server-side instead of paging.
+  const lite = c.req.query('lite') === '1'
+  const since = c.req.query('since') ? new Date(c.req.query('since')) : null
   const logs = await db.messageLog.findMany({
+    where: since && !isNaN(since.getTime()) ? { createdAt: { gte: since } } : undefined,
     include: { conversation: true },
     orderBy: { createdAt: 'desc' },
     take: limit,
     skip: offset,
   })
+  if (lite) for (const l of logs) { if (l.promptSent) l.promptSent = { omitted: true } }
   return c.json(logs)
 })
 

@@ -1,0 +1,8 @@
+[
+  { "id": "winter-when-under-dispute", "why": "2026-09-06 23:11 buyer 8882991224 'ye data galat hai, 1 month se track kar raha hu, kab tak refill hoga' (navy sweatshirt) → held; a winter WHEN question relays the winter line",
+    "stock": true, "winter": true,
+    "history": [{ "buyer": "site pr navy blue sweatshirt ka size available hi nhi hai", "ai": "Navy sweatshirt mein sirf XXL available hai sir, baaki sizes out of stock 👉 https://sale91.com/catalog/p/sweatshirt" }],
+    "msg": "ye data to glt h na boss last 1 month se track kr rha hu kab tk refill hoga any idea", "must": ["winter|aana|aata|coming soon|delhi-stock"], "mustNot": ["^\\[DEFER\\]$", "\\d+\\s*(din|days)"] },
+  { "id": "control-womens-when-no-timed-fact", "why": "CONTROL — without a ⏰ entry the women's WHEN keeps Ketu's no-date voice",
+    "msg": "womens tshirt kab launch hogi?", "must": ["launch nahi|update|aate hi|coming"], "mustNot": ["\\d+\\s*(din|days|mahine|month)", "\\[DEFER\\]"] }
+]

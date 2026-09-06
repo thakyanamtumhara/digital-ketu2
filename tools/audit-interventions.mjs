@@ -17,12 +17,16 @@ const DAYS = Number(process.argv[2] || 3)
 const BASE = 'https://digital-ketu2-production.up.railway.app'
 const TOKEN = readFileSync(join(homedir(), '.dk2_read_token'), 'utf8').trim()
 
-const pages = await Promise.all(
-  Array.from({ length: 8 }, (_, i) =>
-    fetch(`${BASE}/api/logs?limit=300&offset=${i * 300}`, { headers: { 'X-DK-Read-Token': TOKEN } })
-      .then(r => r.json()).catch(() => [])
-  )
-)
+// Sequential lite pages (2026-09-06): 8 parallel 300-row pages with promptSent choked the server.
+const pages = []
+for (let i = 0; i < 12; i++) {
+  const page = await fetch(`${BASE}/api/logs?limit=200&offset=${i * 200}&lite=1`, { headers: { 'X-DK-Read-Token': TOKEN }, signal: AbortSignal.timeout(60000) })
+    .then(r => r.json()).catch(() => [])
+  pages.push(page)
+  if (!Array.isArray(page) || page.length < 200) break
+  const oldest = page[page.length - 1]?.createdAt
+  if (oldest && Date.now() - new Date(oldest).getTime() > (DAYS + 1) * 86400000) break
+}
 
 const rows = new Map()
 for (const p of pages) if (Array.isArray(p)) for (const r of p) if (r && r.id) rows.set(r.id, r)

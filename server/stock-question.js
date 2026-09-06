@@ -57,6 +57,10 @@ export function isStockAvailabilityQuestion(text) {
 
   // Restock / "when will it come" timing
   if (/kab\s*(aa|aaye|aayeg|aayega|aaega|ayega|milega|tak|aayenge|aa\s*raha)/.test(t)) return true
+  // LAUNCH timing (2026-09-06): "women launch ho raha hai, estimated time kya hai" → Ketu answered
+  // "30 to 45 days max" and it was NOT captured as a timed fact (only restock phrasing matched), so
+  // the next women's buyer got a hold. Launch/ETA phrasing is the same kind of perishable timing.
+  if (/\blaunch\w*\b[^.]{0,60}\b(kab|when|time|eta|date|din|days?|month|mahin)|\b(kab|when)\b[^.]{0,40}\blaunch|estimated\s*time|\beta\b|kitne\s*din\s*(mein|me|baad)\s*(aayeg|launch|milega)/.test(t)) return true
   if (/\brestock\b|wapas\s*kab|dobara\s*kab|stock\s*kab|kab\s*tak/.test(t)) return true
   if (/when\s+(will|would|are|is)\s+.*(come|back|available|in stock|restock)/.test(t)) return true
 
