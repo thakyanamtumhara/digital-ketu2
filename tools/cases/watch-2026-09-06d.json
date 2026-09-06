@@ -1,0 +1,10 @@
+[
+  { "id": "any-update-nothing-pending", "why": "2026-09-06 16:47 buyer 9559982818 'Bhai any update?' after two order-on-website instructions and no order → held; Ketu: order on the website, any issue? + video",
+    "history": [{ "buyer": "[product photo]", "ai": "Order Now button click karke order complete kar lijiye sir 👉 https://sale91.com" }, { "buyer": "07IVTPB7754L1ZO Ye gst h", "ai": "Noted sir 🙏 Order karte waqt website pe ye GST number daal dijiye, bill pe aa jayega 👉 https://sale91.com" }],
+    "msg": "Bhai any update?", "must": ["website|order|F-zdRRSs370", "issue|problem|dikkat"], "mustNot": ["\\[DEFER\\]"] },
+  { "id": "control-any-update-over-open-hold", "why": "CONTROL — 'any update?' on top of a real hold still waits for Ketu",
+    "history": [{ "buyer": "mera order dispatch hua ya nahi? 3 din ho gaye", "deferred": true }],
+    "msg": "any update?", "must": ["^\\[DEFER\\]$"] },
+  { "id": "call-hours-sanctioned", "why": "CORRECTION of my 5-Sep rule: calling hours 10-20 IST are code-injected (Ketu 2026-07-31), not an invention",
+    "msg": "Please let me know when you are available for a call", "must": ["10|call"], "mustNot": ["\\[DEFER\\]", "6\\s?pm|11\\s?am|office"] }
+]
