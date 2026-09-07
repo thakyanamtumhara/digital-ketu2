@@ -1,0 +1,8 @@
+[
+  { "id": "kids-to-mens-same-quality", "why": "2026-09-07 08:16 buyer 8731947328 'konsa quality pe kids se mens tak same colour' → held; Ketu: Kids RN 20-34 + True Bio 36-46, same quality",
+    "msg": "Konsa quality pey kids sey lekey mens takka ka size millega in same colour", "must": ["kids", "true bio|36"], "mustNot": ["\\[DEFER\\]"] },
+  { "id": "control-kids-rate", "why": "CONTROL — kids rate still from the catalog",
+    "msg": "kids round neck ka bulk rate?", "must": ["116"], "mustNot": ["\\[DEFER\\]"] },
+  { "id": "acidwash-vs-260-frame", "why": "2026-09-07 buyer 9893639797 'acid wash aur 260 gsm bio wash ke frame alag alag hai kya' was swallowed by a hold; Ketu: Yes",
+    "msg": "Sir acid wash aur 260 gsm bio wash ke farme alag alag hai kya", "must": ["alag|different|haan|yes"], "mustNot": ["\\[DEFER\\]", "same"] }
+]
