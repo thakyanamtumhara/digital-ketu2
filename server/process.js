@@ -11,7 +11,7 @@ import { vectorSearch } from './embeddings.js'
 import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } from './transcribe.js'
 import { evaluateIgGate } from './ig-gate.js'
 import { lookupOrdersByPhone, formatOrderLookupBlock, getBuyerProfile, formatBuyerProfileBlock } from './order-lookup.js'
-import { getStockSnapshot, formatStockBlock, resolveUnnamedProduct } from './stock-lookup.js'
+import { getStockSnapshot, formatStockBlock, resolveUnnamedProduct, unnamedProductCandidates, unnamedProductGuard } from './stock-lookup.js'
 import { catalogProductsFromChunks, gsmAmbiguityHint } from './gsm-hint.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
 import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
@@ -3188,6 +3188,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     + '|(' + PRODUCT_WORD + ')[^]{0,30}\\b(hai|hain|h)\\b'      // "Black Acid wash hai Oversize"
     + '|\\b(hai|hain)\\b[^]{0,30}(' + PRODUCT_WORD + ')'          // "hai kya acid wash"
   , 'i')
+  let unnamedCandidates = []
   if (STOCK_INTENT_RE.test(mergedText || '')) {
     try {
       const stockBlock = formatStockBlock(await getStockSnapshot())
@@ -3196,6 +3197,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
         // (buyer 8595383520 "White and nevy 38 kab tak restock hoga?" was deferred with the block
         // present — Navy 38 is in stock in Bio and out in True Bio, and the model would not choose).
         const unnamed = resolveUnnamedProduct(await getStockSnapshot(), mergedText || '')
+        unnamedCandidates = unnamedProductCandidates(await getStockSnapshot(), mergedText || '')
         userPrompt = stockBlock + (unnamed ? '\n' + unnamed : '') + '\n\n' + userPrompt
         console.log(`[StockLookup] ${whatsappNumber} — injected live stock block for stock intent${unnamed ? ' + product-not-named resolver' : ''}`)
       }
@@ -3547,6 +3549,16 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   if (PAYMENT_TROUBLE_RE.test(mergedText || '') && INVENTED_RETRY_RE.test(aiReply || '') && !/\[DEFER\]/.test(aiReply || '')) {
     console.log(`[PaymentFixGuard] ${whatsappNumber} — invented payment retry advice blocked: "${String(aiReply).slice(0, 80)}"`)
     aiReply = '[DEFER]'
+  }
+
+  // --- MANY-CANDIDATE GUARD (2026-09-07) — see unnamedProductGuard ---
+  if (unnamedCandidates.length >= 3 && !/\[DEFER\]/.test(aiReply || '')) {
+    const historyText = (conversationHistory || []).map(m => `${m.buyerMessage || ''} ${m.aiReply || ''}`).join(' ')
+    const fixed = unnamedProductGuard({ candidates: unnamedCandidates, reply: aiReply, historyText })
+    if (fixed) {
+      console.log(`[UnnamedGuard] ${whatsappNumber} — single-product verdict with ${unnamedCandidates.length} candidates and no product in the thread, replaced: "${String(aiReply).slice(0, 80)}"`)
+      aiReply = fixed
+    }
   }
 
   // --- MIX-DENIAL GUARD (2026-09-06) — see MIX_DENIAL_RE ---

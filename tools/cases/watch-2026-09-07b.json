@@ -1,0 +1,9 @@
+[
+  { "id": "xl-black-many-candidates-ask", "why": "2026-09-07 10:41 buyer 7682815216 'XL black 4 piece available' (no product, no history) → 'Black shorts XL out of stock' — a guess among ten candidates",
+    "stock": true,
+    "msg": "XL black 4 piece available", "must": ["kaun|konsa|which"], "mustNot": ["out of stock", "\\[DEFER\\]"] },
+  { "id": "control-history-names-shorts", "why": "CONTROL — the thread names shorts → the shorts verdict is right",
+    "stock": true,
+    "history": [{ "buyer": "shorts ka rate kya hai", "ai": "Shorts 240gsm ₹217/pc bulk hai sir 👉 https://sale91.com/catalog/p/shorts" }],
+    "msg": "XL black 4 piece available", "must": ["shorts"], "mustNot": ["\\[DEFER\\]", "kaunsa product"] }
+]

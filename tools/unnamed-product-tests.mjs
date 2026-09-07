@@ -1,5 +1,5 @@
 // Regression: PRODUCT-NOT-NAMED RESOLVER + EXPORT ASK DETECTOR (2026-09-05). Pure, no network.
-import { detectColoursAndSizes, resolveUnnamedProduct } from '../server/stock-lookup.js'
+import { detectColoursAndSizes, resolveUnnamedProduct, unnamedProductCandidates, unnamedProductGuard, productFamily } from '../server/stock-lookup.js'
 import { EXPORT_ASK_RE } from '../server/process.js'
 
 let pass = 0, total = 0
@@ -61,5 +61,17 @@ t('american fit → no', E('american fit hai kya?'), false)
 t('plain price ask → no', E('rate kya hai 240 gsm ka'), false)
 t('"from" + city in India → no', E('main delhi se hoon, delivery kitne din me?'), false)
 
+// --- many-candidate guard ---
+const snap2 = { inStock: { 'Oversize 240gsm': { Black: { S:1, M:1, L:1, XL:1 } }, 'Oversize 210gsm': { Black: { S:1, XL:1 } }, 'Hoodie 320gsm-1': { Black: { XL:1 } }, Sweatshirt: { Black: { XL:1 } }, Shorts: { Black: { XS:1, S:1, M:1, L:1, XL:1 } } }, oos: { Shorts: { Black: 'XL' } }, coming: {}, fetchedAt: 0 }
+const cands = unnamedProductCandidates(snap2, 'XL black 4 piece available')
+t('MISS 2026-09-07: five candidates for XL black', cands.length, 5)
+t('family mapping', productFamily('Hoodie 320gsm-1') + '/' + productFamily('AcidWash OS'), 'hoodie/acid wash')
+t('guard replaces a single-product verdict', /Kaunsa product sir/.test(unnamedProductGuard({ candidates: cands, reply: 'Sir Black shorts XL abhi out of stock hai 🙏 XS, S, M, L available hain', historyText: '' }) || ''), true)
+t('guard lists the families', /oversize tshirt, hoodie, sweatshirt, shorts/.test(unnamedProductGuard({ candidates: cands, reply: 'Black shorts XL out of stock hai', historyText: '' }) || ''), true)
+t('guard leaves a question alone', unnamedProductGuard({ candidates: cands, reply: 'Kaunsa product chahiye sir — hoodie ya oversize?', historyText: '' }), null)
+t('thread names shorts → verdict allowed', unnamedProductGuard({ candidates: cands, reply: 'Black shorts XL out of stock hai sir', historyText: 'Buyer: shorts ka rate? Assistant: Shorts ₹217' }), null)
+t('two candidates → no guard', unnamedProductGuard({ candidates: cands.slice(0, 2), reply: 'Oversize 240 black XL available hai', historyText: '' }), null)
+t('reply naming two families → not a single pick', unnamedProductGuard({ candidates: cands, reply: 'Hoodie aur sweatshirt dono mein Black XL available hai sir', historyText: '' }), null)
+t('non-stock reply → no guard', unnamedProductGuard({ candidates: cands, reply: 'Photo bhej dijiye sir', historyText: '' }), null)
 console.log(`\n${pass}/${total} passed`)
 process.exit(pass === total ? 0 : 1)

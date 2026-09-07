@@ -350,6 +350,52 @@ export function resolveUnnamedProduct(snapshot, text) {
   return [
     '🔎 PRODUCT NOT NAMED — the buyer gave a colour/size but no product, and the answer DIFFERS by product (resolved in code from the block above; trust these exactly):',
     ...lines,
-    'HOW TO ANSWER: (a) if the RECENT CONVERSATION already names the product, answer for THAT product only from its verdict — do not ask. (b) Otherwise do NOT [DEFER]: ask which product in ONE short line naming the candidates the way Ketu does ("Bio ya True Bio, sir?"), and fold the verdicts into that same line when they split (e.g. "Bio mein 38 available hai 👉 link, True Bio mein 38 out hai — kaunsa chahiye?"). (c) If only ONE product fits, answer it directly. Never invent a date the verdict does not give.',
+    'HOW TO ANSWER: (a) if the RECENT CONVERSATION already names the product, answer for THAT product only from its verdict — do not ask. (b) Otherwise do NOT [DEFER]: ask which product in ONE short line naming the candidates the way Ketu does ("Bio ya True Bio, sir?"), and fold the verdicts into that same line when they split (e.g. "Bio mein 38 available hai 👉 link, True Bio mein 38 out hai — kaunsa chahiye?"). (c) If only ONE product fits, answer it directly. (d) With THREE OR MORE candidates you MUST ask — name the families ("oversize tshirt, hoodie, sweatshirt ya shorts?") and give NO stock verdict for any one of them; picking one is a guess (2026-09-07: "XL black 4 piece available" got "Black shorts XL out of stock" — shorts was never mentioned). Never invent a date the verdict does not give.',
   ].join('\n')
+}
+
+// ---------------------------------------------------------------------------------------------
+// MANY-CANDIDATE GUARD (2026-09-07). With the 🔎 block listing TEN products for "XL black 4 piece
+// available", the model still picked ONE (Shorts — the only OUT one) and told buyer 7682815216
+// "Black shorts XL out of stock" with no shorts context anywhere. When 3+ products fit and neither
+// the message nor the recent thread names one, a single-product stock verdict is a guess: replace
+// it with the question the hint asked for.
+export function unnamedProductCandidates(snapshot, text) {
+  if (!snapshot || !snapshot.inStock) return []
+  const { colours, sizes, productNamed } = detectColoursAndSizes(text)
+  if (productNamed || !colours.length) return []
+  const out = new Set()
+  for (const colour of colours) for (const size of (sizes.length ? sizes : [null]))
+    for (const p of Object.keys(snapshot.inStock)) if (productVerdict(snapshot, p, colour, size)) out.add(p)
+  return [...out]
+}
+export function productFamily(title) {
+  const t = String(title || '').toLowerCase()
+  if (/zip/.test(t)) return 'zip hoodie'
+  if (/hood/.test(t)) return 'hoodie'
+  if (/sweat/.test(t)) return 'sweatshirt'
+  if (/short/.test(t)) return 'shorts'
+  if (/acid/.test(t)) return 'acid wash'
+  if (/oversize/.test(t)) return 'oversize tshirt'
+  if (/polo/.test(t)) return 'polo'
+  if (/kids/.test(t)) return 'kids'
+  if (/rneck|round/.test(t)) return 'round neck'
+  if (/sublimation/.test(t)) return 'sublimation'
+  return t
+}
+const FAMILY_WORD_RE = {
+  'zip hoodie': /\bzip/i, hoodie: /hood/i, sweatshirt: /sweat/i, shorts: /short/i, 'acid wash': /acid/i,
+  'oversize tshirt': /oversiz|over size|drop\s*shoulder/i, polo: /polo/i, kids: /kid|bachch/i,
+  'round neck': /round\s*neck|rneck|\bbio\b|regular/i, sublimation: /sublimation/i,
+}
+export function unnamedProductGuard({ candidates, reply, historyText }) {
+  if (!Array.isArray(candidates) || candidates.length < 3) return null
+  const r = String(reply || '')
+  if (/\?/.test(r) && /kaun|konsa|kaunsa|which/i.test(r)) return null           // it asked — fine
+  if (!/out of stock|in stock|available|stock mein|nahi hai|aa jayega|shipment|milega/i.test(r)) return null
+  const families = [...new Set(candidates.map(productFamily))]
+  const named = families.filter(f => FAMILY_WORD_RE[f] && FAMILY_WORD_RE[f].test(r))
+  if (named.length !== 1) return null                                           // no single-product pick
+  if (FAMILY_WORD_RE[named[0]].test(String(historyText || ''))) return null    // thread names it — allowed
+  return `Kaunsa product sir — ${families.join(', ')}? 👉 https://sale91.com/catalog`
 }
