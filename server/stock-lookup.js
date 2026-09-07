@@ -299,6 +299,9 @@ export function detectColoursAndSizes(text) {
   const t = String(text || '')
   const colours = []
   for (const [name, re] of COLOUR_ALIASES) if (re.test(t) && !colours.includes(name)) colours.push(name)
+  // "off white" is one colour, not White + Off-white (2026-09-07: "240GSM, 220GSM me off white kab
+  // tak" produced both, doubling the candidate rows). Keep White only if it also appears on its own.
+  if (colours.includes('Off-white') && colours.includes('White') && !/(^|[^-\s\w])\s*white\b|\bwhite\b(?!\s*$)/i.test(t.replace(/off[\s-]*white/gi, ''))) colours.splice(colours.indexOf('White'), 1)
   // "Baby Pink" also matches plain "pink"; "Royal Blue" vs "Sky" are distinct words — fine as-is.
   const sizes = []
   for (const m of t.matchAll(SIZE_RE)) {

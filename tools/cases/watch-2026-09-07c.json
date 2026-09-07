@@ -1,0 +1,14 @@
+[
+  { "id": "two-gsm-offwhite-restock", "why": "2026-09-07 12:11 buyer 8800458887 '240GSM, 220GSM me off white kab tak aa jayegi' → held; Ketu: check Coming Soon",
+    "stock": true,
+    "msg": "Bhaiya 240GSM, 220GSM me off white kabtk aa jayegi stock me", "must": ["coming soon|delhi-stock|date nahi|shipment"], "mustNot": ["^\\[DEFER\\]$", "\\d+\\s*(din|days)"] },
+  { "id": "lemon-sport-tshirt-not-made", "why": "2026-09-07 12:06 buyer 7667189525 'lemon colour sport tshirt 200pcs' → held; Ketu: lemon colour nahi hota",
+    "stock": true,
+    "msg": "Sir lemon colour sport tshirt 200pcs", "must": ["nahi hota|nahi banta|nahi hai|mustard|white"], "mustNot": ["\\[DEFER\\]"] },
+  { "id": "control-offwhite-240-m-when", "why": "CONTROL — single-product restock when stays on the Coming Soon pointer",
+    "stock": true,
+    "msg": "off white 240 M size kab aayega?", "must": ["coming soon|delhi-stock|date nahi|shipment"], "mustNot": ["\\[DEFER\\]", "\\d+\\s*(din|days)"] },
+  { "id": "control-mustard-true-bio-exists", "why": "CONTROL — a real catalog colour is confirmed",
+    "stock": true,
+    "msg": "mustard yellow true bio hai kya?", "must": ["haan|hai|available|yes"], "mustNot": ["\\[DEFER\\]", "nahi hota"] }
+]

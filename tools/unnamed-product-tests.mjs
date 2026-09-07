@@ -18,6 +18,8 @@ t('alpha sizes with colour', detectColoursAndSizes('black M aur L kab aayega').s
 t('2xl → XXL', detectColoursAndSizes('maroon 2xl hai').sizes, ['XXL'])
 t('charcol spelling', detectColoursAndSizes('charcol 40 available?').colours, ['Charcoal'])
 t('no colour → nothing', detectColoursAndSizes('38 kab aayega').colours, [])
+t('off white is one colour', detectColoursAndSizes('240GSM, 220GSM me off white kabtk aa jayegi stock me').colours, ['Off-white'])
+t('white and off-white both named → both', detectColoursAndSizes('white aur off white dono 38').colours, ['White', 'Off-white'])
 
 // --- resolver on a synthetic snapshot shaped like the live one ---
 const snap = {
