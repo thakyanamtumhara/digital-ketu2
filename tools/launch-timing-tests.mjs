@@ -1,4 +1,4 @@
-import { isStockAvailabilityQuestion as q, isTransactionalReply as tr } from '../server/stock-question.js'
+import { isStockAvailabilityQuestion as q, isTransactionalReply as tr, looksLikeTimingAnswer as ta } from '../server/stock-question.js'
 let pass = 0, total = 0
 const t = (name, got, want) => { total++; const ok = got === want; if (ok) pass++; console.log(`${ok ? '✅' : '❌'} ${name.padEnd(60)} got=${got} want=${want}`) }
 t('MISS 20:12: women launch estimated time', q('Reel dekhi ki women launch finally launch horaha hai Estimated time kya hai'), true)
@@ -14,4 +14,12 @@ t('forTiming: "October mein aayega" is NOT transactional', tr('October mein aaye
 t('forTiming: a tracking link is still transactional', tr('https://shiprocket.co/tracking/7D117185230', { forTiming: true }), true)
 t('forTiming: credentials still transactional', tr('Email: x@gmail.com Password: 12345678', { forTiming: true }), true)
 t('default: "7 din mein aa jayega" transactional', tr('7 din mein aa jayega'), true)
+t('timing answer: 8 se 10 din', ta('इसना थोड़ा तो समय लगेगा भाईया ग्रे पोलो में थोड़ा तो समय लग रहा है शायद आठ से दस दिन का टाइम लगेगा'), true)
+t('timing answer: 8-9 din (roman)', ta('8-9 din mein aa jana chahiye sab kuch'), true)
+t('timing answer: 30 to 45 days max', ta('30 to 45 days max'), true)
+t('timing answer: October mein aayega', ta('October mein aayega'), true)
+t('timing answer: next week', ta('next week aa jayega'), true)
+t('not timing: Ok', ta('Ok'), false)
+t('not timing: tracking link', ta('https://trq.pages.dev/?a5854110032082'), false)
+t('not timing: price line', ta('₹195 per pc hai sir'), false)
 console.log(`\n${pass}/${total} passed`); process.exit(pass === total ? 0 : 1)

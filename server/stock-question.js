@@ -134,3 +134,14 @@ export function isOwnerNumber(num) {
 export function isMediaPlaceholder(text) {
   return /^\s*\[(image|images|photo|audio|voice|video|media|document|sticker|gif|unsupported)\]\s*$/i.test(text || '')
 }
+
+// Ketu's reply carries a restock/launch TIMING ("8 se 10 din", "30 to 45 days max", "October mein
+// aayega", "kal aa jayega", "next week") — the shape of answer worth keeping as a timed fact.
+export function looksLikeTimingAnswer(text) {
+  const t = String(text || '').toLowerCase()
+  if (!t.trim()) return false
+  if (/\b\d+\s*(-|to|se|–|ya)?\s*\d*\s*(din|days?|hafte|hafta|weeks?|mahin[ae]|months?)\b/.test(t)) return true
+  if (/\b(next|agle|agla)\s*(week|month|hafte|mahine)\b|\bkal\s*(aa|mil|tak)|\bparso\b|\bthis\s*week\b|\bis\s*hafte\b/.test(t)) return true
+  if (/\b(jan(uary)?|feb(ruary)?|march|april|may|june|july|aug(ust)?|sept(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\s*(ke\s*(baad|pehle)|mein|me\b|tak|se\b|end|start|last|first)/i.test(t)) return true
+  return /(जनवरी|फरवरी|मार्च|अप्रैल|मई|जून|जुलाई|अगस्त|सितंबर|सितम्बर|अक्टूबर|नवंबर|दिसंबर|दिन|हफ्ते|महीने)/.test(t) && /\d|दस|आठ|नौ|पांच|सात|एक|दो|तीन|चार|छह/.test(t)
+}

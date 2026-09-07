@@ -5,7 +5,7 @@ import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt, resolveReplyModel, REPLY_MODEL_INFO, sendReplyViaWwbun, holdingLineJustSent, stampHoldingLine, isPureEnder } from './process.js'
-import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine, hasGarbledTranscript, replyAnswersBuyer } from './stock-question.js'
+import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine, hasGarbledTranscript, replyAnswersBuyer, looksLikeTimingAnswer } from './stock-question.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { scanFollowupCandidates, handleOwnerShortlistReply, actOnDraft } from './followup.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
@@ -1469,6 +1469,31 @@ app.post('/api/intervention', async (c) => {
     (Date.now() - new Date(aiRepliedAt).getTime()) < 10 * 60 * 1000
 
   let learned = null
+
+  // TIMING-ANSWER CAPTURE FROM THE BACKLOG (2026-09-07). Four times today Ketu answered a restock
+  // question with "8 se 10 din" — hours after the clone's hold, and often to a nudge ("?", "Yahan",
+  // "Thank you") rather than the question itself — so isIntervention (AI replied <10 min ago) was
+  // false and the paired buyer text was not a stock question: nothing was captured, and the next
+  // buyer asking the same thing got another hold. When Ketu's reply LOOKS like a timing answer,
+  // find the buyer's last timing question in this thread (3h, 8 rows) and store the pair as an
+  // auto-expiring TIMED fact. Links/tracking/credentials still never qualify.
+  if (isTextReply && ketuReply && looksLikeTimingAnswer(ketuReply) && !isDeferLine(ketuReply)
+      && !isTransactionalReply(ketuReply, { forTiming: true })
+      && !(isIntervention && buyerMessage && isStockAvailabilityQuestion(buyerMessage))) {
+    try {
+      const recentRows = await db.messageLog.findMany({
+        where: { conversationId: interventionConvo.id, createdAt: { gt: new Date(Date.now() - 3 * 3600 * 1000) } },
+        orderBy: { createdAt: 'desc' }, take: 8, select: { buyerMessage: true },
+      })
+      const candidates = [buyerMessage, ...recentRows.map(r => r.buyerMessage)].filter(Boolean)
+      const question = candidates.find(q => isStockAvailabilityQuestion(q) && !isMediaPlaceholder(q) && wordCount(q) >= 2)
+      if (question) {
+        await storeTimedFact(db, question, ketuReply, 'backlog')
+        learned = 'backlog_timed_fact'
+        console.log(`[AutoLearn] Backlog timing answer saved as TIMED FACT: "${question.substring(0, 50)}..." → "${ketuReply.substring(0, 40)}..."`)
+      }
+    } catch (e) { console.error('[AutoLearn] backlog timed-fact capture failed:', e.message) }
+  }
 
   if (isQualityPair && isIntervention && buyerMessage && ketuReply && (isStockAvailabilityQuestion(buyerMessage) || isTransactionalReply(ketuReply) || isMediaPlaceholder(buyerMessage) || isDeferLine(ketuReply))) {
     // Point-in-time / transactional replies — stock-availability answers OR dispatch/tracking
