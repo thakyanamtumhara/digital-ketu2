@@ -1,0 +1,8 @@
+[
+  { "id": "xs-offwhite-240-discontinued", "why": "2026-09-07 19:57 buyer 7059614619 'XS mein black/white/off-white kab aayega?' → held; Ketu: XS only Black/White now, off-white XS not coming back",
+    "stock": true,
+    "msg": "Bhaiya xs mein black, white, off white kab ayega kuch update hai?", "must": ["black|white", "nahi ban|dobara nahi|sirf|only"], "mustNot": ["\\[DEFER\\]", "off.?white xs[^.]{0,30}(aa jayega|8-10|din)"] },
+  { "id": "control-black-xs-240-available", "why": "CONTROL — Black XS 240 is a normal stock answer",
+    "stock": true,
+    "msg": "240 gsm black XS hai abhi?", "must": ["available|hai|out"], "mustNot": ["\\[DEFER\\]", "nahi ban"] }
+]

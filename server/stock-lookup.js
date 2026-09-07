@@ -240,6 +240,10 @@ export function formatStockBlock(snapshot) {
       if (parts.length) lines.push(`- ${product}: ${parts.join(', ')}`)
     }
   }
+  // DISCONTINUED SIZES (policy, not stock — Ketu 2026-09-07, buyer 7059614619): the OOS verdict above
+  // says "no shipment → Coming Soon", but for these the honest answer is "not coming back". The
+  // model trusts this block over the rules, so the policy has to live here too.
+  lines.push('DISCONTINUED SIZES (Ketu 2026-09-07 — this is policy, not live stock, and it OVERRIDES the verdicts above): Oversize 240gsm XS is now made ONLY in Black and White; any OTHER colour\'s 240gsm XS (off-white, red, navy…) is out for good — say "XS ab sirf Black/White mein banta hai sir, [colour] XS dobara nahi aayega — S se upar ke sizes aa jayenge" and give NO Coming Soon pointer and NO date for that XS. Oversize 260gsm XS continues in Black/White.')
   const comingKeys = Object.keys(snapshot.coming || {})
   if (comingKeys.length) {
     lines.push('COMING SOON — the ONLY shipments that exist. A product/colour/size NOT listed here has NO known arrival date, no matter what else that product has coming (product — colour: ~days [exact sizes in the shipment]):')
