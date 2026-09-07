@@ -1,0 +1,11 @@
+[
+  { "id": "vendor-cap-pitch", "why": "2026-09-07 14:19 buyer 8935870307 'aap cap lete hai? manufacturing hai mera cap ka' → held; Ketu: cap mein kaam nahi",
+    "msg": "Hello aap cap lete hai manufacturing hai mera cap ka", "must": ["nahi|tshirt ka kaam"], "mustNot": ["\\[DEFER\\]"] },
+  { "id": "mustard-not-showing-wrong-page", "why": "2026-09-07 14:25 buyer 9064329629 'mustard yellow stock sheet mein hai but order ki jagah nahi dikh raha' → held; Ketu: it is under True Bio",
+    "stock": true,
+    "msg": "Hi sir, humme mustard yellow ka tshirt chahiye. Woh apka stock sheet me hain. But order k jagah pe nahi deekha raha", "must": ["true bio|kids"], "mustNot": ["\\[DEFER\\]", "screenshot"] },
+  { "id": "porter-charge-for-address", "why": "2026-09-07 15:09 buyer 9873959790 'is address ka porter kitna lega' → held; Ketu: shows on the website while ordering",
+    "msg": "Sandeep Sharma B 78 First Floor Sector 89 Faridabad (Haryana) 9311355532 Is address ka porter kitna lega check karke bataiye", "must": ["website|order karte|dikh"], "mustNot": ["\\d+\\s*(rs|₹|/km|per km)|₹\\s*\\d+", "\\[DEFER\\]"] },
+  { "id": "control-wrong-item-complaint-holds", "why": "CONTROL — a received-wrong-item complaint still holds",
+    "msg": "white ki jagah beige aa gaya order mein, kya karu", "must": ["^\\[DEFER\\]$"] }
+]
