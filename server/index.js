@@ -1120,7 +1120,7 @@ async function enqueueIncoming(senderKey, message) {
           where: { conversation: { whatsappNumber: senderKey }, createdAt: { gte: new Date(startedAt - 1000) } },
           orderBy: { createdAt: 'desc' }, select: { status: true, deferReason: true },
         })
-        if (last && last.status === 'SKIPPED') reason = last.deferReason || null
+        if (last && (last.status === 'SKIPPED' || last.deferReason === 'cooldown_ender')) reason = last.deferReason || null
       } catch { /* verdict is optional */ }
       notifySkippedViaWwbun(senderKey, { reason })
     }

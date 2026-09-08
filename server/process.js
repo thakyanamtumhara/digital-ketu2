@@ -1837,9 +1837,13 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     select: { cooldownUntil: true },
   })
   if (freshCooldown?.cooldownUntil && new Date() < new Date(freshCooldown.cooldownUntil)) {
+    // During Ketu's cooldown the buyer's "Theek h" / "Ha sure ji" / "👍" is HIS closing, not a new
+    // ask — record that verdict so wwbun can keep the chat off Waiting (2026-09-08). A real message
+    // in cooldown stays a plain cooldown row: it belongs to his live flow and he sees it.
+    const closing = !hasMediaOnly && (isPureEnder(mergedText) || isBareAck(mergedText))
     await createLog(db, conversation.id, mergedText || '[media]', messageIds, {
       status: 'COOLDOWN',
-      deferReason: 'cooldown',
+      deferReason: closing ? 'cooldown_ender' : 'cooldown',
       processingMs: Date.now() - startTime,
     })
     return
@@ -4156,7 +4160,7 @@ export async function sendReplyViaWwbun(whatsappNumber, message, model = null, c
 // arrives. A pending hold (defer_*), a cooldown or an error is NOT such a verdict.
 export const NO_REPLY_NEEDED_REASONS = new Set([
   'conversation_ender_deterministic', 'conversation_ended', 'ai_chose_silence', 'bare_ack_in_manual_flow',
-  'ig_zero_tier', 'automated_business_reply', 'unsupported_skipped', 'duplicate_resend_suppressed',
+  'ig_zero_tier', 'automated_business_reply', 'unsupported_skipped', 'duplicate_resend_suppressed', 'cooldown_ender',
 ])
 export async function notifySkippedViaWwbun(whatsappNumber, opts = {}) {
   if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) return
