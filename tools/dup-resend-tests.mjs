@@ -11,6 +11,8 @@ t('short nudge never a duplicate', isDuplicateResend('hello?', ['hello?']), fals
 t('different question, same opening = not duplicate', isDuplicateResend('Good evening. What is the price of the 240gsm oversize black tee for 50 pieces?', [B]), false)
 t('follow-up quoting a fragment = not duplicate', isDuplicateResend('This is the EU size chart', [A]), false)
 t('nothing answered = not duplicate', isDuplicateResend(A, []), false)
+t('MISS 2026-09-08 IG: spec list re-sent with a word changed', isDuplicateResend('Hi sir i need100% Combed/Ring-Spun Cotton Single Jersey 240–250 GSM, preferably 250 GSM Bio-washed / soft finish Pre-shrunk Premium oversized T-shirt fabric quantity 500 pcs', ['Hi sir i need100% Combed/Ring-Spun Cotton Single Jersey 240–250 GSM, preferably 250 GSM Bio-washed / soft finish Pre-shrunk Premium oversized T-shirt fabric quantity 500 pieces please quote']), true)
+t('different long question, shared opening = not duplicate', isDuplicateResend('Hi sir i need 100% cotton round neck tshirts 180 gsm black colour 200 pieces price and delivery time please', ['Hi sir i need100% Combed/Ring-Spun Cotton Single Jersey 240–250 GSM, preferably 250 GSM Bio-washed / soft finish Pre-shrunk Premium oversized T-shirt fabric']), false)
 t('hindi text normalises', normalizeForDup('क्या आप 240 gsm में ब्लैक देते हो?').length > 10, true)
 // holding-line repeat from rows (newest first)
 t('hold 13 min ago, only a greeting since → repeat', holdingLineRepeatFromRows([{ status: 'REPLIED', deferReason: 'welcome_followup_generic' }, { status: 'DEFERRED', deferReason: 'claude_deferred', sentViaWwbun: true }]), true)

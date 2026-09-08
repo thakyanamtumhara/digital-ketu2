@@ -1,5 +1,5 @@
 // Regression: PRODUCT-NOT-NAMED RESOLVER + EXPORT ASK DETECTOR (2026-09-05). Pure, no network.
-import { detectColoursAndSizes, resolveUnnamedProduct, unnamedProductCandidates, unnamedProductGuard, productFamily } from '../server/stock-lookup.js'
+import { detectColoursAndSizes, resolveUnnamedProduct, unnamedProductCandidates, unnamedProductGuard, productFamily, timedFactFor, parseTimedFact, formatStockBlock } from '../server/stock-lookup.js'
 import { EXPORT_ASK_RE } from '../server/process.js'
 
 let pass = 0, total = 0
@@ -77,5 +77,21 @@ t('thread names shorts → verdict allowed', unnamedProductGuard({ candidates: c
 t('two candidates → no guard', unnamedProductGuard({ candidates: cands.slice(0, 2), reply: 'Oversize 240 black XL available hai', historyText: '' }), null)
 t('reply naming two families → not a single pick', unnamedProductGuard({ candidates: cands, reply: 'Hoodie aur sweatshirt dono mein Black XL available hai sir', historyText: '' }), null)
 t('non-stock reply → no guard', unnamedProductGuard({ candidates: cands, reply: 'Photo bhej dijiye sir', historyText: '' }), null)
+// --- timed facts inside verdicts ---
+const F = [
+  { content: '[stated 2026-09-07] Buyer asked: "240 gsm oversized Red and off white sizes available nahi hai, coming soon mein bhi show nahi ho raha, kab aayega" — Ketu\'s answer: "8-9 din mein aa jana chahiye sab kuch"' },
+  { content: '[stated 2026-09-07] Buyer asked: "Grey cotton polo do you have all sizes in stock? When it will be available all sizes" — Ketu\'s answer: "Grey polo mein thoda time lag raha hai — 8 se 10 din ka time lagega"' },
+  { content: '[stated 2026-09-06] Buyer asked: "Reel dekhi ki women launch finally launch horaha hai Estimated time kya hai" — Ketu\'s answer: "30 to 45 days max"' },
+]
+t('parse', parseTimedFact(F[0].content).answer, '8-9 din mein aa jana chahiye sab kuch')
+t('MISS 10:59: Red 240 → Ketu 8-9 din', (timedFactFor(F, 'Oversize 240gsm', 'Red') || {}).answer, '8-9 din mein aa jana chahiye sab kuch')
+t('Off-white 240 also covered', !!timedFactFor(F, 'Oversize 240gsm', 'Off-white'), true)
+t('Black 240 not covered (fact names colours)', timedFactFor(F, 'Oversize 240gsm', 'Black'), null)
+t('grey cotton polo covered', !!timedFactFor(F, 'Cotton Polo', 'Grey'), true)
+t('navy cotton polo not covered', timedFactFor(F, 'Cotton Polo', 'Navy'), null)
+t('sweatshirt not covered by polo/240 facts', timedFactFor(F, 'Sweatshirt', 'Navy'), null)
+const snapTF = { inStock: { 'Oversize 240gsm': { Red: { S: 1, M: 1, XL: 1 } } }, oos: { 'Oversize 240gsm': { Red: 'S,M' } }, coming: {}, fetchedAt: 0 }
+t('block verdict carries ⏰ Ketu timing', /⏰ Ketu said on 2026-09-07: "8-9 din/.test(formatStockBlock(snapTF, { timedFacts: F })), true)
+t('block without facts keeps no-date verdict', /NO shipment for this colour/.test(formatStockBlock(snapTF)), true)
 console.log(`\n${pass}/${total} passed`)
 process.exit(pass === total ? 0 : 1)

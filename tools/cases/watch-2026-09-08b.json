@@ -1,0 +1,8 @@
+[
+  { "id": "red-240-refill-relays-ketu-timing", "why": "2026-09-08 10:59 buyer 6207361625 '240 red refilling kab tak' → 'koi date nahi' although Ketu's 7-Sep '8-9 din' timed fact was in the prompt; now written into the stock verdict",
+    "stock": true,
+    "msg": "240 gsm tshirt me red colour ki reffling kab tak possible hai", "must": ["8-9|8 se|din"], "mustNot": ["koi date nahi|date nahi hai", "\\[DEFER\\]"] },
+  { "id": "control-black-260-no-fact", "why": "CONTROL — a colour with no timed fact keeps the stock verdict (in stock / Coming Soon), no invented days",
+    "stock": true,
+    "msg": "260 gsm black L size hai abhi?", "must": ["available|hai|out|coming"], "mustNot": ["\\d+\\s*din", "\\[DEFER\\]"] }
+]

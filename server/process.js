@@ -610,14 +610,26 @@ const ENDER_TOKENS = new Set([
 export function normalizeForDup(text) {
   return String(text || '').toLowerCase().replace(/[^a-z0-9\u0900-\u097f]+/g, '')
 }
+function dupTokens(text) {
+  return new Set(String(text || '').toLowerCase().replace(/[^a-z0-9\u0900-\u097f\s]+/g, ' ').split(/\s+/).filter(w => w.length > 1))
+}
 export function isDuplicateResend(newText, answeredTexts) {
   const a = normalizeForDup(newText)
   if (a.length < 40) return false
+  const ta = dupTokens(newText)
   for (const prev of answeredTexts || []) {
     const b = normalizeForDup(prev)
     if (b.length < 40) continue
     const [short, long] = a.length <= b.length ? [a, b] : [b, a]
     if (long.includes(short) && short.length >= 0.7 * long.length) return true
+    // Near-identical re-send with a word or two changed (2026-09-08, Instagram buyer pasted his spec
+    // list twice, 201 vs 211 chars, and got two answers): word-set Jaccard ≥ 0.85 on 8+ words.
+    const tb = dupTokens(prev)
+    if (ta.size >= 8 && tb.size >= 8) {
+      let inter = 0; for (const w of ta) if (tb.has(w)) inter++
+      const union = ta.size + tb.size - inter
+      if (union && inter / union >= 0.85) return true
+    }
   }
   return false
 }
@@ -1312,7 +1324,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // fall through and answer the real text.
   const UNSUPPORTED_PLACEHOLDER = /\[unsupported\]\s*whatsapp could not deliver this message\s*\(often[^)]*\)\.?\s*ask the buyer to resend it normally\.?/gi
   const strippedUnsupported = (mergedText || '').replace(UNSUPPORTED_PLACEHOLDER, '').replace(/\[unsupported\]/gi, '').trim()
-  if (mergedText && /could not deliver this message/i.test(mergedText) && strippedUnsupported.length < 4) {
+  if (mergedText && /could not deliver this message|^\s*\[unsupported\]\s*$/i.test(mergedText) && strippedUnsupported.length < 4) {
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'SKIPPED',
       deferReason: 'unsupported_skipped',
@@ -3251,7 +3263,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   let unnamedCandidates = []
   if (STOCK_INTENT_RE.test(mergedText || '')) {
     try {
-      const stockBlock = formatStockBlock(await getStockSnapshot())
+      const stockBlock = formatStockBlock(await getStockSnapshot(), { timedFacts: await fetchTimedFacts(db) })
       if (stockBlock) {
         // 2026-09-05: colour/size named but no product → the per-product verdicts, resolved in code
         // (buyer 8595383520 "White and nevy 38 kab tak restock hoga?" was deferred with the block
@@ -4165,6 +4177,19 @@ export async function sendReplyViaWwbun(whatsappNumber, message, model = null, c
 // back on the list, because the buyer had written last. dk2 already judged those as enders /
 // acks / silence; it now tells wwbun so, and wwbun stamps the chat cleared until something new
 // arrives. A pending hold (defer_*), a cooldown or an error is NOT such a verdict.
+// Fresh ⏰ timed facts (Ketu's own recent timing answers), newest first, max 8 — shared by the ⏰
+// user-prompt block and the stock block's verdicts (2026-09-08).
+export async function fetchTimedFacts(db) {
+  try {
+    const rows = await db.$queryRaw`
+      SELECT content FROM "KnowledgeChunk"
+      WHERE source = 'TIMED_FACT'::"ChunkSource"
+        AND (metadata->>'expiresAt')::timestamptz > NOW()
+      ORDER BY "createdAt" DESC LIMIT 8
+    `
+    return Array.isArray(rows) ? rows : []
+  } catch { return [] }
+}
 export const NO_REPLY_NEEDED_REASONS = new Set([
   'conversation_ender_deterministic', 'conversation_ended', 'ai_chose_silence', 'bare_ack_in_manual_flow',
   'ig_zero_tier', 'automated_business_reply', 'unsupported_skipped', 'duplicate_resend_suppressed', 'cooldown_ender',

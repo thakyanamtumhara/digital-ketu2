@@ -70,7 +70,9 @@ const { catalogProductsFromChunks, gsmAmbiguityHint } = await import('../server/
 const catalogProducts = catalogProductsFromChunks(cat.chunks || cat.items || [])
 let stockBlock = null, photoBlock = null, stockSnapshot = null
 const cases = JSON.parse(readFileSync(file, 'utf8')).filter(c => !ONLY.length || ONLY.includes(c.id))
-if (cases.some(c => c.stock)) { stockSnapshot = await getStockSnapshot(); stockBlock = formatStockBlock(stockSnapshot) }
+const tfRes = await api('/api/knowledge/chunks?source=TIMED_FACT&pageSize=8').catch(() => null)
+const timedFacts = ((tfRes && (tfRes.chunks || tfRes.items)) || []).map(c => ({ content: c.content })) // mirrors fetchTimedFacts (2026-09-08)
+if (cases.some(c => c.stock)) { stockSnapshot = await getStockSnapshot(); stockBlock = formatStockBlock(stockSnapshot, { timedFacts }) }
 if (cases.some(c => c.photo)) photoBlock = formatPhotoBlock(await getPhotoIndex())
 
 function userPromptFor(c) {
@@ -87,6 +89,7 @@ function userPromptFor(c) {
     const unnamed = resolveUnnamedProduct(stockSnapshot, c.msg) // mirrors runAiFlow (2026-09-05)
     p = stockBlock + (unnamed ? '\n' + unnamed : '') + '\n\n' + p
   }
+  if (timedFacts.length) p = `⏰ KETU'S RECENT TIMING ANSWERS (his OWN words to buyers in the last few days — each entry SUPERSEDES any seasonal default ("Winter stock after September"), Coming-Soon pointer, no-date ban, stale-correction ban, or older correction about the SAME product's timing. Relay HIS stated timing in his style, adjusting for days already passed — today is ${new Date().toISOString().slice(0, 10)}):\n${timedFacts.map(f => '- ' + f.content).join('\n')}\n\n${p}` // mirrors runAiFlow
   if (EXPORT_ASK_RE.test(c.msg)) p = EXPORT_HINT + '\n\n' + p // mirrors runAiFlow (2026-09-05)
   const gsmHint = gsmAmbiguityHint(catalogProducts, c.msg) // mirrors runAiFlow (2026-09-06)
   if (gsmHint) p = gsmHint + '\n\n' + p

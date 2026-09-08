@@ -177,8 +177,40 @@ function istTime(ts) {
 
 // Compact prompt block. Full catalog every time (no keyword filtering — a filter miss would look
 // like "not in data" and cause a wrong answer; ~700 tokens only on stock-intent turns is cheap).
-export function formatStockBlock(snapshot) {
+// ⏰ TIMED FACTS INSIDE THE VERDICTS (2026-09-08). The ⏰ block in the user prompt lost to the stock
+// block's own "NO shipment — give NO date" line: buyer 6207361625 asked "240 red refilling kab tak"
+// and got "koi date nahi" while Ketu's "8-9 din" from the day before sat right above it. The model
+// trusts THIS block, so his timing has to be written into the verdict itself.
+const PRODUCT_KEYWORDS = {
+  'Oversize 240gsm': ['240'], 'Oversize 210gsm': ['210'], 'Oversize 180gsm': ['180 ?gsm oversize', 'oversize 180', 'os180'], 'Oversize 260gsm': ['260'],
+  'Cotton Polo': ['cotton polo', 'polo'], 'Premium Polo': ['premium polo', 'polo'], 'True Bio Rneck': ['true bio', 'truebio'], 'Bio Rneck': ['bio'],
+  'Non Bio Rneck': ['non bio', 'nonbio'], 'Kids Rneck': ['kids', 'kid'], 'Sublimation tshirt': ['sublimation'], 'Shorts': ['shorts'],
+  'Zip Hoodie': ['zip'], 'AcidWash OS': ['acid'], 'Sweatshirt': ['sweatshirt', 'sweat shirt'], 'Sweatshirt-2': ['sweatshirt', 'sweat shirt'],
+  'Hoodie 320gsm-1': ['320', 'hoodie'], 'Hoodie 320gsm-2': ['320', 'hoodie'], 'Hoodie 430gsm-2': ['430', 'hoodie'], 'Dropsho Hoodie 430gsm': ['430', 'dropshoulder', 'drop shoulder'],
+}
+export function parseTimedFact(content) {
+  const m = String(content || '').match(/\[stated (\d{4}-\d{2}-\d{2})\]\s*Buyer asked:\s*"([\s\S]*?)"\s*—\s*Ketu's answer:\s*"([\s\S]*?)"\s*$/)
+  return m ? { date: m[1], question: m[2], answer: m[3] } : null
+}
+export function timedFactFor(facts, product, colour) {
+  const keys = (PRODUCT_KEYWORDS[product] || [product.toLowerCase()]).map(k => new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))
+  const colourWords = [String(colour || '').toLowerCase(), String(colour || '').toLowerCase().replace('-', ' ')]
+  const anyColour = /\b(black|white|off[- ]?white|navy|red|maroon|grey|gray|charcoal|beige|brown|orange|lavender|pink|yellow|mustard|green|blue|sky|bhagwa)\b/i
+  for (const f of facts || []) {
+    const t = typeof f === 'string' ? f : f.content
+    const parsed = parseTimedFact(t); if (!parsed) continue
+    const text = `${parsed.question} ${parsed.answer}`.toLowerCase()
+    if (!keys.some(k => k.test(text))) continue
+    const factNamesColour = anyColour.test(text)
+    if (factNamesColour && !colourWords.some(c => c && text.includes(c))) continue
+    return parsed
+  }
+  return null
+}
+
+export function formatStockBlock(snapshot, opts = {}) {
   if (!snapshot || !snapshot.inStock) return null
+  const timedFacts = opts.timedFacts || []
   const lines = []
   lines.push(`📦 LIVE STOCK DATA (source: website's own live price table + incoming-production feed, as of ${istTime(snapshot.fetchedAt)} IST — TRUSTED, answer stock questions FROM this):`)
   lines.push('IN STOCK — orderable on the website RIGHT NOW. Each colour lists ONLY its genuinely-available sizes (out-of-stock sizes already removed) — trust these exactly (product: colours [available sizes]):')
@@ -220,6 +252,8 @@ export function formatStockBlock(snapshot) {
         // for True Bio Navy 38 (2026-08-31, buyer 9764372985). Neither had a shipment at all.
         // Same medicine as the Maroon-46 fix above: never leave a join to the model.
         const verdict = (sizes) => {
+          const tf = timedFactFor(timedFacts, product, colour)
+          if (tf) return `⏰ Ketu said on ${tf.date}: "${tf.answer}" — RELAY HIS TIMING (it overrides the no-date rule for this colour; adjust for days already passed)`
           const row = (snapshot.coming || {})[`${product}|${colour}`]
           if (!row) return '⛔ NO shipment for this colour — give NO date, NO "din mein aayega"'
           const incoming = row.sizes || []
