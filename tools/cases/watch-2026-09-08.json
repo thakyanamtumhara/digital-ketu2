@@ -1,0 +1,11 @@
+[
+  { "id": "polo-navy-42-44-update", "why": "2026-09-08 08:44 buyer 7872065773 'cotton polo neavy 42 44 update, urgent' → held: 'update' was not a stock-intent word so no live block reached the model",
+    "stock": true,
+    "msg": "Please cotton polo neavy 42 44 update I need urgent", "must": ["din|coming|shipment|aa jayeg|available"], "mustNot": ["^\\[DEFER\\]$"] },
+  { "id": "english-visit-godam-name", "why": "2026-09-08 00:16 an English buyer was told to ask for 'TSHIRT WAREHOUSE'",
+    "history": [{ "buyer": "Please share your delhi godown's location", "ai": "F-120, Gujiar Chowk Khanpur, South Delhi 110062 — Sunday 11am-4pm, other days 10am-6pm 👉 https://maps.app.goo.gl/dGpvUxcMLg5MJmtS9 (after reaching, ask for 'TSHIRT WALA GODAM'; call if needed 8368648533)" }],
+    "msg": "For hoodies sir Can we come tomorrow?", "must": ["10|6"], "mustNot": ["WAREHOUSE", "\\[DEFER\\]"] },
+  { "id": "custom-colours-large-qty", "why": "2026-09-08 07:21 buyer from Iraq 'can you make more colors for large quantities' → flat 'we don't make on order' (Ketu's own line: on order at 10K/colour)",
+    "history": [{ "buyer": "I want to see your polo plain t shirts stock ready What colors do you have", "ai": "Cotton Polo: Black, White, Navy, Grey, Maroon, Charcoal, Red 👉 https://sale91.com/catalog/p/cotton-polo" }],
+    "msg": "Sir can you make more colors for large quantities", "must": ["10,?000|10K|on.?order|Ketu"], "mustNot": ["^No sir, we don.t make"] }
+]

@@ -19,4 +19,6 @@ t('real AI answer since → not a repeat', holdingLineRepeatFromRows([{ status: 
 t('partial answer does not clear the held part', holdingLineRepeatFromRows([{ status: 'REPLIED', deferReason: 'claude_partial_answer' }, { status: 'DEFERRED', deferReason: 'claude_deferred', sentViaWwbun: true }]), true)
 t('hold not delivered → no repeat', holdingLineRepeatFromRows([{ status: 'DEFERRED', deferReason: 'claude_deferred', sentViaWwbun: false }]), false)
 t('no rows → no repeat', holdingLineRepeatFromRows([]), false)
+t('identity aside between holds does not reset the guard', holdingLineRepeatFromRows([{ status: 'REPLIED', deferReason: null, aiReply: 'Ketu is the owner sir 🙏 I help him chat with buyers here.' }, { status: 'DEFERRED', deferReason: 'claude_deferred', sentViaWwbun: true }]), true)
+t('real answer between holds resets it', holdingLineRepeatFromRows([{ status: 'REPLIED', deferReason: null, aiReply: 'Cotton polo ₹187 sir' }, { status: 'DEFERRED', deferReason: 'claude_deferred', sentViaWwbun: true }]), false)
 console.log(`\n${pass}/${total} passed`); process.exit(pass === total ? 0 : 1)

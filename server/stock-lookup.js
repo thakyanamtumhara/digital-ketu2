@@ -269,7 +269,7 @@ export function formatStockBlock(snapshot) {
 // names it).
 // ---------------------------------------------------------------------------------------------
 const COLOUR_ALIASES = [
-  ['Navy', /\bn[ae]v[iy]e?\b|\bnavy\s*blue\b|\bnevy\s*blue\b/i],
+  ['Navy', /\bn[ae]a?v(?:[iy]e?|e?y)\b|\bnavy\s*blue\b|\bnevy\s*blue\b/i],  // navy, nevy, neavy, navey, navi
   ['White', /\bwh?ite\b|\bsafed\b|\bwhyte\b/i],
   ['Off-white', /\boff[\s-]*white\b|\bcream\b/i],
   ['Black', /\bbla?ck\b|\bkala\b|\bkaala\b/i],
