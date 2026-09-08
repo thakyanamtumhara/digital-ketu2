@@ -1,0 +1,8 @@
+[
+  { "id": "os240-red-offwhite-100pcs-named", "why": "2026-09-08 22:22 buyer 9959950760 '100 pcs OS 240, red and off white sab size nahi mil rahe' → 'Kaunsa product sir?' (OS 240 was not read as a product name); Ketu's 8-9 din timed fact applies",
+    "stock": true,
+    "msg": "Dada, mujhe 100 pcs OS 240 chahiye but red and off white main sab size nahi mil rahe apka website main. Kab tak aayega?", "must": ["8-9|8 se 9|din|available"], "mustNot": ["kaunsa product|which product", "\\[DEFER\\]"] },
+  { "id": "control-xl-black-still-asks", "why": "CONTROL — colour+size with no product still asks which product",
+    "stock": true,
+    "msg": "XL black 4 piece available", "must": ["kaun|konsa|which"], "mustNot": ["out of stock", "\\[DEFER\\]"] }
+]

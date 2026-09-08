@@ -328,7 +328,9 @@ const COLOUR_ALIASES = [
   ['Bhagwa', /\bbhagwa\b|\bsaffron\b|\bkesari\b/i],
 ]
 // Product words = the buyer DID name a product → the normal block is enough, no resolver.
-export const PRODUCT_NAMED_RE = /\b(bio|true\s*bio|non\s*bio|polo|oversize[d]?|over\s*size|drop\s*shoulder|acid|acidwash|hoodie|hoody|sweat\s*shirt|kids?|bachch?o?n?|sublimation|shorts?|zip|zipper|varsity|jacket|boxy|\d{3}\s*gsm|rneck|round\s*neck|premium|cotton\s*polo)\b/i
+// 2026-09-08: 'OS 240' / 'os240' / a bare product GSM ('240 red off white') name the product too — buyer
+// 9959950760 wrote '100 pcs OS 240 chahiye, red and off white' and was asked 'kaunsa product?'.
+export const PRODUCT_NAMED_RE = /\b(bio|true\s*bio|non\s*bio|polo|oversize[d]?|over\s*size|drop\s*shoulder|acid|acidwash|hoodie|hoody|sweat\s*shirt|kids?|bachch?o?n?|sublimation|shorts?|zip|zipper|varsity|jacket|boxy|\d{3}\s*gsm|os\s*-?\s*\d{3}|(180|200|210|220|240|260|320|430)|rneck|round\s*neck|premium|cotton\s*polo)\b/i
 const SIZE_RE = /\b(xxs|xs|s|m|l|xl|xxl|xxxl|2xl|3xl|20|22|24|26|28|30|32|34|36|38|40|42|44|46)\b/gi
 // Colour spellings the snapshot itself uses inconsistently (Charcol/Charcoal, Biege/Beige).
 const SNAPSHOT_COLOUR_TWINS = { Charcoal: ['Charcol'], Beige: ['Biege'] }

@@ -20,6 +20,9 @@ t('charcol spelling', detectColoursAndSizes('charcol 40 available?').colours, ['
 t('neavy spelling', detectColoursAndSizes('cotton polo neavy 42 44 update').colours, ['Navy'])
 t('navey spelling', detectColoursAndSizes('navey 38').colours, ['Navy'])
 t('no colour → nothing', detectColoursAndSizes('38 kab aayega').colours, [])
+t('MISS 2026-09-08: OS 240 names the product', detectColoursAndSizes('Dada, mujhe 100 pcs OS 240 chahiye but red and off white main sab size nahi mil rahe').productNamed, true)
+t('bare 240 names the product', detectColoursAndSizes('240 red off white kab tak').productNamed, true)
+t('colour+size only still unnamed', detectColoursAndSizes('XL black 4 piece available').productNamed, false)
 t('off white is one colour', detectColoursAndSizes('240GSM, 220GSM me off white kabtk aa jayegi stock me').colours, ['Off-white'])
 t('white and off-white both named → both', detectColoursAndSizes('white aur off white dono 38').colours, ['White', 'Off-white'])
 
