@@ -89,7 +89,7 @@ function userPromptFor(c) {
     const unnamed = resolveUnnamedProduct(stockSnapshot, c.msg) // mirrors runAiFlow (2026-09-05)
     p = stockBlock + (unnamed ? '\n' + unnamed : '') + '\n\n' + p
   }
-  if (timedFacts.length) p = `⏰ KETU'S RECENT TIMING ANSWERS (his OWN words to buyers in the last few days — each entry SUPERSEDES any seasonal default ("Winter stock after September"), Coming-Soon pointer, no-date ban, stale-correction ban, or older correction about the SAME product's timing. Relay HIS stated timing in his style, adjusting for days already passed — today is ${new Date().toISOString().slice(0, 10)}):\n${timedFacts.map(f => '- ' + f.content).join('\n')}\n\n${p}` // mirrors runAiFlow
+  if (timedFacts.length) p = `⏰ KETU'S RECENT TIMING ANSWERS (his OWN words to buyers in the last few days — EACH ENTRY APPLIES ONLY TO THE PRODUCT AND COLOUR NAMED IN IT: never carry one colour's or product's timing over to another (2026-09-08: '240 red 8-9 din' was reused for KIDS red, which has no shipment) — each entry SUPERSEDES any seasonal default ("Winter stock after September"), Coming-Soon pointer, no-date ban, stale-correction ban, or older correction about the SAME product's timing. Relay HIS stated timing in his style, adjusting for days already passed — today is ${new Date().toISOString().slice(0, 10)}):\n${timedFacts.map(f => '- ' + f.content).join('\n')}\n\n${p}` // mirrors runAiFlow
   if (EXPORT_ASK_RE.test(c.msg)) p = EXPORT_HINT + '\n\n' + p // mirrors runAiFlow (2026-09-05)
   const gsmHint = gsmAmbiguityHint(catalogProducts, c.msg) // mirrors runAiFlow (2026-09-06)
   if (gsmHint) p = gsmHint + '\n\n' + p

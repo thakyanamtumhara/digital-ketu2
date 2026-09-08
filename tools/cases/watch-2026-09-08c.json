@@ -1,0 +1,12 @@
+[
+  { "id": "kids-red-followup-no-invented-days", "why": "2026-09-08 12:25 buyer 9794490949 'Red bhi abhi nahi dikha rha' (kids, after Baby Pink 7 din / Black 3 din) → 'Red bhi 7-8 din' — Kids Red has NO shipment",
+    "stock": true,
+    "history": [{ "buyer": "Sir kids ka apke pas sare colour kab tak available hoga ?", "ai": "Kids mein Baby Pink 7 din, Black 3 din mein aa jayega sir 👉 https://www.bulkplaintshirt.com/delhi-stock.html" }],
+    "msg": "Red bhi abhi nahi dikha rha", "must": ["coming soon|date nahi|shipment nahi|koi date"], "mustNot": ["\\d+\\s*-?\\s*\\d*\\s*din", "\\[DEFER\\]"] },
+  { "id": "control-kids-black-eta", "why": "CONTROL — Kids Black has a shipment ~3 din",
+    "stock": true,
+    "msg": "kids black 24 size kab aayega?", "must": ["3 din|~3|teen din"], "mustNot": ["\\[DEFER\\]"] },
+  { "id": "drift-means-dryfit", "why": "2026-09-08 12:26 buyer 7009216984 'Drift Available' → 'Drift nahi milega' (dryfit typo)",
+    "history": [{ "buyer": "Polo tshirts", "ai": "Polo mein 2 hain sir — Cotton Polo ₹187, Premium Polo ₹237 👉 https://sale91.com/catalog" }],
+    "msg": "Drift Available", "must": ["dry ?fit|sublimation|polyester"], "mustNot": ["drift nahi milega|nahi milega sir", "\\[DEFER\\]"] }
+]
