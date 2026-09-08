@@ -1,0 +1,13 @@
+[
+  { "id": "embroidery-video-moq-ask", "why": "2026-09-08 14:41 buyer 9691800819 'aapki video mein bola embroidery karte ho if MOQ is X, what is X?' → held; Ketu: plain only, talk to embroidery contact",
+    "msg": "aapki ek video me bola me karta hoon embroidery if moq is X, now what is X, ye me puchna chahta hoon, ya aap ab nahi karte custom?", "must": ["919266306545|9266306545"], "mustNot": ["\\[DEFER\\]", "moq (is|hai) \\d"] },
+  { "id": "small-qty-godam-pickup", "why": "2026-09-08 15:04 buyer 9205281554 'sirf 3 polo chahiye, bada order nahi, wahin aake le lu?' → held; Ketu: Ok",
+    "msg": "Bhaiya ek help chaiye thi mujhe sirf 3 polo chaiye abhi ke liye bas order dena hai abhi bada order nhi hai kya ho sakta wahin aake le lu", "must": ["haan|aa jaiye|khanpur|F-120"], "mustNot": ["\\[DEFER\\]", "nahi ho sakta"] },
+  { "id": "hypothetical-wrong-item-no-promise", "why": "2026-09-08 15:24 buyer 9903188679 'aapki taraf se galat colour/size aa gaya to?' → 'replace kar denge' (policy Ketu never stated)",
+    "history": [{ "buyer": "Agar aap ka bulk quality mismatch hota hai to return policy?", "ai": "Return, replacement allowed nahi hota sir. Sample check karke hi bulk order kijiye 🙏" }],
+    "msg": "And aap ke taraf se koi issue ata hai toh ? Like color galti se kuch aur aa gaya, ya size small bol ke large aa gaya", "must": ["photo|Ketu|dekh"], "mustNot": ["replace kar denge|replacement (milega|karenge|kar denge)|badal denge", "\\[DEFER\\]"] },
+  { "id": "control-real-wrong-item-holds", "why": "CONTROL — an actual wrong item received still holds for Ketu",
+    "msg": "order mein white ki jagah beige aa gaya, kya karu", "must": ["^\\[DEFER\\]$"] },
+  { "id": "control-visit-ask-address", "why": "CONTROL — a plain visit ask keeps the canonical address block",
+    "msg": "kal aa sakta hu godam dekhne?", "must": ["F-120|Khanpur", "10am|10 am|6pm|6 pm"], "mustNot": ["\\[DEFER\\]"] }
+]
