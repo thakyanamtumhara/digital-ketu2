@@ -595,6 +595,7 @@ const THANKS_RE = /\b(thank\s*(you|u)?|thanks|thankyou|thnx|thx|tysm|shukriya|dh
 // No product/question/order content — the buyer is closing the chat, no reply needed. (Distinct
 // from THANKS, which gets a warm "Welcome sir".) Excludes greetings (those OPEN a chat → nudge).
 const ENDER_TOKENS = new Set([
+  'okji', 'okg', 'oki', 'thnq', 'thanq', 'okok',  // 2026-09-08: 'Okji thank you' after Ketu's 'Added' kept the chat on Waiting
   'ok', 'okay', 'okey', 'okk', 'okkk', 'k', 'kk', 'done', 'thik', 'theek', 'thk', 'tk', 'hmm', 'hm',
   'hmmm', 'acha', 'accha', 'achha', 'achaa', 'ji', 'jii', 'noted', 'great', 'nice', 'cool', 'fine',
   'sure', 'super', 'perfect', 'right', 'good', 'gud', 'okie', 'oky', 'thike', 'thikhai',
@@ -724,6 +725,7 @@ async function hasRecentDelayComplaint(db, conversationId) {
 // nothing for the AI to act on. (Distinct from isGenericMessage, which also flags greetings; this
 // is specifically the mid-conversation ack that belongs to whoever the buyer is replying TO.)
 const ACK_TOKENS = new Set([
+  'okji', 'okg', 'oki', 'thnq', 'thanq',
   'haan', 'han', 'ha', 'haa', 'hn', 'ji', 'jee', 'jii', 'ok', 'okay', 'okey', 'okk', 'k', 'kk',
   'thik', 'theek', 'tk', 'sahi', 'yes', 'yeah', 'yep', 'yup', 'hmm', 'hm', 'acha', 'accha', 'achha',
   'achaa', 'done', 'fine', 'bata', 'bta', 'batati', 'deti', 'dunga', 'dungi', 'du', 'dena', 'denge',
