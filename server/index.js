@@ -1111,7 +1111,18 @@ async function enqueueIncoming(senderKey, message) {
     // Fire-and-forget; the 2-min client self-heal is the backstop.
     const repliedThisTurn = (lastReplySentAt.get(senderKey) || 0) >= startedAt
     if (!repliedThisTurn && !pendingDefers.has(senderKey) && !pendingWelcomeFollowups.has(senderKey)) {
-      notifySkippedViaWwbun(senderKey)
+      // Carry dk2's verdict on this turn (2026-09-08): the newest SKIPPED row for this buyer since
+      // the burst started says whether the message needed no reply at all (ender / ack / silence),
+      // so wwbun can drop the chat from Waiting instead of showing "buyer wrote last".
+      let reason = null
+      try {
+        const last = await db.messageLog.findFirst({
+          where: { conversation: { whatsappNumber: senderKey }, createdAt: { gte: new Date(startedAt - 1000) } },
+          orderBy: { createdAt: 'desc' }, select: { status: true, deferReason: true },
+        })
+        if (last && last.status === 'SKIPPED') reason = last.deferReason || null
+      } catch { /* verdict is optional */ }
+      notifySkippedViaWwbun(senderKey, { reason })
     }
     } finally {
       // Hand the buyer's turn to the next burst — on every exit, including the early return.

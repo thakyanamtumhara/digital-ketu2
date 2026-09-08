@@ -2079,7 +2079,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
         await createLog(db, conversation.id, mergedText, messageIds, {
           status: 'SKIPPED', deferReason: 'duplicate_resend_suppressed', processingMs: Date.now() - startTime,
         })
-        notifySkippedViaWwbun(whatsappNumber)
+        notifySkippedViaWwbun(whatsappNumber, { reason: 'duplicate_resend_suppressed' })
         console.log(`[Dup] ${whatsappNumber} — re-sent a message answered in the last 10 min; staying quiet`)
         return
       }
@@ -4148,13 +4148,25 @@ export async function sendReplyViaWwbun(whatsappNumber, message, model = null, c
 // message was handed off — otherwise the badge lingers until wwbun's 2-min client self-heal and
 // re-shows on every message during cooldown, so it looks permanently stuck. Fire-and-forget: a
 // failure here only delays the badge to that self-heal; it never blocks or affects the reply path.
-export async function notifySkippedViaWwbun(whatsappNumber) {
+// Skip verdicts that mean "this message needs NO reply from anyone" (2026-09-08, Ketu: "when I
+// reply to somebody, that chat should go from Waiting"). wwbun's Waiting tab is built from message
+// direction alone — the buyer's "Theek h", "👍🏻", "Okay ji" after Ketu's reply put the chat straight
+// back on the list, because the buyer had written last. dk2 already judged those as enders /
+// acks / silence; it now tells wwbun so, and wwbun stamps the chat cleared until something new
+// arrives. A pending hold (defer_*), a cooldown or an error is NOT such a verdict.
+export const NO_REPLY_NEEDED_REASONS = new Set([
+  'conversation_ender_deterministic', 'conversation_ended', 'ai_chose_silence', 'bare_ack_in_manual_flow',
+  'ig_zero_tier', 'automated_business_reply', 'unsupported_skipped', 'duplicate_resend_suppressed',
+])
+export async function notifySkippedViaWwbun(whatsappNumber, opts = {}) {
   if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) return
   try {
+    const reason = opts.reason || null
+    const noReplyNeeded = opts.noReplyNeeded === true || (reason ? NO_REPLY_NEEDED_REASONS.has(reason) : false)
     await fetch(`${WWBUN_API_URL}/api/messages/ai-reply-skipped`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Digital-Ketu-Secret': DIGITAL_KETU_SECRET },
-      body: JSON.stringify({ whatsappNumber }),
+      body: JSON.stringify({ whatsappNumber, reason, noReplyNeeded }),
     })
   } catch (err) {
     console.error('[Skip-notify] failed for', whatsappNumber, '—', err.message)
