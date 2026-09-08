@@ -1,0 +1,6 @@
+[
+  { "id": "acidwash-fade-complaint-not-gated", "why": "2026-09-08 18:42 buyer 9797975582 'acid wash first wash me puri black ho gayi, customer complaint' → the cheap gate held it as a complaint; Ketu gave the standard fading explanation",
+    "msg": "Acid wash wali tshrit first wash ma puri black hogayi ha Sa customer complaint krre ha", "must": ["normal|halka|light|15-20|dheere|wash"], "mustNot": ["^\\[DEFER\\]$"] },
+  { "id": "control-acidwash-hole-defect-holds", "why": "CONTROL — a real defect on an acid wash tee still holds",
+    "msg": "acid wash tshirt me hole nikla hai, 2 piece kharab", "must": ["^\\[DEFER\\]$"] }
+]

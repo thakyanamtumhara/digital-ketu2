@@ -4,6 +4,9 @@ const m = src.match(/const FORCE_REPLY_RE = (\/[\s\S]*?\/i)\n/)
 if (!m) { console.error('FORCE_REPLY_RE not found'); process.exit(2) }
 const RE = new Function('return ' + m[1])()
 const CASES = [
+  ['acid wash fade complaint (2026-09-08 gate hold)', 'Acid wash wali tshrit first wash ma puri black hogayi ha Sa customer complaint krre ha', true],
+  ['acid wash colour ja raha',        'acid wash ka colour ja raha hai dhone pe', true],
+  ['plain hole defect stays gated',    'tshirt me hole nikla hai', false],
   ['English pls (2026-09-03 miss)',    'English pls', true],
   ['in English please',                'Please reply in English', true],
   ['hindi me bolo',                    'hindi me bolo', true],
