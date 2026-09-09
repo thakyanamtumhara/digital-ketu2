@@ -3686,7 +3686,10 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   }
   // --- BIG-BUYER DISCOUNT GUARD (2026-09-09) — see bigBuyerDiscountGuard ---
   {
-    const fixed = bigBuyerDiscountGuard({ buyerText: mergedText, historyText, reply: aiReply })
+    // historyText above is block-scoped to the MANY-CANDIDATE guard — rebuild it here. (Missing this
+    // threw "historyText is not defined" on EVERY reply for 1h48m on 2026-09-09 13:51-15:39 IST.)
+    const guardHistory = (conversationHistory || []).map(m => `${m.buyerMessage || ''} ${m.aiReply || ''}`).join(' ')
+    const fixed = bigBuyerDiscountGuard({ buyerText: mergedText, historyText: guardHistory, reply: aiReply })
     if (fixed) {
       console.log(`[DiscountGuard] ${whatsappNumber} — 500+ pcs discount ask answered without Ketu's 1000+ line, replaced: "${String(aiReply).slice(0, 80)}"`)
       aiReply = fixed
