@@ -2124,13 +2124,18 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // A CARRIED defer (moved out of pendingDefers into this burst) still counts as an open defer chain.
   const inDeferChain = pendingDefers.has(whatsappNumber) || carriedDeferByNumber.has(whatsappNumber) || await (async () => {
     try {
+      // A manual reply from Ketu ENDS the chain (2026-09-09, buyer 1554: his answer hours earlier did not
+      // count, so a fresh "Hello" got "Ketu will reply shortly" instead of the greeting, and the real
+      // question 20s later was silenced behind that holding line).
       const last = await db.messageLog.findFirst({
-        where: { conversationId: conversation.id, status: { in: ['REPLIED', 'DEFERRED'] } },
+        where: { conversationId: conversation.id, OR: [{ status: { in: ['REPLIED', 'DEFERRED'] } }, { deferReason: 'manual_reply' }] },
         orderBy: { createdAt: 'desc' },
-        select: { status: true, createdAt: true },
+        select: { status: true, deferReason: true, createdAt: true },
       })
-      return !!last && last.status === 'DEFERRED'
-        && (Date.now() - new Date(last.createdAt).getTime()) < 24 * 3600 * 1000
+      // 24h → 6h (2026-09-09): most holds are finished by phone and never get an in-app reply, so a day-long
+      // chain turned next-morning "Hello"s into "Ketu will reply shortly" instead of the greeting.
+      return !!last && last.status === 'DEFERRED' && last.deferReason !== 'manual_reply'
+        && (Date.now() - new Date(last.createdAt).getTime()) < 6 * 3600 * 1000
     } catch { return false }
   })()
   const suppressPrefillForDeferChain = async (label) => {
@@ -3655,6 +3660,8 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     return
   }
 
+  // POST-MODEL GUARDS — all wrapped in one try: a bug in any guard degrades to the raw reply, never to no reply.
+  try {
   // --- PAYMENT-FIX FABRICATION GUARD (2026-09-04) ---
   // The prompt has banned invented payment troubleshooting since 2026-08-13 ("NEVER invent retry
   // timing"), and the model still wrote "10 minute wait karke dobara order daal dijiye" to a payment
@@ -3699,6 +3706,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   if (MIX_DENIAL_RE.test(aiReply || '') && !/\[DEFER\]/.test(aiReply || '')) {
     console.log(`[MixGuard] ${whatsappNumber} — reply denied mixing products for the bulk tier, blocked: "${String(aiReply).slice(0, 80)}"`)
     aiReply = '[DEFER]'
+  }
+  } catch (guardErr) {
+    // A guard bug must never cost the buyer the reply (2026-09-09 13:51-15:41: a scope error here failed
+    // every reply for 1h48m). Log loudly, keep the unguarded model reply.
+    console.error(`[Guards] ${whatsappNumber} — post-model guard threw, sending the unguarded reply:`, guardErr?.message || guardErr)
   }
 
   // --- DISPATCH-ACK DEFER OVERRIDE (audit 2026-08-13) ---
