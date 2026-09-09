@@ -65,7 +65,7 @@ const catalogBlock = lines.length ? `AUTHORITATIVE CATALOG — the COMPLETE, cur
 // ---- optional per-case blocks ----
 const { getStockSnapshot, formatStockBlock, resolveUnnamedProduct } = await import('../server/stock-lookup.js')
 const { getPhotoIndex, formatPhotoBlock } = await import('../server/photo-links.js')
-const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock } = await import('../server/process.js')
+const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysGuard, bigBuyerDiscountGuard } = await import('../server/process.js')
 const { catalogProductsFromChunks, gsmAmbiguityHint } = await import('../server/gsm-hint.js')
 const catalogProducts = catalogProductsFromChunks(cat.chunks || cat.items || [])
 let stockBlock = null, photoBlock = null, stockSnapshot = null
@@ -130,10 +130,18 @@ for (const c of cases) {
     })
     const j = await res.json()
     if (j.error) { console.log(`\n❌ ${c.id} API ERROR ${j.error.message}`); continue }
-    const txt = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ').trim()
+    let txt = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ').trim()
     const u = j.usage || {}
     usd += ((u.input_tokens || 0) * pIn + (u.cache_read_input_tokens || 0) * pRead + (u.cache_creation_input_tokens || 0) * pWrite1h + (u.output_tokens || 0) * pOut) / 1e6
     const fails = []
+    // Mirror the production post-model guards (2026-09-09) so a replay judges what the buyer would get.
+    {
+      const historyText = (c.history || []).map(h => `Buyer: ${h.buyer}\nAssistant: ${h.ai || ''}`).join('\n')
+      const g1 = deliveryDaysGuard({ buyerText: c.msg, reply: txt })
+      if (g1) { console.log(`   ⚙️ delivery-days guard replaced the model reply`); txt = g1 }
+      const g2 = bigBuyerDiscountGuard({ buyerText: c.msg, historyText, reply: txt })
+      if (g2) { console.log(`   ⚙️ discount guard replaced the model reply`); txt = g2 }
+    }
     for (const m of (c.must || [])) if (!new RegExp(m, 'i').test(txt)) fails.push(`missing /${m}/`)
     for (const m of (c.mustNot || [])) if (new RegExp(m, 'i').test(txt)) fails.push(`forbidden /${m}/`)
     const ok = fails.length === 0

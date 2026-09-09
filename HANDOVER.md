@@ -202,3 +202,31 @@ NOT change. Run the free `--dump` + operator-model proxy first, the paid run onc
 - **Two more test suites since the tools table**: `payment-fix-guard-tests.mjs`, `force-reply-tests.mjs`, `reconcile-tests.mjs`, `winter-line-tests.mjs`, `correction-guard-tests.mjs`, `clock-scrub-tests.mjs`, `guard-tests.mjs` — run all before a push.
 - **Deploy verification (2026-09-06):** `GET /api/health` now returns `build` (Railway commit sha) and `bootedAt`. The prompt sync runs ~60s after boot and `/api/settings` is cached for 60s, so check prompt text only ≥2 min after `bootedAt`; before that a 0-match is not a failure. Clock line: `istTimeBlock()` (exported) carries TODAY/TIME, calling hours and GODAM OPEN/CLOSED; replay cases can pin a moment with `"at": "2026-09-06T18:45:00+05:30"`.
 - **Waiting tab = Ketu's one queue (2026-09-08):** dk2 tells wwbun when a skipped message needed no reply (`notifySkippedViaWwbun(number, { reason })`, set `NO_REPLY_NEEDED_REASONS` in process.js; the settle callback in index.js reads the newest log row since the burst started). wwbun stamps `waitingClearedAt` on that verdict. Any new silent-skip path MUST log a SKIPPED row with a reason in that set, or the chat lingers on Waiting as "buyer wrote last". Closings during cooldown log `cooldown_ender`. wwbun side: `needs-reply` closing rules, 7-day fold, recent comments (24h, cap 40) — see memory `project_wwbun_waiting_one_queue`.
+
+**2026-09-09 — wwbun side of Waiting (v72):** wwbun now also stamps `Conversation.openedAt` when Ketu
+opens a chat and drops it from Waiting until a newer message arrives, and it filters business
+auto-replies at ingest (`isBusinessAutoReply` in wwbun server/index.js: greeting-bot wording, no buying
+intent, within 10 min of our outbound) — those rows never reach `POST /api/incoming`, so dk2's own
+`AUTO_REPLY_RE` / `automated_business_reply` path is now the second line, not the first. Do not send a
+dk2 "no reply needed" verdict for a chat Ketu has opened — his open already cleared it.
+
+**2026-09-09 — inbound can no longer be lost silently (wwbun commit b04ea76).** wwbun journals every
+inbound webhook envelope (WhatsApp, Instagram DM, MSG91 marketing-number bridge) into `WebhookInbox`
+BEFORE processing, replays unprocessed rows every 2 min (8 attempts, then push alert + stays visible).
+Each watch tick: `node tools/inbox-health.mjs` (exit 1 = something stuck/pending >15 min → look at
+`lastError`, fix, the sweeper replays by itself). wwbun now forwards business auto-replies to dk2 with
+`autoReply: true` in the /api/incoming body — dk2 should treat that flag as a strong prior for
+`automated_business_reply` (skip unless REAL_ASK_RE) on the next dk2 deploy; until then the existing
+AUTO_REPLY_RE path handles the common forms.
+
+**2026-09-09 13:13 tick (commit follows):** two code guards after the model, both in `runAiFlow` next to the
+MIX-DENIAL guard — `deliveryDaysGuard` (buyer asks how long delivery takes, not train/transport, not a
+stock ETA; any day figure other than the sanctioned "2-3 din" → the canonical ETD line; the model
+invented "5-6 din" for West Bengal and Assam) and `bigBuyerDiscountGuard` (discount ask incl. a
+counter-price like "190 per piece karo" + 500+ pcs anywhere in the conversation → Ketu's "1000+ pcs ek
+order mein → ₹4/pc" line; the model said "fixed price" alone on 8-Sep and 9-Sep). Prompt: printer
+SAME-PARCEL follow-ups are answered with "printer se baat kar lo, wo karwa de to theek hai" (never a
+defer); the old "never state a piece threshold" sentence was reconciled with rule (a). `/api/incoming`
+now accepts `autoReply: true` from wwbun (greeting-bot verdict) — it counts like an AUTO_REPLY_RE hit,
+REAL_ASK_RE still overrides. Tests: `tools/delivery-discount-guard-tests.mjs`; cases:
+`tools/cases/watch-2026-09-09.json`. Per-tick health: `node tools/inbox-health.mjs`.

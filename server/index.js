@@ -1147,6 +1147,7 @@ app.post('/api/incoming', async (c) => {
     quotedText,   // text of the message buyer is replying to (if any)
     mediaUrl,     // URL of downloaded media (image/doc) from wwbun storage
     wwbunMessageId, // wwbun DB message ID (for on-demand media download)
+    autoReply,      // wwbun's greeting-bot verdict (2026-09-09) — a hint, not a decision
   } = body
 
   if (!whatsappNumber || !messageId) {
@@ -1173,6 +1174,7 @@ app.post('/api/incoming', async (c) => {
 
   const bufferSize = await enqueueIncoming(whatsappNumber, {
     messageText, messageId, messageType, hasMedia, timestamp, senderName, quotedText, mediaUrl, wwbunMessageId,
+    autoReply: autoReply === true,
   })
 
   return c.json({ status: 'buffered', bufferSize })

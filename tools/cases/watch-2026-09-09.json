@@ -1,0 +1,48 @@
+[
+  {
+    "id": "discount-900pcs-counter-price",
+    "why": "2026-09-09 13:26 buyer 6164 (900 pcs sweatshirts) said '190 per peice karo bulk order hai' → clone 'Fixed price, 900 pcs pe bhi same'; Ketu typed the 1000+ ₹4/pc line (2nd time in 2 days)",
+    "history": [
+      { "buyer": "We require 900 pcs of plain sweatshirts/hoodies for an institutional event. Requirement: 280–320 GSM, plain base with custom screen printing. Target budget is ₹200-230 per piece.", "ai": "We only sell blanks sir, no printing — 320gsm Sweatshirt ₹235/pc, Hoodie ₹307/pc + 5% GST 👉 https://sale91.com/catalog/p/sweatshirt" },
+      { "buyer": "Sweat shirt rate We need 900 peices", "ai": "320gsm Sweatshirt ₹235/pc hai sir + 5% GST 👉 https://sale91.com/catalog/p/sweatshirt" }
+    ],
+    "msg": "190 per peice karo bulk order hai",
+    "must": ["1000", "₹4|4\\s*(rs|rupaye|/pc)"],
+    "mustNot": ["^\\[DEFER\\]$", "190"]
+  },
+  {
+    "id": "control-discount-small-qty",
+    "why": "CONTROL — rule (b): under 500 pcs → fixed price only, no ₹4 / 1000+ mention",
+    "msg": "50 pcs 240gsm le raha hu, thoda discount kar do",
+    "must": ["fix"],
+    "mustNot": ["1000", "₹4", "\\[DEFER\\]"]
+  },
+  {
+    "id": "printer-same-parcel",
+    "why": "2026-09-09 12:51 buyer 1360 asked if the printer's DTF test can come in the same parcel → clone DEFERRED; Ketu: 'Ek baar printer se baat kar lo, wo karwa de to theek hai'",
+    "history": [
+      { "buyer": "Ok or ek cheez....apka ek video main DTf Printing ka bole the", "ai": "We only sell blanks sir. Print ke liye printer se baat karo 👉 https://wa.me/918810256726" },
+      { "buyer": "Nehi main To apka tshirt order karunga ...pehele bhi kiya hain ...", "ai": "Bilkul sir 🙏 website se order kar dijiye, ho jayega" }
+    ],
+    "msg": "But mujhe Dtf Printing testing ke liye lagega...so apka order main O same Dtf ajeya na.....? Same percel main",
+    "must": ["918810256726"],
+    "mustNot": ["^\\[DEFER\\]$", "same parcel mein aa jayega|ho jayega same parcel"]
+  },
+  {
+    "id": "delivery-days-assam",
+    "why": "2026-09-09 13:22 buyer 0243 'Jorhat, Assam mein kab tak deliver hoga? Kitna din lagega' → clone invented '5-6 din'; only '2-3 din' + ETD line is sanctioned (2026-08-21)",
+    "history": [
+      { "buyer": "36-8 38-10 40-9 42-6 Total : 33 pieces Cotton matty Polo", "ai": "Noted sir 🙏 Order website pe place kar dijiye payment ke saath 👉 https://sale91.com/catalog/p/cotton-polo" }
+    ],
+    "msg": "Okay Jorhat, Assam mein kab tak deliver hoga? Kitna din lagega",
+    "must": ["2-3 din"],
+    "mustNot": ["5-6|4-5|6-7|7-8|\\b[3-9]-\\d+\\s*din", "^\\[DEFER\\]$"]
+  },
+  {
+    "id": "control-delivery-train",
+    "why": "CONTROL — train/transport shipments keep the train answer, no courier '2-3 din'",
+    "msg": "150 pcs train se Mumbai bhejoge to kitne din lagenge?",
+    "must": ["train"],
+    "mustNot": ["2-3 din"]
+  }
+]
