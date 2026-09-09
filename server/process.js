@@ -2774,6 +2774,18 @@ function formatIgLinkSpacing(text) {
   return out + tail
 }
 
+// OUR-QUESTION DETECTOR (2026-09-09): did the clone's last reply ask the buyer something? Then the
+// buyer's next message is an answer, never chatter — the restraint gate must not silence it.
+export const OUR_QUESTION_WINDOW_MS = 2 * 60 * 60 * 1000
+export const OUR_QUESTION_RE = /\?\s*(?:[\u{1F300}-\u{1FAFF}\u2600-\u27BF\s]*)$|\b(which|what|kaun\s*sa|kaunsa|konsa|kaunsi|konsi|kitn[ae]|kya)\b[^.\n]{0,40}(product|size|colou?r|quantity|qty|pcs|pieces|chahiye|want|need)|\bkya\s+(problem|issue|dikkat|hua|chahiye|karna)\b|\bbata\s*(do|dijiye|dena|iye)\b|\btell me\b|\bplease tell\b|\bbatao\b/iu
+export function isOurQuestion(reply) {
+  const t = String(reply || '').trim()
+  if (!t || /\[DEFER\]/.test(t)) return false
+  // holding lines / follow-ups are not questions even when they carry a "?"
+  if (/ketu will reply shortly|ask me if any questions/i.test(t)) return false
+  return OUR_QUESTION_RE.test(t)
+}
+
 // DELIVERY-DAYS GUARD (2026-09-09): the only sanctioned figure is "2-3 din" (Ketu 2026-08-21) — the model
 // still invented "5-6 din" for West Bengal and Assam twice on 2026-09-09. Buyer asks how long delivery
 // takes (not train/transport) + reply carries any other day figure → the canonical line replaces it.
@@ -2911,8 +2923,24 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
   const FORCE_REPLY_RE = /\breturn\b|\brefund\b|\bexchange\b|wapas|वापस|\bdispatch|porter|pickup|\btrack|deliver|पहुंच|pahu?nch(a|e|eg)?|\b(shop|store|duk[a]?an|godam|warehouse|office)\b[^]{0,25}\b(clos|band|khul|open|tim|kab)|\b(kab|kitne)\b[^]{0,15}\b(khul|band|close|open)|\baddress\b|\blocation\b|\blocated\b|\bkaha[ni]?\b|\bkahan\b|\bkidhar\b|\bkidar\b|kha\s*se\b|कहाँ|कहां|किधर|\bvisit\b|\bpata\b|\bketu\b|\bowner\b|\bmalik\b|baat\s*kar(a|wa)?\s*(o|do|ne|na)|\bcall\s*(kar|kr)|^\s*[?!.]{1,4}\s*$|\br[ew]?ply\b|\b(aa?na|aa?ne|aa\s*raha|aa\s*rha|aa\s*rahe|nikal\s*raha)\b[^]{0,20}\b(hu|hun|h|hai|hain|tha|ho)\b|\b(aa?na|aa?ne)\s*(h|hai|hoga|padega)\b|\b(in\s+)?(english|hindi|hinglish)\s*(pls|plz|please|me(?:in)?|mein\s*bolo|only)\b|\b(please|pls|plz)\s*(in\s+)?(english|hindi)\b|\bacid\s*wash\b[^]{0,80}\b(fade|faded|fading|light|halka|halki|colou?r\s*(ja|nikal|ud|gaya|chala)|dhul|dho(ne|ya)|wash\s*m[ae]|black\s*ho\s*gay[ia]|complain)/i
   // (last alternation, 2026-09-03: a language-switch request — "English pls", "hindi me bolo" — is a
   // request, never chatter; the gate silenced one and Ketu had to redo the clone's question in English.)
-  const forcedReply = FORCE_REPLY_RE.test(mergedText || '')
+  let forcedReply = FORCE_REPLY_RE.test(mergedText || '')
   if (forcedReply) console.log(`[Restraint] ${whatsappNumber} — force-reply intent, gate bypassed`)
+  // ANSWERING OUR OWN QUESTION (2026-09-09 18:51, buyer 3084): the clone asked "Which product sir?",
+  // the buyer answered "The bio r neck this one…" and the Haiku gate called it chatter — total silence,
+  // and a silenced row never reaches Waiting, so Ketu never saw it either. If OUR last reply (≤2h) was a
+  // question, the buyer's next message is the answer: always run the full flow.
+  if (!forcedReply) {
+    try {
+      const lastAi = await db.messageLog.findFirst({
+        where: { conversationId, status: 'REPLIED', aiReply: { not: null } },
+        orderBy: { createdAt: 'desc' }, select: { aiReply: true, createdAt: true },
+      })
+      if (lastAi && isOurQuestion(lastAi.aiReply) && (Date.now() - new Date(lastAi.createdAt).getTime()) < OUR_QUESTION_WINDOW_MS) {
+        forcedReply = true
+        console.log(`[Restraint] ${whatsappNumber} — buyer is answering our own question ("${String(lastAi.aiReply).slice(0, 50)}"), gate bypassed`)
+      }
+    } catch { /* fail-open: the gate still runs */ }
+  }
 
   // (B + C) "Would Om reply to this, or stay silent?" — a cheap Haiku gate BEFORE the expensive
   // RAG + reply. Skips acks/chatter/thinking-out-loud and avoids piling on right after a reply.
