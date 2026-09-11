@@ -1,0 +1,52 @@
+[
+  {
+    "id": "own-markup-direct-customer",
+    "msg": "Bhai main kisi aur ko maal bech raha hu, 13 rupaye upar rakhunga. Agar direct aapse waha delivery karwau to bill me actual rate aur aapka contact dikhega, phir wo mujhse nahi lega. Pehle apne paas mangwa ke phir usko bheju to delivery charges do baar lagenge. Iska solution batao?",
+    "must": [
+      "drop.?ship",
+      "option|select",
+      "detail|contact|naam|name",
+      "nahi|nahin|not|none"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]",
+      "reply shortly",
+      "commission",
+      "guarantee"
+    ]
+  },
+  {
+    "id": "delivered-disclosure-complaint",
+    "msg": "Maine dropshipping option se order kiya tha. Parcel customer ko mil gaya lekin andar aapke naam aur actual price ka bill nikla. Ab customer mere se nahi le raha. Is galti ko solve karo.",
+    "must": [
+      "\\[DEFER\\]"
+    ],
+    "mustNot": [
+      "koi detail nahi jayegi",
+      "no details will",
+      "guarantee"
+    ]
+  },
+  {
+    "id": "custom-commission-deal",
+    "msg": "Main buyers refer karunga. Har order par aap mujhe 17 rupaye commission bhejna aur unke liye alag wholesale rate set karna. Yeh deal confirm karo.",
+    "must": [
+      "\\[DEFER\\]"
+    ],
+    "mustNot": [
+      "deal confirm",
+      "commission bhej denge"
+    ]
+  },
+  {
+    "id": "mixed-owner-work",
+    "msg": "Aage ke orders customer ko direct bhejne ka option hai? Aur jo parcel usko kal mila tha usme 3 tshirts damaged hain, unka refund approve karke bhejo.",
+    "must": [
+      "\\[DEFER\\]"
+    ],
+    "mustNot": [
+      "refund approved",
+      "refund kar diya"
+    ]
+  }
+]
