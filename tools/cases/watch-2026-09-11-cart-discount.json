@@ -1,0 +1,23 @@
+[
+  {
+    "id": "cart-discount-question",
+    "msg": "Total 400 pcs · 128 kg\nOversize 240gsm\nBlack M:200, L:200\nSelf-Pickup\nRef: wo_example\nKuch kam karvado",
+    "must": ["fixed price"],
+    "mustNot": ["dispatch", "1000", "₹4", "DEFER"],
+    "why": "A discount request beside an unpaid cart needs the existing small-order price policy."
+  },
+  {
+    "id": "cart-discount-help",
+    "msg": "Total 120 pcs · 38 kg\nOversize 240gsm\nBlack M:60, L:60\nRef: wo_example\nWhy is the ₹4 discount not applying?",
+    "must": ["dnFWXQW5yqk"],
+    "mustNot": ["fixed price", "dispatch", "multiple", "DEFER"],
+    "why": "The existing visible-discount help policy gives the video without inventing eligibility."
+  },
+  {
+    "id": "ordinary-cart-control",
+    "msg": "Total 120 pcs · 38 kg\nOversize 240gsm\nBlack M:60, L:60\nRef: wo_example\nYe order karna hai",
+    "must": ["sale91.com", "website"],
+    "mustNot": ["dispatch", "discount", "DEFER"],
+    "why": "An ordinary unpaid cart remains order intent and must never be dispatch-acknowledged."
+  }
+]

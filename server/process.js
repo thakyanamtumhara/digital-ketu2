@@ -2215,7 +2215,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // dispatch-acking the website's own cart-share block as if it were a placed order. The prompt
   // ban has provably failed — hard-code it. Past-tense placed/paid language means it IS a
   // confirmation, so that still goes to the model.
-  if (/ref:\s*wo_/i.test(mergedText || '') && !/(kar\s*diya|kiya\s*h|order\s*kiya|ordered|payment|paid|ho\s*gaya)/i.test(mergedText || '')) {
+  if (/ref:\s*wo_/i.test(mergedText || '') && !DISCOUNT_ASK_RE.test(mergedText || '') && !/(kar\s*diya|kiya\s*h|order\s*kiya|ordered|payment|paid|ho\s*gaya)/i.test(mergedText || '')) {
     if (inDeferChain) { await suppressPrefillForDeferChain('cart-block route'); return }
     const cartReply = 'Noted sir 🙏 Order website pe place kar dijiye payment ke saath 👉 https://sale91.com'
     const sendResult = await sendReplyViaWwbun(whatsappNumber, cartReply, 'Rule')

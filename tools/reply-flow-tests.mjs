@@ -5,7 +5,7 @@ import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [] } = {}) {
+async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], incomingText = null } = {}) {
   const sent = [], logs = [], errors = [], requests = []
   let calls = 0, conversationReads = 0
   const context = createContext({
@@ -61,7 +61,10 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     settings: { update: async () => ({}) },
     knowledgeChunk: { findFirst: async () => null, findMany: async () => [] },
     buyerMemory: { findUnique: async () => null },
-    buyerConversation: { findUnique: async () => ({ cooldownUntil: cooldown && ++conversationReads > 1 ? new Date(Date.now() + 60000) : null }) },
+    buyerConversation: {
+      findUnique: async () => ({ lastMessageAt: new Date(), cooldownUntil: cooldown && ++conversationReads > 1 ? new Date(Date.now() + 60000) : null }),
+      upsert: async () => ({ id: 'conversation-test', isFirstTime: false }),
+    },
     $queryRaw: async () => timedFacts, $executeRaw: async () => 0,
   }
   const anthropic = { messages: { create: async body => {
@@ -71,11 +74,43 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     if (calls <= failCalls) throw Object.assign(Error('529 overloaded'), { status: 529 })
     return { content: [{ type: 'text', text: reply }], usage: { input_tokens: 10, output_tokens: 8 } }
   } } }
-  await module.namespace.runAiFlow({ whatsappNumber: 'buyer-test', mergedText: 'address kya hai', normalizedText: 'address kya hai', conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
+  if (incomingText !== null) {
+    await module.namespace.processIncomingMessage({ whatsappNumber: 'buyer-test', messages: [{ messageId: 'inbound-test', messageType: 'text', messageText: incomingText }], db, anthropic, settings: { isActive: true, dailyBudgetInr: 1500, systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' } })
+  } else {
+    await module.namespace.runAiFlow({ whatsappNumber: 'buyer-test', mergedText: 'address kya hai', normalizedText: 'address kya hai', conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
+  }
   return { sent, logs, errors, requests, pending: module.namespace.pendingDefers }
 }
 
 const tests = [
+  ['cart share with a discount question reaches the reply model', async () => {
+    const r = await runCase({ incomingText: 'Total 400 pcs · 128 kg\nOversize 240gsm\nBlack M:200, L:200\nSelf-Pickup\nRef: wo_example\nKuch kam karvado', reply: 'Fixed price hai sir 🙏' })
+    assert.equal(r.requests.length, 1)
+    assert.match(r.requests[0].messages[0].content, /Kuch kam karvado/)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /Fixed price/)
+    assert.notEqual(r.logs.at(-1).deferReason, 'cart_block_order_intent')
+  }],
+  ['cart share asking about the visible discount keeps its question', async () => {
+    const r = await runCase({ incomingText: 'Total 120 pcs · 38 kg\nOversize 240gsm\nBlack M:60, L:60\nRef: wo_example\nWhy is the discount not applying?', reply: 'Discount video sir 👉 https://youtube.com/shorts/dnFWXQW5yqk' })
+    assert.equal(r.requests.length, 1)
+    assert.match(r.requests[0].messages[0].content, /Why is the discount not applying/)
+    assert.match(r.sent[0].message, /dnFWXQW5yqk/)
+  }],
+  ['ordinary cart share keeps its immediate checkout reply', async () => {
+    const r = await runCase({ incomingText: 'Total 120 pcs · 38 kg\nOversize 240gsm\nBlack M:60, L:60\nRef: wo_example\nYe order karna hai' })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.logs.at(-1).deferReason, 'cart_block_order_intent')
+    assert.match(r.sent[0].message, /Order website pe place/)
+    assert.doesNotMatch(r.sent[0].message, /dispatch|discount/i)
+  }],
+  ['cart discount question respects the manual-reply cooldown', async () => {
+    const r = await runCase({ incomingText: 'Total 120 pcs · 38 kg\nOversize 240gsm\nBlack M:60, L:60\nRef: wo_example\nKuch kam karvado', cooldown: true })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.logs.at(-1).status, 'COOLDOWN')
+  }],
   ['runtime timing injection removes elapsed days before the model sees it', async () => {
     const date = new Date(Date.now() + 19800000 - 4 * 86400000).toISOString().slice(0, 10)
     const r = await runCase({ timedFacts: [{ content: `[stated ${date}] Buyer asked: "Oversize 240gsm Red restock?" — Ketu's answer: "8-9 din mein aayega"` }] })
