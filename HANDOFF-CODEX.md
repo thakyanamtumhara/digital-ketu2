@@ -129,6 +129,21 @@ Log row fields: `buyerMessage`, `aiReply`, `status`, `deferReason`, `costUsd`, `
 4. `HANDOVER.md` is modified and committed with this handoff. **Never commit `Plan.md`** — it belongs
    to another session. In wwbun never commit `owner-runner/*` or `.claude/scheduled_tasks.lock`.
 
+## 6b. FIRST ACTION when you pick this up
+
+This handoff commit (`9dbb194`) was pushed, so Railway is redeploying dk2 with it. It is a
+docs-only change, but the boot still cools the prompt cache. **Confirm the new build is healthy**
+before anything else:
+
+```bash
+curl -s https://digital-ketu2-production.up.railway.app/api/health     # build should be 9dbb194
+TOK=$(cat ~/.dk2_read_token)
+curl -s -H "X-DK-Read-Token: $TOK" \
+  "https://digital-ketu2-production.up.railway.app/api/logs?lite=1&since=<bootedAt>&limit=200"
+# expect: 0 FAILED rows, at least one REPLIED with sentViaWwbun once buyers write in
+```
+If `FAILED` rows appear with a code error, revert with `git revert` + push, then tell Ketu plainly.
+
 ## 7. Landmines
 
 - **Never print or paste secrets.** Files: `~/.dk2_read_token`, `~/.dk2_admin_token`,
