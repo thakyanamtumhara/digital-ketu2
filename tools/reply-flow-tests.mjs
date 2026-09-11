@@ -5,7 +5,7 @@ import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], incomingText = null } = {}) {
+async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], incomingText = null, catalogUnavailable = false, knowledge = [] } = {}) {
   const sent = [], logs = [], errors = [], requests = []
   let calls = 0, conversationReads = 0
   const context = createContext({
@@ -15,13 +15,25 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     setTimeout(fn, ms) { if (ms < 30000) queueMicrotask(fn); return { unref() {} } },
     clearTimeout() {},
     fetch: async (url, options) => {
-      assert.equal(String(url), 'https://transport.invalid/api/messages/send-ai-reply', 'unexpected network request')
+      if (String(url).startsWith('https://www.bulkplaintshirt.com/catalog/products.json?')) {
+        if (catalogUnavailable) throw Error('catalog unavailable')
+        return { ok: true, json: async () => ({ categories: [{ products: [{
+          name: 'Example Hoodie', slug: 'hoodie-320gsm', gsm: 320,
+          colors: ['Black', 'White'], sizes: ['M', 'XXL'],
+          rates: [
+            { colors: ['Black'], pricePerSize: { M: 211, XXL: 223 }, samplePrice: 277 },
+            { colors: ['White'], pricePerSize: { M: 239, XXL: 251 }, samplePrice: 299 },
+          ],
+        }] }] }) }
+      }
+      if (String(url).startsWith('https://www.bulkplaintshirt.com/pc.js?')) return { ok: true, text: async () => 'let tbl=[{"Sale: Example":{"Green":{"22":63}}},{"Sale: Example":["Example","Sale product"]},{"Sale: Example":91}]' }
+      assert.equal(String(url), 'https://transport.invalid/api/messages/send-ai-reply' , 'unexpected network request')
       sent.push(JSON.parse(options.body))
       return { ok: true, json: async () => ({ messageId: 'sent-test' }) }
     },
   })
   const stubs = {
-    './embeddings.js': { vectorSearch: async () => [] },
+    './embeddings.js': { vectorSearch: async (_db, _ai, _text, opts) => opts.sources?.includes('STYLE_PAIR') ? [] : knowledge },
     './transcribe.js': { transcribeAudio() {}, isTranscriptionConfigured: () => false, getTranscriptionProvider() {} },
     './ig-gate.js': { evaluateIgGate() {} },
     './order-lookup.js': { lookupOrdersByPhone: async () => [], formatOrderLookupBlock: () => '', getBuyerProfile: async () => null, formatBuyerProfileBlock: () => '' },
@@ -83,6 +95,29 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['retired catalogue URL is corrected inside the real output guard path', async () => {
+    const r = await runCase({ reply: 'Current price sir 👉 https://sale91.com/catalog/p/hoodie-320gsm-black' })
+    assert.equal(r.sent[0].message, 'Current price sir 👉 https://sale91.com/catalog/p/hoodie-320gsm')
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.match(r.requests[0].system.map(b => b.text).join('\n'), /Sale: Example.*Green: bulk 22 ₹63/)
+  }],
+
+  ['runtime uses current catalogue bands and excludes retired retrieved catalogue facts', async () => {
+    const r = await runCase({ knowledge: [{ source: 'CATALOG', title: 'Retired Hoodie', content: 'Bulk price ₹199', similarity: 1, metadata: { slug: 'retired-hoodie', bulkPrice: 199 } }] })
+    const system = r.requests[0].system.map(b => b.text).join('\n')
+    assert.match(system, /Black: bulk M ₹211; XXL ₹223; sample ₹277/)
+    assert.match(system, /White: bulk M ₹239; XXL ₹251; sample ₹299/)
+    assert.doesNotMatch(system + r.requests[0].messages[0].content, /₹199|Retired Hoodie|retired-hoodie/)
+    assert.equal(r.sent.length, 1)
+  }],
+  ['catalogue outage withholds stored prices while general replies still reach transport', async () => {
+    const r = await runCase({ catalogUnavailable: true, knowledge: [{ source: 'CATALOG', title: 'Retired Hoodie', content: 'Bulk price ₹199', similarity: 1 }] })
+    assert.match(r.requests[0].system.map(b => b.text).join('\n'), /CURRENT CATALOG UNAVAILABLE/)
+    assert.doesNotMatch(r.requests[0].messages[0].content, /₹199|Retired Hoodie/)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.logs.at(-1).sentViaWwbun, true)
+  }],
+
   ['cart share with a discount question reaches the reply model', async () => {
     const r = await runCase({ incomingText: 'Total 400 pcs · 128 kg\nOversize 240gsm\nBlack M:200, L:200\nSelf-Pickup\nRef: wo_example\nKuch kam karvado', reply: 'Fixed price hai sir 🙏' })
     assert.equal(r.requests.length, 1)

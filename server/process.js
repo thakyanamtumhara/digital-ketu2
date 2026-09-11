@@ -11,9 +11,10 @@ import { vectorSearch } from './embeddings.js'
 import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } from './transcribe.js'
 import { evaluateIgGate } from './ig-gate.js'
 import { lookupOrdersByPhone, formatOrderLookupBlock, getBuyerProfile, formatBuyerProfileBlock } from './order-lookup.js'
+import { getCatalogFacts, CATALOG_UNAVAILABLE, canonicalizeCatalogLinks } from './catalog-facts.js'
 import { getStockSnapshot, formatStockBlock, resolveUnnamedProduct, unnamedProductCandidates, unnamedProductGuard } from './stock-lookup.js'
 import { formatTimedFactsBlock } from './timed-facts.js'
-import { catalogProductsFromChunks, gsmAmbiguityHint } from './gsm-hint.js'
+import { gsmAmbiguityHint } from './gsm-hint.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
 import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
 import { partialDeferSplit } from './reconcile.js'
@@ -3205,53 +3206,18 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   })
   const styleGuide = styleGuideChunk?.content || null
 
-  // AUTHORITATIVE CATALOG — inject EVERY product's full facts (gsm, fabric, colours, sizes, price,
-  // slug) on every request, so NO product fact ever depends on whether vector search happened to
-  // retrieve that product's chunk. This is the "take facts off RAG" change (Ketu-approved
-  // 2026-07-09): the vector DB matches by word-similarity, not situation, and kept missing or
-  // surfacing the wrong/stale chunk — the root cause of the ₹160 price, the 88/12-vs-cotton fabric
-  // slips, the size-chart error, etc. RAG now only supplies STYLE examples + corrections; the FACTS
-  // come from here, deterministically. Grew out of the 2026-06-23 price-table fix.
-  let priceTable = null
+  let catalogBlock = CATALOG_UNAVAILABLE
   let catalogProducts = []
   try {
-    const catalogChunks = await db.knowledgeChunk.findMany({
-      where: { source: 'CATALOG' },
-      select: { title: true, content: true, metadata: true },
-    })
-    catalogProducts = catalogProductsFromChunks(catalogChunks)
-    const lines = []
-    for (const c of catalogChunks) {
-      const m = typeof c.metadata === 'string' ? JSON.parse(c.metadata) : (c.metadata || {})
-      // Pull the fabric/composition from the chunk's "Description:" line (has 100% cotton / 88-12 /
-      // terry / supercombed / biowash detail the metadata doesn't carry).
-      const desc = ((c.content || '').match(/Description:\s*(.+)/i) || [])[1] || ''
-      const fabric = desc.replace(/\s*\([^)]*\)/g, '').replace(/Premium Quality.*$/i, '').replace(/,\s*$/, '').trim().slice(0, 90)
-      const parts = [`${c.title}`]
-      if (m.gsm) parts.push(`${m.gsm}gsm`)
-      if (fabric) parts.push(fabric)
-      if (m.colors && m.colors.length) parts.push(`colours: ${m.colors.join('/')}`)
-      if (m.sizes && m.sizes.length) parts.push(`sizes: ${m.sizes.join('/')}`)
-      if (m.bulkPrice) parts.push(`bulk ₹${m.bulkPrice}`)
-      if (m.samplePrice) parts.push(`sample ₹${m.samplePrice}`)
-      if (m.slug) parts.push(`→ /catalog/p/${m.slug}`)
-      lines.push(parts.join(' | '))
-    }
-    if (lines.length) priceTable = lines.sort().join('\n')
+    const facts = await getCatalogFacts()
+    catalogBlock = facts.block
+    catalogProducts = facts.products
   } catch (err) {
-    console.error(`[Catalog] ${whatsappNumber} — build failed, falling back to RAG-only facts:`, err.message)
+    console.error('[Catalog] current facts unavailable; stored catalog facts withheld:', err.message)
   }
 
   const { staticPrompt, dynamicPrompt } = buildSystemPrompt({ settings, styleGuide, stylePairs: stylePairResults })
   const igAddendum = isInstagram ? IG_SYSTEM_ADDENDUM : ''
-  // The AUTHORITATIVE CATALOG is IDENTICAL every request (changes only when the catalog syncs), so
-  // it belongs in a CACHED block — NOT the uncached user message. Putting it in buildUserPrompt
-  // (2026-07-09) cost ~₹2/reply extra (full-price ~1180 tokens each time) and blew the daily budget
-  // → unreplied messages (2026-07-10). Now it's its own cached breakpoint after the static prompt:
-  // cache-read (0.1×) on every reply, re-written only when the catalog changes.
-  const catalogBlock = priceTable
-    ? `AUTHORITATIVE CATALOG — the COMPLETE, current product list. This is the ONLY source of product FACTS: every price, GSM, fabric, colour, size and link the buyer could ask about is here. If you state ANY price/gsm/colour/size, it MUST be copied EXACTLY from this list (never round, never guess, never use a number from memory or the chat). "bulk" = 10+ pcs, "sample" = under 10 pcs — counted on the buyer's TOTAL order across ALL products combined, NOT per product (a 3-pc line inside an 18-pc total order is still BULK rate). A colour NOT listed for a product = we don't make it in that colour (send HD Photos). A product NOT in this list = we don't make it. If a listed detail isn't shown, don't invent it. (The KNOWLEDGE BASE in the user message is only for STYLE/how-Ketu-phrases-it — NOT for facts.)\n${priceTable}`
-    : null
   const systemPrompt = staticPrompt + (catalogBlock ? '\n\n' + catalogBlock : '') + dynamicPrompt + igAddendum  // combined, for logging/grading
   // Prompt-cache the static prefix + catalog (both stable → 1h TTL); keep the per-query dynamic part
   // as a separate uncached block. buildSystemBlocks(ttl1h) lets us retry without it.
@@ -3278,7 +3244,6 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     stylePairResults,
     conversationHistory,
     quotedText,
-    priceTable,
   })
   if (carriedNote) userPrompt = carriedNote + userPrompt
 
@@ -3699,6 +3664,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
 
   let postModelGuardFailed = false
   try {
+    aiReply = canonicalizeCatalogLinks(aiReply, catalogProducts)
   // --- PAYMENT-FIX FABRICATION GUARD (2026-09-04) ---
   // The prompt has banned invented payment troubleshooting since 2026-08-13 ("NEVER invent retry
   // timing"), and the model still wrote "10 minute wait karke dobara order daal dijiye" to a payment
@@ -4095,38 +4061,19 @@ export function formatConversationHistory(conversationHistory) {
   return prompt
 }
 
-function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conversationHistory, quotedText, priceTable }) {
+function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conversationHistory, quotedText }) {
   let prompt = istTimeBlock()
-
-  // AUTHORITATIVE CATALOG (every product's full facts, every request) — the model must take ALL
-  // product FACTS (price, gsm, fabric, colours, sizes, link) from here, never from a retrieval gap
-  // or memory. This is the deterministic fact source that replaces trusting the vector DB for facts.
-  if (false && priceTable) {  // catalog moved to a CACHED system block (2026-07-11 cost fix); kept guard for clarity
-    prompt += ``
-  }
 
   // Knowledge results from vector search (top 5 matches from catalog + templates + policies)
   if (knowledgeResults.length > 0) {
     const hasCorrection = knowledgeResults.some(r => r.source === 'CORRECTION')
     prompt += `KNOWLEDGE BASE (top matches for this question — use this info to answer):\n`
     if (hasCorrection) prompt += `⚠️ CORRECTION entries below are Om's manual fixes to previous AI mistakes. ALWAYS follow corrections over other sources.\n`
-    for (const result of knowledgeResults) {
+    for (const result of knowledgeResults.filter(r => r.source !== 'CATALOG')) {
       const sim = (Number(result.similarity) * 100).toFixed(0)
       const prefix = result.source === 'CORRECTION' ? '⚠️ ' : ''
-      const chunkBody = result.source === 'CATALOG' ? result.content : sanitizeChunk(result.content)
-      prompt += `---\n${prefix}[${result.source}] ${sanitizeChunk(result.title || '')} (${sim}% match)\n${chunkBody}\n`
-      if (result.source === 'CATALOG' && result.metadata) {
-        const meta = typeof result.metadata === 'string' ? JSON.parse(result.metadata) : result.metadata
-        // Inject the real deep product link so the bot can send it (like Om does) instead of
-        // guessing a slug. The slug comes from catalog metadata; never let the model invent URLs.
-        if (meta.slug) prompt += `Product link: https://sale91.com/catalog/p/${meta.slug}\n`
-        if (meta.gsm) prompt += `GSM: ${meta.gsm}\n`
-        if (meta.bulkPrice) prompt += `Bulk price: ₹${meta.bulkPrice}${meta.bulkPriceTo && meta.bulkPriceTo !== meta.bulkPrice ? `–₹${meta.bulkPriceTo}` : ''}/pc\n`
-        if (meta.samplePrice) prompt += `Sample price: ₹${meta.samplePrice}${meta.samplePriceTo && meta.samplePriceTo !== meta.samplePrice ? `–₹${meta.samplePriceTo}` : ''}/pc\n`
-        if (meta.colors) prompt += `Colors: ${meta.colors.join(', ')}\n`
-        if (meta.sizes) prompt += `Sizes: ${meta.sizes.join(', ')}\n`
-      }
-    }
+      const chunkBody = sanitizeChunk(result.content)
+      prompt += `---\n${prefix}[${result.source}] ${sanitizeChunk(result.title || '')} (${sim}% match)\n${chunkBody}\n`    }
     prompt += '\n'
   }
 
