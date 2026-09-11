@@ -70,14 +70,14 @@ await test('empty, ambiguous and truncated validator outputs await review', asyn
   assert.equal((await assessReplyPair(fakeModel('YES', false, 'max_tokens'), 'buyer', 'reply')).verdict, 'pending')
 })
 await test('timing requires a real timing answer, not a ten-day stock assertion', async () => {
-  const base = { buyerQuestion: 'red available hai kya', timed: true }
+  const base = { buyerQuestion: 'Oversize 240gsm red available hai kya', timed: true }
   assert.equal(learningEligibility({ ...base, correctReply: 'Abhi available hai sir' }), 'not_stock_timing')
   assert.equal(learningEligibility({ ...base, correctReply: '8 se 10 din mein aayega sir' }), null)
   assert.equal(learningEligibility({ ...base, correctReply: 'बाहर देवली मσειल के लिए 8 दिन' }), 'garbled_transcript')
 })
 await test('timed facts use the pairing validator too', async () => {
   const db = fakeDb()
-  const result = await validateLearningCandidate(db, fakeModel('NO'), { ...input, buyerQuestion: 'red restock kab aayega', correctReply: '8 se 10 din mein', timed: true })
+  const result = await validateLearningCandidate(db, fakeModel('NO'), { ...input, buyerQuestion: 'Oversize 240gsm red restock kab aayega', correctReply: '8 se 10 din mein', timed: true })
   assert.equal(result.verdict, 'rejected')
 })
 await test('media-dependent or garbled evidence stays pending without model spend', async () => {
@@ -86,6 +86,27 @@ await test('media-dependent or garbled evidence stays pending without model spen
     const result = await validateLearningCandidate(fakeDb(), model, { ...input, ...fields })
     assert.equal(result.verdict, 'pending')
   }
+})
+await test('unnamed timing stays pending even when the pair validator would say yes', async () => {
+  let calls = 0
+  const model = { messages: { create: async () => { calls++; return { content: [{ text: 'YES' }] } } } }
+  for (const buyerQuestion of ['Kab tak out of stock hai?', 'Red M restock kab hoga?', 'When will it be available? [Image]', 'When will it be available? https://example.invalid/hoodie']) {
+    const db = fakeDb()
+    const result = await validateLearningCandidate(db, model, { ...input, buyerQuestion, correctReply: '11-13 दिन में आ जाना चाहिए', timed: true })
+    assert.equal(result.verdict, 'pending')
+    assert.equal(result.reason, 'missing_timing_subject')
+    assert.equal(db.rows.get(result.id).payload.buyerQuestion, buyerQuestion)
+  }
+  assert.equal(calls, 0)
+})
+await test('named stock and launch subjects retain validated temporary learning', async () => {
+  for (const buyerQuestion of ['Cotton Polo Grey restock kab hoga?', 'Reel dekhi women launch estimated time kya hai?', 'ग्रे पोलो out of stock कब तक है?']) {
+    const result = await validateLearningCandidate(fakeDb(), fakeModel('YES'), { ...input, buyerQuestion, correctReply: '11-13 दिन में आ जाना चाहिए', timed: true })
+    assert.equal(result.verdict, 'accepted', buyerQuestion)
+  }
+})
+await test('subject only in an answer requires review before compact timing reuse', async () => {
+  assert.equal(learningEligibility({ buyerQuestion: 'When will it be available?', correctReply: 'Cotton Polo Grey in 11-13 days', timed: true }), 'missing_timing_subject')
 })
 await test('unsafe legacy bulk promotion is disabled', async () => {
   assert.equal(legacyCorrectionBackfillResponse().status, 'disabled')

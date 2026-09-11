@@ -1,0 +1,32 @@
+[
+  {
+    "id": "supplier-export-factory-hinglish",
+    "msg": "Mera export garments ka kaam hai. Kya aap humse shirts aur tshirts banwana chahte hain?",
+    "must": ["^\\[DEFER\\]$"],
+    "mustNot": ["forwarder", "sale91", "export nahi"]
+  },
+  {
+    "id": "supplier-export-factory-english",
+    "msg": "I run a garment factory handling export orders. Do you want us to manufacture shirts and T-shirts for your company?",
+    "must": ["^\\[DEFER\\]$"],
+    "mustNot": ["forwarder", "sale91", "we don.t export"]
+  },
+  {
+    "id": "buyer-overseas-quote-control",
+    "msg": "I need 60 blank acid-wash oversized T-shirts for my printing business in Canada. Please quote including DDP delivery to Brampton, Ontario.",
+    "must": ["don.?t export|do not export|no export", "india", "forwarder|forwarding"],
+    "mustNot": ["\\[DEFER\\]", "₹", "\\b(?:hai|karo|lijiye)\\b"]
+  },
+  {
+    "id": "buyer-exporter-domestic-purchase-control",
+    "msg": "I run an export business. I want to buy 60 blank 240gsm oversized T-shirts from you for delivery to my Delhi office. I will arrange any onward export myself. Can I place this domestic order on your website?",
+    "must": ["yes|can|place|order", "sale91"],
+    "mustNot": ["\\[DEFER\\]", "don.?t export|do not export|no export"]
+  },
+  {
+    "id": "buyer-outside-india-hinglish-control",
+    "msg": "Kya aap out of India delivery karte ho?",
+    "must": ["export|bahar|india", "forwarder|apna"],
+    "mustNot": ["\\[DEFER\\]"]
+  }
+]

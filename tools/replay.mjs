@@ -43,31 +43,15 @@ const guide = await api('/api/knowledge/chunks?source=STYLE_GUIDE&pageSize=5').c
 const styleGuide = ((guide && (guide.chunks || guide.items || [])) || []).find(c => c.sourceId === 'om_style_guide')
 if (styleGuide) staticPrompt += `\n\nOM'S COMMUNICATION STYLE:\n${styleGuide.content}`
 
-const cat = await api('/api/knowledge/chunks?source=CATALOG&pageSize=100')
-const lines = []
-for (const c of (cat.chunks || cat.items || [])) {
-  const m = typeof c.metadata === 'string' ? JSON.parse(c.metadata) : (c.metadata || {})
-  const desc = ((c.content || '').match(/Description:\s*(.+)/i) || [])[1] || ''
-  const fabric = desc.replace(/\s*\([^)]*\)/g, '').replace(/Premium Quality.*$/i, '').replace(/,\s*$/, '').trim().slice(0, 90)
-  const parts = [`${c.title}`]
-  if (m.gsm) parts.push(`${m.gsm}gsm`)
-  if (fabric) parts.push(fabric)
-  if (m.colors && m.colors.length) parts.push(`colours: ${m.colors.join('/')}`)
-  if (m.sizes && m.sizes.length) parts.push(`sizes: ${m.sizes.join('/')}`)
-  if (m.bulkPrice) parts.push(`bulk ₹${m.bulkPrice}`)
-  if (m.samplePrice) parts.push(`sample ₹${m.samplePrice}`)
-  if (m.slug) parts.push(`→ /catalog/p/${m.slug}`)
-  lines.push(parts.join(' | '))
-}
-// Header copied verbatim from runAiFlow (process.js ~L2936) — keep the two in sync.
-const catalogBlock = lines.length ? `AUTHORITATIVE CATALOG — the COMPLETE, current product list. This is the ONLY source of product FACTS: every price, GSM, fabric, colour, size and link the buyer could ask about is here. If you state ANY price/gsm/colour/size, it MUST be copied EXACTLY from this list (never round, never guess, never use a number from memory or the chat). "bulk" = 10+ pcs, "sample" = under 10 pcs — counted on the buyer's TOTAL order across ALL products combined, NOT per product (a 3-pc line inside an 18-pc total order is still BULK rate). A colour NOT listed for a product = we don't make it in that colour (send HD Photos). A product NOT in this list = we don't make it. If a listed detail isn't shown, don't invent it. (The KNOWLEDGE BASE in the user message is only for STYLE/how-Ketu-phrases-it — NOT for facts.)\n${lines.sort().join('\n')}` : null
+const { getCatalogFacts, canonicalizeCatalogLinks } = await import('../server/catalog-facts.js')
+const { block: catalogBlock, products: catalogProducts } = await getCatalogFacts()
 
 // ---- optional per-case blocks ----
 const { getStockSnapshot, formatStockBlock, resolveUnnamedProduct } = await import('../server/stock-lookup.js')
+const { formatTimedFactsBlock } = await import('../server/timed-facts.js')
 const { getPhotoIndex, formatPhotoBlock } = await import('../server/photo-links.js')
 const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysGuard, bigBuyerDiscountGuard, formatConversationHistory } = await import('../server/process.js')
-const { catalogProductsFromChunks, gsmAmbiguityHint } = await import('../server/gsm-hint.js')
-const catalogProducts = catalogProductsFromChunks(cat.chunks || cat.items || [])
+const { gsmAmbiguityHint } = await import('../server/gsm-hint.js')
 let stockBlock = null, photoBlock = null, stockSnapshot = null
 const cases = JSON.parse(readFileSync(file, 'utf8')).filter(c => !ONLY.length || ONLY.includes(c.id))
 const tfRes = await api('/api/knowledge/chunks?source=TIMED_FACT&pageSize=8').catch(() => null)
@@ -76,9 +60,10 @@ if (cases.some(c => c.stock && !c.stockSnapshot)) { stockSnapshot = await getSto
 if (cases.some(c => c.photo)) photoBlock = formatPhotoBlock(await getPhotoIndex())
 
 function userPromptFor(c) {
+  const now = c.at ? Date.parse(c.at) : Date.now()
   const caseTimedFacts = c.timedFacts || timedFacts
   const caseSnapshot = c.stockSnapshot || stockSnapshot
-  const caseStockBlock = c.stockSnapshot ? formatStockBlock(c.stockSnapshot, { timedFacts: caseTimedFacts }) : stockBlock
+  const caseStockBlock = caseSnapshot ? formatStockBlock(caseSnapshot, { timedFacts: caseTimedFacts, now }) : stockBlock
   let p = ''
   if (c.history && c.history.length) {
     p += formatConversationHistory(c.history.map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.deferred ? 'DEFERRED' : (h.manual || h.silent ? 'SKIPPED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : (h.silent ? 'ai_chose_silence' : null), createdAt: h.at })))
@@ -91,7 +76,8 @@ function userPromptFor(c) {
     const unnamed = resolveUnnamedProduct(caseSnapshot, c.msg) // mirrors runAiFlow (2026-09-05)
     p = caseStockBlock + (unnamed ? '\n' + unnamed : '') + '\n\n' + p
   }
-  if (caseTimedFacts.length) p = `⏰ KETU'S RECENT TIMING ANSWERS (his OWN words to buyers in the last few days — EACH ENTRY APPLIES ONLY TO THE PRODUCT AND COLOUR NAMED IN IT: never carry one colour's or product's timing over to another (2026-09-08: '240 red 8-9 din' was reused for KIDS red, which has no shipment) — each entry SUPERSEDES any seasonal default ("Winter stock after September"), Coming-Soon pointer, no-date ban, stale-correction ban, or older correction about the SAME product's timing. Relay HIS stated timing in his style, adjusting for days already passed — today is ${new Date().toISOString().slice(0, 10)}):\n${caseTimedFacts.map(f => '- ' + f.content).join('\n')}\n\n${p}` // mirrors runAiFlow
+  const timedBlock = formatTimedFactsBlock(caseTimedFacts, now, c.msg)
+  if (timedBlock) p = timedBlock + '\n\n' + p
   if (EXPORT_ASK_RE.test(c.msg)) p = EXPORT_HINT + '\n\n' + p // mirrors runAiFlow (2026-09-05)
   const gsmHint = gsmAmbiguityHint(catalogProducts, c.msg) // mirrors runAiFlow (2026-09-06)
   if (gsmHint) p = gsmHint + '\n\n' + p
@@ -138,6 +124,7 @@ for (const c of cases) {
     const fails = []
     // Mirror the production post-model guards (2026-09-09) so a replay judges what the buyer would get.
     {
+      txt = canonicalizeCatalogLinks(txt, catalogProducts)
       const historyText = (c.history || []).map(h => `Buyer: ${h.buyer}\nAssistant: ${h.ai || ''}`).join('\n')
       const g1 = deliveryDaysGuard({ buyerText: c.msg, reply: txt })
       if (g1) { console.log(`   ⚙️ delivery-days guard replaced the model reply`); txt = g1 }

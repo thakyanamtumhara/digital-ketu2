@@ -95,7 +95,7 @@ t('generic grey polo cannot choose cotton SKU', timedFactFor([{ content: '[state
 t('navy cotton polo not covered', timedFactFor(F, 'Cotton Polo', 'Navy'), null)
 t('sweatshirt not covered by polo/240 facts', timedFactFor(F, 'Sweatshirt', 'Navy'), null)
 const snapTF = { inStock: { 'Oversize 240gsm': { Red: { S: 1, M: 1, XL: 1 } } }, oos: { 'Oversize 240gsm': { Red: 'S,M' } }, coming: {}, fetchedAt: 0 }
-t('block verdict carries ⏰ Ketu timing', /⏰ Ketu said on 2026-09-07: "8-9 din/.test(formatStockBlock(snapTF, { timedFacts: F })), true)
+t('block verdict carries ⏰ Ketu timing on its source day', /⏰ Ketu said on 2026-09-07;[^\n]*"8-9 days/.test(formatStockBlock(snapTF, { timedFacts: F, now: Date.parse('2026-09-07T10:00:00Z') })), true)
 t('block without facts keeps no-date verdict', /NO shipment for this colour/.test(formatStockBlock(snapTF)), true)
 console.log(`\n${pass}/${total} passed`)
 process.exit(pass === total ? 0 : 1)

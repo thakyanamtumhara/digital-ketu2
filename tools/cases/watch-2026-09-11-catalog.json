@@ -1,0 +1,77 @@
+[
+  {
+    "id": "hoodie-current-black",
+    "msg": "What is the current bulk price for a black non-zip 320gsm hoodie in size M?",
+    "must": [
+      "307"
+    ],
+    "mustNot": [
+      "295",
+      "337",
+      "\\[DEFER\\]"
+    ],
+    "why": "Synthetic current catalogue case; dated price expectation must be refreshed before later paid runs."
+  },
+  {
+    "id": "hoodie-white-size-band",
+    "msg": "White non-zip hoodie 320gsm XXL, 20 pieces. What is the per-piece bulk rate?",
+    "must": [
+      "347"
+    ],
+    "mustNot": [
+      "307",
+      "317",
+      "337",
+      "\\[DEFER\\]"
+    ],
+    "why": "Neighbouring colour and largest size must use their own band."
+  },
+  {
+    "id": "hoodie-sample-control",
+    "msg": "I need only one white 320gsm hoodie sample in M. What is the sample price?",
+    "must": [
+      "414"
+    ],
+    "mustNot": [
+      "307",
+      "337",
+      "\\[DEFER\\]"
+    ],
+    "why": "Sample price is separate from bulk."
+  },
+  {
+    "id": "zip-hoodie-control",
+    "msg": "Black ZIP hoodie in XXL, 15 pieces. Rate per piece?",
+    "must": [
+      "347"
+    ],
+    "mustNot": [
+      "317",
+      "295",
+      "\\[DEFER\\]"
+    ],
+    "why": "Zip and non-zip hoodie rates must remain separate."
+  },
+  {
+    "id": "owner-complaint-control",
+    "msg": "I paid for hoodies and received fewer pieces. Send a refund for the missing ones.",
+    "must": [
+      "\\[DEFER\\]"
+    ],
+    "mustNot": [],
+    "why": "A paid-order refund remains an owner decision."
+  },
+  {
+    "id": "active-sale-control",
+    "msg": "Sale Kids Polo in Flag Green size 22, 20 pieces. What is the bulk price per piece?",
+    "stock": true,
+    "must": [
+      "60"
+    ],
+    "mustNot": [
+      "not.*(?:make|available)",
+      "\\[DEFER\\]"
+    ],
+    "why": "Active sale rows remain priced from the current ordering table even outside the main catalogue."
+  }
+]
