@@ -230,3 +230,23 @@ defer); the old "never state a piece threshold" sentence was reconciled with rul
 now accepts `autoReply: true` from wwbun (greeting-bot verdict) — it counts like an AUTO_REPLY_RE hit,
 REAL_ASK_RE still overrides. Tests: `tools/delivery-discount-guard-tests.mjs`; cases:
 `tools/cases/watch-2026-09-09.json`. Per-tick health: `node tools/inbox-health.mjs`.
+
+**🚨 2026-09-09 13:51–15:39 IST outage (my deploy 3f5336d):** the new discount guard referenced
+`historyText`, a variable block-scoped to the MANY-CANDIDATE guard → "historyText is not defined" on
+every reply for 1h48m (27 FAILED rows) until Ketu asked. Hotfix 723e79a rebuilds it locally. RULE: after
+every deploy watch `/api/logs?since=<bootedAt>` for 10 min — FAILED must stay 0 and replies must be
+sent; build sha + prompt phrase are not a verification. Never reuse another guard's block variable.
+
+**2026-09-09 17:05 (commit 48955cb):** all post-model guards in `runAiFlow` now sit inside ONE try/catch —
+a guard exception logs `[Guards] … post-model guard threw` and the raw model reply still goes out.
+`inDeferChain` (the "Hello → holding line" prefill path) now ends when Ketu's manual reply is the
+latest row and after 6h instead of 24h (buyer 1554 16:20: "Hello" got "Ketu will reply shortly", then
+the real question was silenced behind it). Still by design and Ketu's own rules: 10-min cooldown after
+his manual send (address ask at 16:54 was dropped for that reason), 12h bare-ack silence, holding
+lines on complaints/bills/delivery status.
+
+**2026-09-09 19:43 tick:** restraint-gate bypass `isOurQuestion(lastAiReply)` (≤2h): when the clone's last
+reply asked the buyer something ("Which product sir?"), the buyer's next message always runs the full
+flow — buyer 3084's "The bio r neck this one…" had been silenced (`ai_chose_silence` rows are cleared
+from Waiting, so Ketu never sees them). Tests: `tools/our-question-tests.mjs`. Silenced rows are the one
+class the Waiting tab cannot show — audit `ai_chose_silence` rows every tick.
