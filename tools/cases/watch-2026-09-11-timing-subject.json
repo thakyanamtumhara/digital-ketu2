@@ -1,0 +1,33 @@
+[
+  {
+    "id": "unnamed-date-does-not-apply-to-acidwash",
+    "why": "Synthetic control: a timing answer without a named product must not supply another product's restock date.",
+    "msg": "Acid wash Black M kab wapas milega?",
+    "at": "2026-09-11T19:10:00+05:30",
+    "stock": true,
+    "stockSnapshot": {"inStock": {"AcidWash OS": {"Black": {"S": 10}}}, "oos": {"AcidWash OS": {"Black": "M"}}, "coming": {}},
+    "timedFacts": [{"content": "[stated 2026-09-11] Buyer asked: \"Ye wala kab wapas stock mein aayega?\" — Ketu's answer: \"11-13 din mein aa jayega\""}],
+    "must": ["date|coming|stock|पता|तारीख"],
+    "mustNot": ["11\\s*[-–]\\s*13", "[0-9]+\\s*(?:[-–]\\s*[0-9]+)?\\s*(?:days?|din|दिन)\\s*(?:mein|me|में|baad|बाद|tak|तक)"]
+  },
+  {
+    "id": "named-stock-estimate-keeps-elapsed-days",
+    "why": "Synthetic neighbouring control: an explicit product/colour timing remains answerable and dated.",
+    "msg": "Oversize 240gsm Red M restock kab aayega?",
+    "at": "2026-09-11T19:10:00+05:30",
+    "stock": true,
+    "stockSnapshot": {"inStock": {"Oversize 240gsm": {"Red": {"S": 10}}}, "oos": {"Oversize 240gsm": {"Red": "M"}}, "coming": {}},
+    "timedFacts": [{"content": "[stated 2026-09-09] Buyer asked: \"Oversize 240gsm Red M restock kab aayega?\" — Ketu's answer: \"7-9 din mein aayega\""}],
+    "must": ["5\\s*[-–]\\s*7"],
+    "mustNot": ["7\\s*[-–]\\s*9", "\\[DEFER\\]", "Ketu will reply"]
+  },
+  {
+    "id": "named-women-launch-remains-answerable",
+    "why": "Synthetic neighbouring control: a named launch range must pass the subject check.",
+    "msg": "Women range launch estimated time kya hai?",
+    "at": "2026-09-11T19:10:00+05:30",
+    "timedFacts": [{"content": "[stated 2026-09-09] Buyer asked: \"Women range launch estimated time kya hai?\" — Ketu's answer: \"20 to 25 days max\""}],
+    "must": ["18\\s*[-–]\\s*23"],
+    "mustNot": ["20\\s*[-–]\\s*25", "\\[DEFER\\]", "Ketu will reply"]
+  }
+]

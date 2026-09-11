@@ -1,3 +1,5 @@
+import { hasNamedTimingSubject } from './stock-question.js'
+
 const DAY_MS = 86400000
 const DAY_DURATION = /(?<![\d.\-–])([0-9०-९]{1,3})(?:\s*(?:[-–]|to|se|से)\s*([0-9०-९]{1,3}))?\s*(days?\b|din\b|दिन)/gi
 
@@ -28,7 +30,7 @@ export function currentTimedFact(fact, now = Date.now()) {
 }
 
 export function formatTimedFactsBlock(facts, now = Date.now(), buyerText = '') {
-  const lines = (facts || []).map(fact => currentTimedFact(parseTimedFact(typeof fact === 'string' ? fact : fact.content), now)).filter(Boolean).map(fact =>
+  const lines = (facts || []).map(fact => currentTimedFact(parseTimedFact(typeof fact === 'string' ? fact : fact.content), now)).filter(fact => fact && hasNamedTimingSubject(fact.question)).map(fact =>
     `- [source stated ${fact.date}${fact.adjusted ? `; remaining days calculated for ${fact.asOf} IST — DO NOT subtract days again` : '; interpret relative dates from this source date'}] Buyer asked: "${fact.question}" — ${fact.adjusted ? 'Current timing estimate' : "Ketu's answer"}: "${fact.timingEstimate || fact.answer}"`
   )
   if (!lines.length) return null

@@ -150,3 +150,8 @@ export function looksLikeTimingAnswer(text) {
   if (/\b(jan(uary)?|feb(ruary)?|march|april|may|june|july|aug(ust)?|sept(ember)?|oct(ober)?|nov(ember)?|dec(ember)?)\s*(ke\s*(baad|pehle)|mein|me\b|tak|se\b|end|start|last|first)/i.test(t)) return true
   return /(जनवरी|फरवरी|मार्च|अप्रैल|मई|जून|जुलाई|अगस्त|सितंबर|सितम्बर|अक्टूबर|नवंबर|दिसंबर|दिन|हफ्ते|महीने)/.test(t) && /\d|दस|आठ|नौ|पांच|सात|एक|दो|तीन|चार|छह/.test(t)
 }
+
+export function hasNamedTimingSubject(question) {
+  const text = String(question || '').replace(/https?:\/\/\S+/gi, ' ').replace(/\[[^\]]*\]/g, ' ')
+  return /\b(?:true[\s-]*bio|non[\s-]*bio|bio(?:wash)?|polo|oversized?|over\s*size|drop\s*shoulder|acid(?:\s*wash)?|hoodie|hoody|sweat\s*shirt|zip(?:per)?|varsity|jacket|shorts?|kids?|sublimation|boxy|rneck|round\s*neck|t[\s-]*shirts?|tees?|women(?:'?s)?|womens|ladies|female|winter|(?:180|200|210|220|240|260|320|430)\s*gsm|os\s*-?\s*(?:180|210|240|260))\b|पोलो|बायो|ओवर\s*साइ[जज़]|एसिड\s*व[ॉा]श|हू?डी|हुडी|ज़?िप(?:र)?|जिपर|स्वेट\s*शर्ट|स्वेटर|टी\s*शर्ट|शॉर्ट्स|जैकेट|बच्चों|महिला|लेडी[जज़]|वूम[ेै]न/i.test(text)
+}

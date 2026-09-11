@@ -95,6 +95,18 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['runtime omits an unnamed timing fact and preserves a named launch estimate', async () => {
+    const date = new Date(Date.now() + 19800000).toISOString().slice(0, 10)
+    const r = await runCase({ timedFacts: [
+      { content: `[stated ${date}] Buyer asked: "Kab tak out of stock hai?" — Ketu's answer: "11-13 दिन में आ जाना चाहिए"` },
+      { content: `[stated ${date}] Buyer asked: "Women range launch estimated time?" — Ketu's answer: "30 to 45 days max"` },
+    ] })
+    const prompt = r.requests[0].messages[0].content
+    assert.doesNotMatch(prompt, /Kab tak out of stock|11-13/)
+    assert.match(prompt, /Women range launch[^\n]*30-45 days/)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.logs.at(-1).sentViaWwbun, true)
+  }],
   ['retired catalogue URL is corrected inside the real output guard path', async () => {
     const r = await runCase({ reply: 'Current price sir 👉 https://sale91.com/catalog/p/hoodie-320gsm-black' })
     assert.equal(r.sent[0].message, 'Current price sir 👉 https://sale91.com/catalog/p/hoodie-320gsm')

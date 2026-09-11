@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url'
 
 const STATES = new Set(['pending', 'rejected', 'validated', 'promoted'])
 const ORIGINS = new Set(['edit', 'intervention', 'backlog', 'reviewer_manual'])
-const REASONS = new Set(['awaiting_validation', 'already_promoted', 'same_topic', 'missing_text', 'missing_media_context', 'garbled_transcript', 'holding_line', 'transactional_reply', 'not_stock_timing', 'perishable_stock_answer', 'untrusted_origin', 'different_topic', 'incomplete_validator_response', 'ambiguous_validator_response', 'validator_unavailable', 'stored_in_knowledge'])
+const REASONS = new Set(['awaiting_validation', 'already_promoted', 'same_topic', 'missing_text', 'missing_media_context', 'missing_timing_subject', 'garbled_transcript', 'holding_line', 'transactional_reply', 'not_stock_timing', 'perishable_stock_answer', 'untrusted_origin', 'different_topic', 'incomplete_validator_response', 'ambiguous_validator_response', 'validator_unavailable', 'stored_in_knowledge'])
 const hash = value => createHash('sha256').update(value).digest('hex')
 const normal = value => String(value || '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
 const safeId = value => /^[a-zA-Z0-9_-]{1,128}$/.test(String(value || '')) ? value : `hashed_${hash(String(value || ''))}`

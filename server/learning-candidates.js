@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { assessReplyPair, hasGarbledTranscript, isDeferLine, isMediaPlaceholder, isStockAvailabilityQuestion, isTransactionalReply, looksLikeTimingAnswer } from './stock-question.js'
+import { assessReplyPair, hasGarbledTranscript, hasNamedTimingSubject, isDeferLine, isMediaPlaceholder, isStockAvailabilityQuestion, isTransactionalReply, looksLikeTimingAnswer } from './stock-question.js'
 
 const readyByDb = new WeakMap()
 
@@ -26,6 +26,7 @@ export function learningEligibility({ buyerQuestion, correctReply, timed = false
   if (isDeferLine(correctReply)) return 'holding_line'
   if (isTransactionalReply(correctReply, { forTiming: timed })) return 'transactional_reply'
   if (timed && (!isStockAvailabilityQuestion(buyerQuestion) || !looksLikeTimingAnswer(correctReply))) return 'not_stock_timing'
+  if (timed && !hasNamedTimingSubject(buyerQuestion)) return 'missing_timing_subject'
   if (!timed && isStockAvailabilityQuestion(buyerQuestion)) return 'perishable_stock_answer'
   return null
 }
@@ -54,7 +55,7 @@ export async function validateLearningCandidate(db, anthropic, input) {
   if (existing?.status === 'promoted') return { id, verdict: 'accepted', reason: 'already_promoted', alreadyPromoted: true }
   const ineligible = trustedOrigin ? learningEligibility(input) : 'untrusted_origin'
   const decision = ineligible
-    ? { verdict: ineligible === 'missing_media_context' || ineligible === 'garbled_transcript' ? 'pending' : 'rejected', reason: ineligible }
+    ? { verdict: ['missing_media_context', 'garbled_transcript', 'missing_timing_subject'].includes(ineligible) ? 'pending' : 'rejected', reason: ineligible }
     : await assessReplyPair(anthropic, input.buyerQuestion, input.correctReply)
   const status = decision.verdict === 'accepted' ? 'validated' : decision.verdict
   await db.$executeRaw`UPDATE "LearningCandidate" SET status = ${status}, reason = ${decision.reason}, "updatedAt" = NOW() WHERE id = ${id}`
