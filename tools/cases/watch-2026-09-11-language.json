@@ -1,0 +1,33 @@
+[
+  {
+    "id": "english-contact",
+    "msg": "Could I get contact information?",
+    "at": "2026-09-11T17:00:00+05:30",
+    "must": ["9336695049", "call"],
+    "mustNot": ["\\[DEFER\\]", "\\b(hai|hain|mein|pe|kar|kijiye|lijiye|dijiye|aap|dekhiye)\\b", "[ऀ-ॿ]"],
+    "why": "Synthetic short English contact request must reach the language repair path."
+  },
+  {
+    "id": "english-product-fragment",
+    "msg": "Heavy streetwear",
+    "history": [{"buyer": "We need some blank shirts", "ai": "Which fit do you need sir?"}],
+    "must": ["oversize|oversized", "https://sale91.com"],
+    "mustNot": ["\\[DEFER\\]", "\\b(hai|hain|mein|pe|kar|kijiye|lijiye|dijiye|aap|dekhiye)\\b", "[ऀ-ॿ]"],
+    "why": "A short product answer inherits recent buyer English."
+  },
+  {
+    "id": "hinglish-product-control",
+    "msg": "Mujhe heavyweight streetwear chahiye",
+    "history": [{"buyer": "We need some blank shirts", "ai": "Which fit do you need sir?"}],
+    "must": ["oversize|oversized", "\\b(hai|hain|mein|sir|chahiye)\\b"],
+    "mustNot": ["\\[DEFER\\]"],
+    "why": "Current Hinglish remains in its own language despite earlier English."
+  },
+  {
+    "id": "refund-control",
+    "msg": "Please refund my payment. The received shirts are damaged.",
+    "must": ["^\\s*\\[DEFER\\]\\s*$"],
+    "mustNot": [],
+    "why": "Language repair must not turn an owner-only refund into an answer."
+  }
+]

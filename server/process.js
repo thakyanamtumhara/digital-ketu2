@@ -18,6 +18,7 @@ import { gsmAmbiguityHint } from './gsm-hint.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
 import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
 import { partialDeferSplit } from './reconcile.js'
+import { repairEnglishReply } from './reply-language.js'
 import { openaiReply, isOpenAiFallbackConfigured } from './openai-fallback.js'
 
 // ===========================================
@@ -3413,10 +3414,12 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     userPrompt = `❄️ WINTER STOCK LINE (the seasonal restock answer for hoodie / sweatshirt / zip-hoodie / any winter item, computed for today's date in Ketu's words — relay it for a winter restock-timing ask unless a ⏰ entry above or a 📦 LIVE STOCK DATA in-stock listing answers more specifically; never add a date of your own): "${winterStockLine()}"\n\n${userPrompt}`
   }
 
+  let preferredReplyLanguage = null
   // BUYER MEMORY (2026-07-21): durable per-buyer facts — language preference + admin notes.
   // ~20 tokens, only when a memory row exists. Failure → skip (fail-open).
   try {
     const mem = await db.buyerMemory.findUnique({ where: { whatsappNumber } })
+    preferredReplyLanguage = mem?.language || null
     if (mem && (mem.language || mem.notes)) {
       const bits = []
       if (mem.language) bits.push(`this buyer EXPLICITLY asked for ${mem.language.toUpperCase()} in an earlier chat — ALWAYS reply in ${mem.language} (overrides language-matching)`)
@@ -3794,44 +3797,16 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     }
   }
 
-  // --- ENGLISH LANGUAGE GATE (2026-07-21, Ketu-approved roadmap step: "fix with a CODE gate, not
-  // more rules") --- The #1 remaining VOICE slip: the model reverts to Hinglish for a clearly
-  // ENGLISH buyer (14+ repeats in the 2026-07-20 audit despite TWO CRITICAL-tagged prompt rules —
-  // prompt pressure has provably plateaued). Deterministic check: buyer wrote real English (no
-  // Devanagari, zero Hinglish tokens, ≥2 English markers, ≥3 words) but the reply contains Hinglish
-  // → ONE cheap rewrite call (Haiku; OpenAI fallback when Anthropic is down). If the rewrite fails
-  // or still trips, send the ORIGINAL — an imperfect reply beats silence. Never blocks, only fixes.
-  const DEVANAGARI_RE = /[ऀ-ॿ]/
-  const HINGLISH_TOKEN_RE = /\b(hai|hain|nahi|nhi|karo|kariye|karke|lijiye|dijiye|bhejo|bhejiye|bataiye|batao|batana|aap|aapka|aapke|apka|kya|kyu|kyon|mein|milega|milegi|chahiye|wala|wale|wali|bhaiya|abhi|sirf|hoga|hogi|karna|karni|krna|dedo|lelo|dekhiye|kitna|kitne|kitni|kaise|kaha|kahan|jaldi|maal|jayega|jayegi|karwa|karva|bhej|laga|lag|raha|rahi|gaya|gayi)\b/i
-  const ENGLISH_MARKER_RE = /\b(the|is|are|do|does|can|could|will|would|please|want|need|have|has|you|your|what|when|where|how|much|many|price|order|delivery|available|stock|send|share|tell|about|this|that|with|and|for|from|there|any)\b/gi
-  const buyerWords = (mergedText || '').trim().split(/\s+/).filter(Boolean)
-  const buyerIsEnglish = buyerWords.length >= 3
-    && !DEVANAGARI_RE.test(mergedText || '')
-    && !HINGLISH_TOKEN_RE.test(mergedText || '')
-    && ((mergedText || '').match(ENGLISH_MARKER_RE) || []).length >= 2
-  if (buyerIsEnglish && (HINGLISH_TOKEN_RE.test(aiReply || '') || DEVANAGARI_RE.test(aiReply || ''))) {
-    console.warn(`[EnglishGate] ${whatsappNumber} — English buyer got Hinglish reply; rewriting. Original: ${(aiReply || '').slice(0, 90)}`)
-    const rewritePrompt = `Rewrite this WhatsApp reply in natural ENGLISH ONLY — no Hindi/Hinglish words (hai, nahi, kar lijiye, milega, etc.). Same meaning, same terse length. Keep "sir", links, emojis and ₹ prices unchanged. Output ONLY the rewritten message.\n\n${aiReply}`
-    let rewritten = null
-    try {
-      const rw = await anthropic.messages.create({
-        model: 'claude-haiku-4-5-20251001', max_tokens: 300,
-        messages: [{ role: 'user', content: rewritePrompt }],
-      })
-      rewritten = (rw.content?.[0]?.text || '').trim()
-      costUsd += ((rw.usage?.input_tokens || 0) * 1 + (rw.usage?.output_tokens || 0) * 5) / 1_000_000
-    } catch (err) {
-      // No OpenAI stand-in here either (Ketu 2026-08-01). This only re-words a reply Claude already
-      // wrote, but the rule is simply that nothing except his clone touches a buyer message. If the
-      // Haiku rewrite fails we keep Claude's original wording, which is never wrong — only Hinglish.
-      console.warn(`[EnglishGate] ${whatsappNumber} — rewrite failed (${String(err?.message || '').slice(0, 50)}); keeping the original`)
-    }
-    if (rewritten && !HINGLISH_TOKEN_RE.test(rewritten) && !DEVANAGARI_RE.test(rewritten) && rewritten.length <= (aiReply.length * 2 + 80)) {
-      aiReply = rewritten
-      console.log(`[EnglishGate] ${whatsappNumber} — rewrite OK: ${aiReply.slice(0, 90)}`)
-    } else {
-      console.warn(`[EnglishGate] ${whatsappNumber} — rewrite failed/still Hinglish; sending original`)
-    }
+  try {
+    const repaired = await repairEnglishReply({
+      anthropic, reply: aiReply, buyerText: mergedText,
+      history: conversationHistory, preferredLanguage: preferredReplyLanguage,
+    })
+    costUsd += repaired.costUsd
+    aiReply = repaired.reply
+    if (repaired.attempted) console.log(`[EnglishGate] ${whatsappNumber} — ${repaired.changed ? 'rewrite OK' : 'rewrite unavailable or rejected; kept original'}`)
+  } catch {
+    console.warn(`[EnglishGate] ${whatsappNumber} — repair failed; kept original`)
   }
 
   // Day-granular dispatch only — strip any clock hour the model attached to a dispatch promise.

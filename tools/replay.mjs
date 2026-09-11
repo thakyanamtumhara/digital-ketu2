@@ -52,6 +52,16 @@ const { formatTimedFactsBlock } = await import('../server/timed-facts.js')
 const { getPhotoIndex, formatPhotoBlock } = await import('../server/photo-links.js')
 const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysGuard, bigBuyerDiscountGuard, formatConversationHistory } = await import('../server/process.js')
 const { gsmAmbiguityHint } = await import('../server/gsm-hint.js')
+const { repairEnglishReply } = await import('../server/reply-language.js')
+const rewriteClient = { messages: { create: async body => {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw Error(`Rewrite HTTP ${res.status}`)
+  return res.json()
+} } }
 let stockBlock = null, photoBlock = null, stockSnapshot = null
 const cases = JSON.parse(readFileSync(file, 'utf8')).filter(c => !ONLY.length || ONLY.includes(c.id))
 const tfRes = await api('/api/knowledge/chunks?source=TIMED_FACT&pageSize=8').catch(() => null)
@@ -130,6 +140,15 @@ for (const c of cases) {
       if (g1) { console.log(`   ⚙️ delivery-days guard replaced the model reply`); txt = g1 }
       const g2 = bigBuyerDiscountGuard({ buyerText: c.msg, historyText, reply: txt })
       if (g2) { console.log(`   ⚙️ discount guard replaced the model reply`); txt = g2 }
+    }
+    if (!/^\s*\[(DEFER|SKIP)\]\s*$/.test(txt)) {
+      const repaired = await repairEnglishReply({
+        anthropic: rewriteClient, reply: txt, buyerText: c.msg, preferredLanguage: c.preferredLanguage,
+        history: (c.history || []).map(h => ({ buyerMessage: h.buyer, deferReason: h.manual ? 'manual_reply' : null })),
+      })
+      usd += repaired.costUsd
+      txt = repaired.reply
+      if (repaired.attempted) console.log(`   English repair: ${repaired.changed ? 'applied' : 'kept original'}`)
     }
     for (const m of (c.must || [])) if (!new RegExp(m, 'i').test(txt)) fails.push(`missing /${m}/`)
     for (const m of (c.mustNot || [])) if (new RegExp(m, 'i').test(txt)) fails.push(`forbidden /${m}/`)

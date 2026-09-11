@@ -5,8 +5,8 @@ import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], incomingText = null, catalogUnavailable = false, knowledge = [], recovery = null } = {}) {
-  const sent = [], logs = [], errors = [], requests = []
+async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], incomingText = null, catalogUnavailable = false, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null } = {}) {
+  const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
   const timers = [], recoveryQueries = []
   let clock = recovery?.now ?? Date.now()
   class TestDate extends Date {
@@ -83,7 +83,7 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     }, findFirst: async () => recovery?.laterLog || null, create: async ({ data }) => { logs.push(data); return { id: 'log-test', ...data } } },
     settings: { update: async () => ({}), findUnique: async () => ({ isActive: recovery?.active !== false, replyModel: 'claude-opus-5', systemPrompt: 'test rules' }) },
     knowledgeChunk: { findFirst: async () => null, findMany: async () => [] },
-    buyerMemory: { findUnique: async () => null },
+    buyerMemory: { findUnique: async () => preferredLanguage ? { language: preferredLanguage } : null, upsert: async () => ({}) },
     buyerConversation: {
       findUnique: async () => ({ whatsappNumber: 'buyer-test', lastMessageAt: new Date(), cooldownUntil: recovery?.cooldown || (cooldown && ++conversationReads > 1 ? new Date(Date.now() + 60000) : null) }),
       upsert: async () => ({ id: 'conversation-test', isFirstTime: false }),
@@ -91,6 +91,11 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     $queryRaw: async () => timedFacts, $executeRaw: async () => 0,
   }
   const anthropic = { messages: { create: async body => {
+    if (body.messages?.[0]?.content?.startsWith('Rewrite this WhatsApp reply')) {
+      rewriteRequests.push(body)
+      if (rewriteThrows) throw Error('rewrite unavailable')
+      return { content: [{ type: 'text', text: rewriteReply || '' }], usage: { input_tokens: 4, output_tokens: 4 } }
+    }
     if (body.model.includes('haiku')) return { content: [{ type: 'text', text: 'ASSISTANT' }], usage: { input_tokens: 1, output_tokens: 1 } }
     requests.push(body)
     calls++
@@ -109,12 +114,45 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
   } else if (incomingText !== null) {
     await module.namespace.processIncomingMessage({ whatsappNumber: 'buyer-test', messages: [{ messageId: 'inbound-test', messageType: 'text', messageText: incomingText }], db, anthropic, settings: { isActive: true, dailyBudgetInr: 1500, systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' } })
   } else {
-    await module.namespace.runAiFlow({ whatsappNumber: 'buyer-test', mergedText: 'address kya hai', normalizedText: 'address kya hai', conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
+    await module.namespace.runAiFlow({ whatsappNumber: 'buyer-test', mergedText: buyerText, normalizedText: buyerText, conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
   }
-  return { sent, logs, errors, requests, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
+  return { sent, logs, errors, requests, rewriteRequests, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
 }
 
 const tests = [
+  ['short English contact request is repaired before actual transport', async () => {
+    const r = await runCase({ buyerText: 'Could I get contact information?', reply: 'Call kar lijiye sir 👉 1234567890', rewriteReply: 'Please call sir 👉 1234567890' })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, 'Please call sir 👉 1234567890')
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.ok(r.logs.at(-1).costUsd > 0)
+  }],
+  ['short answer inherits buyer English without inheriting assistant Hinglish', async () => {
+    const r = await runCase({ buyerText: 'Heavyweight', reply: 'Oversize hai sir', rewriteReply: 'Oversize is available sir', history: [{ buyerMessage: 'We need some shirts', aiReply: 'Kaunsa product chahiye?', status: 'REPLIED' }] })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, 'Oversize is available sir')
+  }],
+  ['current Hinglish answer is not rewritten because an earlier turn was English', async () => {
+    const r = await runCase({ buyerText: 'Mujhe heavyweight chahiye', reply: 'Oversize hai sir', history: [{ buyerMessage: 'We need some shirts', status: 'REPLIED' }] })
+    assert.equal(r.rewriteRequests.length, 0)
+    assert.equal(r.sent[0].message, 'Oversize hai sir')
+  }],
+  ['stored explicit Hindi preference survives an English-shaped contact ask', async () => {
+    const r = await runCase({ buyerText: 'Could I get contact information?', preferredLanguage: 'hindi', reply: 'Call kar lijiye sir' })
+    assert.equal(r.rewriteRequests.length, 0)
+  }],
+  ['rewrite failure preserves the original answer and delivery', async () => {
+    const r = await runCase({ buyerText: 'Could I get contact information?', reply: 'Call kar lijiye sir', rewriteThrows: true })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, 'Call kar lijiye sir')
+    assert.equal(r.logs.at(-1).status, 'REPLIED')
+  }],
+  ['English rewriting cannot override a guard-failure handoff', async () => {
+    const r = await runCase({ buyerText: 'Could I get contact information?', reply: 'Call kar lijiye sir', guardThrows: true })
+    assert.equal(r.rewriteRequests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'post_model_guard_failed')
+  }],
   ['startup recovery waits until a pre-restart question is due and sends through the real flow', async () => {
     const boot = Date.parse('2026-09-11T14:00:00Z')
     const r = await runCase({ reply: 'You can order samples from the website sir.', recovery: {
