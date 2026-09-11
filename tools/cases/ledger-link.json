@@ -1,0 +1,6 @@
+[
+  { "id": "ledger-hindi", "why": "Ketu 11-Sep: ledger asks go to the self-serve ledger page", "msg": "bhai mera pura ledger bhej do, saare bills chahiye shuru se", "must": ["ledger\\.html"], "mustNot": ["\\[DEFER\\]", "sale91\\.com/login"] },
+  { "id": "ledger-english", "why": "English statement ask -> ledger page", "msg": "Can you share my account statement with all my purchases since starting?", "must": ["ledger\\.html"], "mustNot": ["\\[DEFER\\]"] },
+  { "id": "ledger-purchase-summary", "why": "purchase summary phrasing", "msg": "mujhe apni saari purchase ka summary chahiye ek file me", "must": ["ledger\\.html"], "mustNot": ["\\[DEFER\\]"] },
+  { "id": "control-single-bill", "why": "CONTROL — a single recent bill ask must STILL go to the login link, not the ledger page", "msg": "bhai abhi wale order ka bill download nahi hua, bill bhej do", "must": ["sale91\\.com/login"], "mustNot": ["ledger\\.html"] }
+]
