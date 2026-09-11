@@ -4,7 +4,7 @@ import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
-import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt, resolveReplyModel, REPLY_MODEL_INFO, sendReplyViaWwbun, holdingLineJustSent, stampHoldingLine, isPureEnder } from './process.js'
+import { processIncomingMessage, schedulePendingFollowupRecovery, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt, resolveReplyModel, REPLY_MODEL_INFO, sendReplyViaWwbun, holdingLineJustSent, stampHoldingLine, isPureEnder } from './process.js'
 import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine, looksLikeTimingAnswer } from './stock-question.js'
 import { ensureLearningCandidates, validateLearningCandidate, markLearningPromoted, legacyCorrectionBackfillResponse } from './learning-candidates.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
@@ -3701,11 +3701,7 @@ console.log(`[digital-ketu2] Server running on port ${port}`)
 // Run initial sync check on startup
 runScheduledSync().catch(err => console.error('[Sync] Startup sync check failed:', err.message))
 
-// Recover welcome-followups dropped by this restart (in-memory timers don't survive a
-// redeploy). Delay ~25s so the server + DB are fully up before the sweep runs.
-setTimeout(() => {
-  recoverPendingFollowups({ db, anthropic }).catch(err => console.error('[FollowupRecovery] startup sweep failed:', err.message))
-}, 25000)
+schedulePendingFollowupRecovery({ db, anthropic, bootedAt: BOOTED_AT })
 
 // Note: old DeferToKetu cleanup removed — corrections now use KnowledgeChunk (CORRECTION source)
 // Threshold is user-configurable from Settings — do NOT reset on startup

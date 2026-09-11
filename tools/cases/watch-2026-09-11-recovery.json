@@ -1,0 +1,18 @@
+[
+  {
+    "id": "recovered-quantity-question",
+    "msg": "Bhaiya kitne pieces order kar sakte hain?",
+    "at": "2026-09-11T20:29:00+05:30",
+    "must": ["sample|1|ek|one", "sale91\\.com"],
+    "mustNot": ["\\[DEFER\\]|\\[SKIP\\]|Ketu will reply"],
+    "why": "A real purchase question recovered after a restart still needs the existing sample/minimum-quantity answer. Synthetic buyer text."
+  },
+  {
+    "id": "recovered-complaint-control",
+    "msg": "Maine parcel khola, tees mein holes hain. Refund kar do.",
+    "at": "2026-09-11T20:29:00+05:30",
+    "must": ["\\[DEFER\\]"],
+    "mustNot": ["refund (kar diya|done)|dispatching ASAP"],
+    "why": "Recovery must retain the existing handoff for a delivered-parcel complaint and refund decision."
+  }
+]

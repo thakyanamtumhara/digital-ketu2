@@ -5,14 +5,20 @@ import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], incomingText = null, catalogUnavailable = false, knowledge = [] } = {}) {
+async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], incomingText = null, catalogUnavailable = false, knowledge = [], recovery = null } = {}) {
   const sent = [], logs = [], errors = [], requests = []
+  const timers = [], recoveryQueries = []
+  let clock = recovery?.now ?? Date.now()
+  class TestDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [clock])) }
+    static now() { return clock }
+  }
   let calls = 0, conversationReads = 0
   const context = createContext({
     console: { log() {}, warn() {}, error(...args) { errors.push(args.join(' ')) } },
     process: { env: { WWBUN_API_URL: 'https://transport.invalid', DIGITAL_KETU_SECRET: 'test-only', OWNER_WHATSAPP: 'owner-test' } },
-    Buffer, URL, Date, AbortController, AbortSignal,
-    setTimeout(fn, ms) { if (ms < 30000) queueMicrotask(fn); return { unref() {} } },
+    Buffer, URL, Date: recovery ? TestDate : Date, AbortController, AbortSignal,
+    setTimeout(fn, ms) { if (recovery) timers.push({ fn, ms }); else if (ms < 30000) queueMicrotask(fn); return { unref() {} } },
     clearTimeout() {},
     fetch: async (url, options) => {
       if (String(url).startsWith('https://www.bulkplaintshirt.com/catalog/products.json?')) {
@@ -65,16 +71,21 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
   await module.evaluate()
   const db = {
     messageLog: { count: async () => 0, findMany: async query => {
+      if (recovery && query.where.deferReason === 'welcome_followup_scheduled') {
+        recoveryQueries.push(query)
+        const range = query.where.createdAt
+        return recovery.rows.filter(row => +row.createdAt >= +range.gte && +row.createdAt <= +range.lte && (!range.lt || +row.createdAt < +range.lt))
+      }
       if (!query.where.OR) return []
       assert.ok(query.where.OR.some(clause => clause.deferReason?.in.includes('manual_reply')))
       assert.ok(query.select.deferReason)
       return history.slice().reverse()
-    }, findFirst: async () => null, create: async ({ data }) => { logs.push(data); return { id: 'log-test', ...data } } },
-    settings: { update: async () => ({}) },
+    }, findFirst: async () => recovery?.laterLog || null, create: async ({ data }) => { logs.push(data); return { id: 'log-test', ...data } } },
+    settings: { update: async () => ({}), findUnique: async () => ({ isActive: recovery?.active !== false, replyModel: 'claude-opus-5', systemPrompt: 'test rules' }) },
     knowledgeChunk: { findFirst: async () => null, findMany: async () => [] },
     buyerMemory: { findUnique: async () => null },
     buyerConversation: {
-      findUnique: async () => ({ lastMessageAt: new Date(), cooldownUntil: cooldown && ++conversationReads > 1 ? new Date(Date.now() + 60000) : null }),
+      findUnique: async () => ({ whatsappNumber: 'buyer-test', lastMessageAt: new Date(), cooldownUntil: recovery?.cooldown || (cooldown && ++conversationReads > 1 ? new Date(Date.now() + 60000) : null) }),
       upsert: async () => ({ id: 'conversation-test', isFirstTime: false }),
     },
     $queryRaw: async () => timedFacts, $executeRaw: async () => 0,
@@ -86,15 +97,71 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     if (calls <= failCalls) throw Object.assign(Error('529 overloaded'), { status: 529 })
     return { content: [{ type: 'text', text: reply }], usage: { input_tokens: 10, output_tokens: 8 } }
   } } }
-  if (incomingText !== null) {
+  if (recovery) {
+    if (recovery.pending) module.namespace.pendingWelcomeFollowups.set('buyer-test', { timer: {}, mergedText: 'new question' })
+    if (recovery.direct) await module.namespace.recoverPendingFollowups({ db, anthropic, bootedAt: recovery.bootedAt })
+    else {
+      module.namespace.schedulePendingFollowupRecovery({ db, anthropic, bootedAt: recovery.bootedAt })
+      assert.equal(timers.length, 1)
+      clock += timers[0].ms
+      await timers[0].fn()
+    }
+  } else if (incomingText !== null) {
     await module.namespace.processIncomingMessage({ whatsappNumber: 'buyer-test', messages: [{ messageId: 'inbound-test', messageType: 'text', messageText: incomingText }], db, anthropic, settings: { isActive: true, dailyBudgetInr: 1500, systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' } })
   } else {
     await module.namespace.runAiFlow({ whatsappNumber: 'buyer-test', mergedText: 'address kya hai', normalizedText: 'address kya hai', conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
   }
-  return { sent, logs, errors, requests, pending: module.namespace.pendingDefers }
+  return { sent, logs, errors, requests, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
 }
 
 const tests = [
+  ['startup recovery waits until a pre-restart question is due and sends through the real flow', async () => {
+    const boot = Date.parse('2026-09-11T14:00:00Z')
+    const r = await runCase({ reply: 'You can order samples from the website sir.', recovery: {
+      now: boot, bootedAt: new Date(boot).toISOString(), rows: [{ id: 'scheduled-test', conversationId: 'conversation-test', buyerMessage: 'How many pieces can I order?', createdAt: new Date(boot - 19000), messageIds: ['original-inbound-test'] }],
+    } })
+    assert.ok(r.timerDelays[0] >= 60000)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.logs.at(-1).sentViaWwbun, true)
+    assert.deepEqual(Array.from(r.logs.at(-1).messageIds), ['original-inbound-test'])
+    assert.equal(r.requests[0].model, 'claude-opus-5')
+    assert.match(r.requests[0].messages[0].content, /How many pieces can I order/)
+  }],
+  ...[
+    ['an already completed follow-up', { laterLog: { id: 'completed-reply' } }],
+    ['a later manual answer even after its cooldown expires', { laterLog: { id: 'manual-reply' } }],
+    ['an active manual cooldown', { cooldown: new Date('2026-09-11T14:10:00Z') }],
+    ['an active welcome timer', { pending: true }],
+    ['disabled AI', { active: false }],
+  ].map(([name, extra]) => [`startup recovery leaves ${name} alone`, async () => {
+    const boot = Date.parse('2026-09-11T14:00:00Z')
+    const r = await runCase({ recovery: {
+      now: boot, bootedAt: new Date(boot).toISOString(), rows: [{ id: 'scheduled-test', conversationId: 'conversation-test', buyerMessage: 'How many pieces can I order?', createdAt: new Date(boot - 19000) }], ...extra,
+    } })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.requests.length, 0)
+  }]),
+  ...[
+    ['a timer scheduled at startup', 0],
+    ['a timer owned by the new process', 1000],
+    ['a stale question outside the recovery window', -16 * 60000],
+  ].map(([name, offset]) => [`startup recovery excludes ${name}`, async () => {
+    const boot = Date.parse('2026-09-11T14:00:00Z')
+    const r = await runCase({ recovery: {
+      now: boot, bootedAt: new Date(boot).toISOString(), rows: [{ id: 'scheduled-test', conversationId: 'conversation-test', buyerMessage: 'How many pieces can I order?', createdAt: new Date(boot + offset) }],
+    } })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.requests.length, 0)
+  }]),
+  ['startup recovery sends one free greeting for duplicate scheduled rows', async () => {
+    const boot = Date.parse('2026-09-11T14:00:00Z')
+    const r = await runCase({ recovery: {
+      now: boot, bootedAt: new Date(boot).toISOString(), rows: [-19000, -21000].map((offset, i) => ({ id: `scheduled-${i}`, conversationId: 'conversation-test', buyerMessage: 'Hello', createdAt: new Date(boot + offset) })),
+    } })
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.logs.at(-1).deferReason, 'welcome_followup_recovered_generic')
+  }],
   ['runtime omits an unnamed timing fact and preserves a named launch estimate', async () => {
     const date = new Date(Date.now() + 19800000).toISOString().slice(0, 10)
     const r = await runCase({ timedFacts: [

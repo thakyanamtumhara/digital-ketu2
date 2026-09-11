@@ -2584,8 +2584,14 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
 // timer's own logic. Guards: AI must be active; cooldown (Ketu intervened) skips so we
 // never talk over a manual reply; only the latest scheduled row per conversation; bounded
 // time window + count. Firing writes a log, so it won't re-fire on the next boot.
-export async function recoverPendingFollowups({ db, anthropic }) {
+export function schedulePendingFollowupRecovery({ db, anthropic, bootedAt }) {
+  return setTimeout(() => recoverPendingFollowups({ db, anthropic, bootedAt }), WELCOME_FOLLOWUP_DELAY_MS + 25000)
+}
+
+export async function recoverPendingFollowups({ db, anthropic, bootedAt }) {
   try {
+    const restartAt = new Date(bootedAt)
+    if (!Number.isFinite(restartAt.getTime())) throw new Error('Missing recovery boot time')
     const settings = await db.settings.findUnique({ where: { id: 'default' } })
     if (!settings?.isActive) {
       console.log('[FollowupRecovery] AI inactive — skipping sweep')
@@ -2600,10 +2606,10 @@ export async function recoverPendingFollowups({ db, anthropic }) {
     const scheduled = await db.messageLog.findMany({
       where: {
         deferReason: 'welcome_followup_scheduled',
-        createdAt: { gte: windowStart, lte: fireBefore },
+        createdAt: { gte: windowStart, lte: fireBefore, lt: restartAt },
       },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, conversationId: true, buyerMessage: true, createdAt: true },
+      select: { id: true, conversationId: true, buyerMessage: true, createdAt: true, messageIds: true },
     })
     if (!scheduled.length) { console.log('[FollowupRecovery] none pending'); return }
 
@@ -2628,6 +2634,7 @@ export async function recoverPendingFollowups({ db, anthropic }) {
         select: { whatsappNumber: true, cooldownUntil: true },
       })
       if (!convo?.whatsappNumber) { skipped++; continue }
+      if (pendingWelcomeFollowups.has(convo.whatsappNumber)) { skipped++; continue }
       // Ketu replied manually → /api/intervention set a cooldown → don't talk over him
       if (convo.cooldownUntil && new Date() < new Date(convo.cooldownUntil)) { skipped++; continue }
 
@@ -2635,7 +2642,7 @@ export async function recoverPendingFollowups({ db, anthropic }) {
       try {
         if (isGenericMessage(mergedText) || GREETING_PHRASE_RE.test(mergedText)) {
           const sendResult = await sendReplyViaWwbun(convo.whatsappNumber, WELCOME_FOLLOWUP_GENERIC, 'Rule')
-          await createLog(db, row.conversationId, mergedText, [], {
+          await createLog(db, row.conversationId, mergedText, row.messageIds || [], {
             status: 'REPLIED', aiReply: WELCOME_FOLLOWUP_GENERIC,
             deferReason: 'welcome_followup_recovered_generic', processingMs: 0,
             sentViaWwbun: !!sendResult, wwbunMessageId: sendResult?.messageId || null,
@@ -2644,7 +2651,7 @@ export async function recoverPendingFollowups({ db, anthropic }) {
           await runAiFlow({
             whatsappNumber: convo.whatsappNumber, mergedText, quotedText: null,
             conversationId: row.conversationId, normalizedText: mergedText.trim().toLowerCase(),
-            db, anthropic, settings, startTime: now, messageIds: [],
+            db, anthropic, settings, startTime: now, messageIds: row.messageIds || [],
           })
         }
         recovered++
