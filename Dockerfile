@@ -12,6 +12,8 @@ COPY . .
 # Generate Prisma client
 RUN bun run db:generate
 
+RUN bun tools/check.mjs
+
 # Build dashboard frontend
 RUN bun run build
 

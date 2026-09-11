@@ -1,4 +1,4 @@
-const src = (await import('fs')).readFileSync('/Users/ankit/Projects/digital-ketu2/server/process.js','utf8')
+const src = (await import('fs')).readFileSync(new URL('../server/process.js', import.meta.url),'utf8')
 const start = src.indexOf('const DISPATCH_VERB =')
 const end = src.indexOf('// --- Instagram link spacing floor')
 const f = new Function(src.slice(start,end) + '; return scrubDispatchClock')()

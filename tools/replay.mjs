@@ -65,31 +65,33 @@ const catalogBlock = lines.length ? `AUTHORITATIVE CATALOG — the COMPLETE, cur
 // ---- optional per-case blocks ----
 const { getStockSnapshot, formatStockBlock, resolveUnnamedProduct } = await import('../server/stock-lookup.js')
 const { getPhotoIndex, formatPhotoBlock } = await import('../server/photo-links.js')
-const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysGuard, bigBuyerDiscountGuard } = await import('../server/process.js')
+const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysGuard, bigBuyerDiscountGuard, formatConversationHistory } = await import('../server/process.js')
 const { catalogProductsFromChunks, gsmAmbiguityHint } = await import('../server/gsm-hint.js')
 const catalogProducts = catalogProductsFromChunks(cat.chunks || cat.items || [])
 let stockBlock = null, photoBlock = null, stockSnapshot = null
 const cases = JSON.parse(readFileSync(file, 'utf8')).filter(c => !ONLY.length || ONLY.includes(c.id))
 const tfRes = await api('/api/knowledge/chunks?source=TIMED_FACT&pageSize=8').catch(() => null)
 const timedFacts = ((tfRes && (tfRes.chunks || tfRes.items)) || []).map(c => ({ content: c.content })) // mirrors fetchTimedFacts (2026-09-08)
-if (cases.some(c => c.stock)) { stockSnapshot = await getStockSnapshot(); stockBlock = formatStockBlock(stockSnapshot, { timedFacts }) }
+if (cases.some(c => c.stock && !c.stockSnapshot)) { stockSnapshot = await getStockSnapshot(); stockBlock = formatStockBlock(stockSnapshot, { timedFacts }) }
 if (cases.some(c => c.photo)) photoBlock = formatPhotoBlock(await getPhotoIndex())
 
 function userPromptFor(c) {
+  const caseTimedFacts = c.timedFacts || timedFacts
+  const caseSnapshot = c.stockSnapshot || stockSnapshot
+  const caseStockBlock = c.stockSnapshot ? formatStockBlock(c.stockSnapshot, { timedFacts: caseTimedFacts }) : stockBlock
   let p = ''
   if (c.history && c.history.length) {
-    p += 'RECENT CONVERSATION:\n'
-    for (const h of c.history) p += h.deferred ? `Buyer: ${h.buyer}\n[DEFERRED TO KETU — Ketu is handling this]\n\n` : `Buyer: ${h.buyer}\nAssistant: ${h.ai}\n\n`
+    p += formatConversationHistory(c.history.map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.deferred ? 'DEFERRED' : (h.manual || h.silent ? 'SKIPPED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : (h.silent ? 'ai_chose_silence' : null), createdAt: h.at })))
   }
   p += `BUYER'S NEW MESSAGE:\n${c.msg}\n\nReply as Ketu's assistant:`
   p = istTimeBlock(c.at ? Date.parse(c.at) : Date.now()) + p // mirrors buildUserPrompt; case.at = ISO with +05:30 to pin a moment
   if (c.winter) p = `❄️ WINTER STOCK LINE (the seasonal restock answer for hoodie / sweatshirt / zip-hoodie / any winter item, computed for today's date in Ketu's words — relay it for a winter restock-timing ask unless a ⏰ entry above or a 📦 LIVE STOCK DATA in-stock listing answers more specifically; never add a date of your own): "${winterStockLine()}"\n\n${p}`
   if (c.photo && photoBlock) p = photoBlock + '\n\n' + p
-  if (c.stock && stockBlock) {
-    const unnamed = resolveUnnamedProduct(stockSnapshot, c.msg) // mirrors runAiFlow (2026-09-05)
-    p = stockBlock + (unnamed ? '\n' + unnamed : '') + '\n\n' + p
+  if (c.stock && caseStockBlock) {
+    const unnamed = resolveUnnamedProduct(caseSnapshot, c.msg) // mirrors runAiFlow (2026-09-05)
+    p = caseStockBlock + (unnamed ? '\n' + unnamed : '') + '\n\n' + p
   }
-  if (timedFacts.length) p = `⏰ KETU'S RECENT TIMING ANSWERS (his OWN words to buyers in the last few days — EACH ENTRY APPLIES ONLY TO THE PRODUCT AND COLOUR NAMED IN IT: never carry one colour's or product's timing over to another (2026-09-08: '240 red 8-9 din' was reused for KIDS red, which has no shipment) — each entry SUPERSEDES any seasonal default ("Winter stock after September"), Coming-Soon pointer, no-date ban, stale-correction ban, or older correction about the SAME product's timing. Relay HIS stated timing in his style, adjusting for days already passed — today is ${new Date().toISOString().slice(0, 10)}):\n${timedFacts.map(f => '- ' + f.content).join('\n')}\n\n${p}` // mirrors runAiFlow
+  if (caseTimedFacts.length) p = `⏰ KETU'S RECENT TIMING ANSWERS (his OWN words to buyers in the last few days — EACH ENTRY APPLIES ONLY TO THE PRODUCT AND COLOUR NAMED IN IT: never carry one colour's or product's timing over to another (2026-09-08: '240 red 8-9 din' was reused for KIDS red, which has no shipment) — each entry SUPERSEDES any seasonal default ("Winter stock after September"), Coming-Soon pointer, no-date ban, stale-correction ban, or older correction about the SAME product's timing. Relay HIS stated timing in his style, adjusting for days already passed — today is ${new Date().toISOString().slice(0, 10)}):\n${caseTimedFacts.map(f => '- ' + f.content).join('\n')}\n\n${p}` // mirrors runAiFlow
   if (EXPORT_ASK_RE.test(c.msg)) p = EXPORT_HINT + '\n\n' + p // mirrors runAiFlow (2026-09-05)
   const gsmHint = gsmAmbiguityHint(catalogProducts, c.msg) // mirrors runAiFlow (2026-09-06)
   if (gsmHint) p = gsmHint + '\n\n' + p

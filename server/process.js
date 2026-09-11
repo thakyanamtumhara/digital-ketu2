@@ -1058,7 +1058,10 @@ export const REPLY_MODEL_INFO = { allow: REPLY_MODEL_ALLOW, default: REPLY_MODEL
 let extendedCacheTtlRetryAt = 0
 let lastBudgetTripAlertAt = 0  // once-per-trip owner alert when the daily budget exhausts
 let lastBrainDownAlertAt = 0   // once-per-outage owner alert when the Anthropic API is down (credits/billing)
-const USD_TO_INR = 85
+export function replySpendInr(settings) {
+  const rate = Number(settings.usdToInr) > 0 ? Number(settings.usdToInr) : 88
+  return (Number(settings.dailySpentUsd) || 0) * rate
+}
 
 /**
  * Main processing function — called after message merge window closes
@@ -1788,7 +1791,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   // --- Check: Daily budget ---
-  const dailySpentInr = settings.dailySpentUsd * USD_TO_INR
+  const dailySpentInr = replySpendInr(settings)
   if (dailySpentInr >= settings.dailyBudgetInr) {
     // Budget exhausted — NEVER go silent (2026-07-18: budget tripped 01:30 IST, reset 05:30 IST
     // (UTC midnight), and 19 buyers — including a collar-defect complaint — got DEAD AIR for 4h;
@@ -3184,11 +3187,14 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   const recentLogs = await db.messageLog.findMany({
     where: {
       conversationId,
-      status: { in: ['REPLIED', 'DEFERRED'] },
+      OR: [
+        { status: { in: ['REPLIED', 'DEFERRED'] } },
+        { deferReason: { in: ['manual_reply', 'ai_chose_silence'] } },
+      ],
     },
     orderBy: { createdAt: 'desc' },
-    take: 5,
-    select: { buyerMessage: true, aiReply: true, status: true },
+    take: 12,
+    select: { buyerMessage: true, aiReply: true, status: true, deferReason: true, createdAt: true },
   })
   const conversationHistory = recentLogs.reverse()
 
@@ -3500,9 +3506,9 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   // reply died with "replyModel is not defined" — the buyer saw the "DK2 is replying" badge and
   // then nothing, because the throw happened before any log row was written.
   const replyModel = resolveReplyModel(settings)
+  const userMessages = [{ role: 'user', content: imageBlock ? [imageBlock, { type: 'text', text: userPrompt }] : userPrompt }]
 
   try {
-    const userMessages = [{ role: 'user', content: imageBlock ? [imageBlock, { type: 'text', text: userPrompt }] : userPrompt }]
     // Buyer-reply brain — switchable from wwbun (Settings.replyModel), allow-listed to Opus-tier.
     // thinking:disabled keeps EVERY model terse (mandatory on Opus 5, which thinks-on by default).
     let response
@@ -3688,7 +3694,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     return
   }
 
-  // POST-MODEL GUARDS — all wrapped in one try: a bug in any guard degrades to the raw reply, never to no reply.
+  let postModelGuardFailed = false
   try {
   // --- PAYMENT-FIX FABRICATION GUARD (2026-09-04) ---
   // The prompt has banned invented payment troubleshooting since 2026-08-13 ("NEVER invent retry
@@ -3736,9 +3742,9 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     aiReply = '[DEFER]'
   }
   } catch (guardErr) {
-    // A guard bug must never cost the buyer the reply (2026-09-09 13:51-15:41: a scope error here failed
-    // every reply for 1h48m). Log loudly, keep the unguarded model reply.
-    console.error(`[Guards] ${whatsappNumber} — post-model guard threw, sending the unguarded reply:`, guardErr?.message || guardErr)
+    postModelGuardFailed = true
+    aiReply = '[DEFER]'
+    console.error(`[Guards] ${whatsappNumber} — post-model guard threw, deferring for review:`, guardErr?.message || guardErr)
   }
 
   // --- DISPATCH-ACK DEFER OVERRIDE (audit 2026-08-13) ---
@@ -3752,7 +3758,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   // carries a real answer and a held question — the partial path below sends the answer and
   // schedules the holding line; overriding it here would drop both (review finding).
   const deferSplit = partialDeferSplit(aiReply)
-  if (deferSplit.isDefer && !deferSplit.isPartial) {
+  if (!postModelGuardFailed && deferSplit.isDefer && !deferSplit.isPartial) {
     const DISPATCH_BLOCK_RE = /nahi|nhi\b|\bnot\b|abhi\s*tak|cancel|return|wapas|refund|complaint|damage|ref:\s*wo_|total\s*\d+\s*pcs|kyu\b|why/i
     const DISPATCH_YESNO_RE = /\b(aa?j|kal|abhi|today|tomorrow)\b[^]{0,40}\b(dispatch|nika?l|bhej)[^]{0,25}(hoga|hogi|jayega|jaega|\bna\b|\?)|\bdispatch\s*(hoga|ho\s*jayega)\b/i
     const DISPATCH_INSTRUCT_RE = /(nikal\s*wa|nikalwa|nikla?wa|bhij\s*wa|bhijwa|rakh\s*wa|rakhwa|porter\s*kar[wv]a)\s*(de?na|di?jiye|do\b|dena)|dispatch\s*(kar|kr)[wv]a\s*(dena|do|dijiye)|(aa?j|kal)[^]{0,20}(bhijwa|nikalwa|rakhwa)\s*(dena|dijiye|do)/i
@@ -3794,7 +3800,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId,
         mergedText, messageIds, logData: {
-          status: 'DEFERRED', deferReason: split.isPartial ? 'claude_partial_defer' : 'claude_deferred',
+          status: 'DEFERRED', deferReason: postModelGuardFailed ? 'post_model_guard_failed' : (split.isPartial ? 'claude_partial_defer' : 'claude_deferred'),
           // A partial's spend sits on its REPLIED row; zero here so messageLog sums do not double-count.
           promptTokens: split.isPartial ? 0 : promptTokens, completionTokens: split.isPartial ? 0 : completionTokens,
           totalTokens: split.isPartial ? 0 : totalTokens, costUsd: split.isPartial ? 0 : costUsd,
@@ -4029,6 +4035,7 @@ export function istTimeBlock(nowMs = Date.now()) {
   const _hhmmIST = _nowIST.toISOString().slice(11, 16)
   const _istHour = _nowIST.getUTCHours()
   const _outsideCallingHours = _istHour >= 20 || _istHour < 10
+  const _nextCallDay = _istHour < 10 ? 'today' : 'tomorrow'
   // GODAM OPEN/CLOSED (2026-09-06): Sunday 11:00–16:00, other days 10:00–18:00 (the address line's
   // hours). On a Sunday at 18:45 IST the clone told a buyer whose order landed at 17:51 "It will
   // ship out today" — Ketu had to correct it himself ("chaar baje band ho jata hai, Sunday 11 se 4").
@@ -4037,6 +4044,7 @@ export function istTimeBlock(nowMs = Date.now()) {
   const _minutes = _istHour * 60 + _nowIST.getUTCMinutes()
   const _open = _dow === 0 ? [11 * 60, 16 * 60] : [10 * 60, 18 * 60]
   const _godamOpen = _minutes >= _open[0] && _minutes < _open[1]
+  const _beforeGodamOpening = _minutes < _open[0]
   const _todayHours = _dow === 0 ? '11am–4pm (Sunday)' : '10am–6pm'
   // NATIONAL HOLIDAY CAUTION (2026-08-15): on Independence Day the clone answered "aaj 10am-6pm
   // khula hai" and promised same-day dispatch THREE times to one buyer; Ketu's own replies were
@@ -4046,12 +4054,41 @@ export function istTimeBlock(nowMs = Date.now()) {
   const _FIXED_HOLIDAYS = { '01-26': 'Republic Day', '08-15': 'Independence Day', '10-02': 'Gandhi Jayanti' }
   const _todayHoliday = _FIXED_HOLIDAYS[_nowIST.toISOString().slice(5, 10)]
   const _tomHoliday = _FIXED_HOLIDAYS[_tomIST.toISOString().slice(5, 10)]
-  prompt += `TODAY (IST): ${_DAYS[_dow]}, ${_nowIST.toISOString().slice(0, 10)}. TOMORROW (IST): ${_DAYS[_tomIST.getUTCDay()]}. TIME RIGHT NOW (IST): ${_hhmmIST}${_outsideCallingHours ? ' — OUTSIDE CALLING HOURS (10:00–20:00), so any call answer MUST say to call tomorrow after 10am, per the CONTACT/CALL rule' : ' — within calling hours (10:00–20:00)'}. GODAM RIGHT NOW: ${_godamOpen ? 'OPEN' : 'CLOSED'} (today\'s hours ${_todayHours})${_godamOpen ? '' : ' — so NO same-day dispatch / "aaj hi nikal jayega" promise: it goes out when the godam next opens ("kal nikal jayega sir 🚚 — aaj godam band ho gaya"; Sunday evening → Monday)'}. (Use this ONLY for date/time-relative questions like store hours, dispatch day or a call request — never volunteer the date or time unprompted.)\n`
+  const _callingNote = _outsideCallingHours ? ` — OUTSIDE CALLING HOURS (10:00–20:00), so any call answer MUST say to call ${_nextCallDay} after 10am` : ' — within calling hours (10:00–20:00)'
+  const _closedNote = _godamOpen ? '' : (_beforeGodamOpening
+    ? ` — NOT OPEN YET: opens TODAY at ${_dow === 0 ? '11am' : '10am'}. Do not say the day is over or push a morning caller/visitor to tomorrow; do not claim dispatch has already happened`
+    : ' — so NO same-day dispatch / "aaj hi nikal jayega" promise: it goes out when the godam next opens ("kal nikal jayega sir 🚚 — aaj godam band ho gaya"; Sunday evening → Monday)')
+  prompt += `TODAY (IST): ${_DAYS[_dow]}, ${_nowIST.toISOString().slice(0, 10)}. TOMORROW (IST): ${_DAYS[_tomIST.getUTCDay()]}. TIME RIGHT NOW (IST): ${_hhmmIST}${_callingNote}. GODAM RIGHT NOW: ${_godamOpen ? 'OPEN' : 'CLOSED'} (today\'s hours ${_todayHours})${_closedNote}. (Use this ONLY for date/time-relative questions like store hours, dispatch day or a call request — never volunteer the date or time unprompted.)\n`
   if (_todayHoliday || _tomHoliday) {
     const which = _todayHoliday ? `TODAY is ${_todayHoliday}` : `TOMORROW is ${_tomHoliday}`
     prompt += `⚠️ PUBLIC HOLIDAY: ${which} (national holiday in India). Timings, dispatch and courier pickup are often different or off, and you do NOT know today's actual plan. So for THIS day do NOT state the normal opening hours as fact, do NOT promise same-day dispatch, and do NOT promise a delivery boy / pickup will come. Say it plainly and let Ketu confirm: "Aaj ${_todayHoliday || _tomHoliday} hai sir, timing aur dispatch ka Ketu confirm kar denge 🙏" (or [DEFER]). If AAJ KA NOTE above states the day's plan, that note WINS over this caution — follow it.\n`
   }
   prompt += `\n`
+  return prompt
+}
+
+export function sanitizeConversationMessage(text) {
+  const value = String(text || '')
+  const credentials = /\b(password|passwd)\b\s*[:=]\s*\S+|\b(?:password|passwd)\s+(?:is\s+)?(?=\S*\d)\S+|\botp\b\s*[:=-]?\s*\d{3,8}\b|\b(?:upi\s+pin|atm\s+pin|card\s+pin|mpin)\b\s*[:=-]?\s*\d{3,8}\b|\bpin\s*[:=]\s*\d{4}\b|\b(?:ifsc|a\/?c|account)\s*(?:no\.?|number)?\s*[:=-]?\s*(?=[A-Z0-9]*\d)[A-Z0-9]{4,}|\b[A-Z]{4}0[A-Z0-9]{6}\b|\b[\w.+-]+@(?:ok\w*|ybl|ibl|axl|paytm|upi|apl|sbi|icici|hdfcbank)\b/i
+  if (credentials.test(value)) return '[Payment or login details were shared privately; do not repeat credentials]'
+  return sanitizeChunk(value).replace(/\bRV-[A-Z0-9-]+\b/gi, '[private voucher supplied by Ketu]')
+}
+
+export function formatConversationHistory(conversationHistory) {
+  if (!conversationHistory.length) return ''
+  let prompt = 'RECENT CONVERSATION (old messages provide context; current catalog and live stock remain the source for prices and availability):\n'
+  for (const msg of conversationHistory) {
+    if (msg.deferReason === 'manual_reply') {
+      const at = msg.createdAt ? `, ${new Date(msg.createdAt).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' })} IST` : ''
+      if (msg.aiReply) prompt += `Ketu (manual reply${at}): ${sanitizeConversationMessage(msg.aiReply)}\n\n`
+    } else if (msg.status === 'DEFERRED') {
+      prompt += `Buyer: ${sanitizeConversationMessage(msg.buyerMessage)}\n[DEFERRED TO KETU — Ketu is handling this]\n\n`
+    } else if (msg.deferReason === 'ai_chose_silence') {
+      prompt += `Buyer: ${sanitizeConversationMessage(msg.buyerMessage)}\n[No reply was sent for this message]\n\n`
+    } else {
+      prompt += `Buyer: ${sanitizeConversationMessage(msg.buyerMessage)}\nAssistant: ${sanitizeConversationMessage(msg.aiReply)}\n\n`
+    }
+  }
   return prompt
 }
 
@@ -4090,17 +4127,7 @@ function buildUserPrompt({ mergedText, knowledgeResults, stylePairResults, conve
     prompt += '\n'
   }
 
-  // Conversation history
-  if (conversationHistory.length > 0) {
-    prompt += `RECENT CONVERSATION:\n`
-    for (const msg of conversationHistory) {
-      if (msg.status === 'DEFERRED') {
-        prompt += `Buyer: ${msg.buyerMessage}\n[DEFERRED TO KETU — Ketu is handling this]\n\n`
-      } else {
-        prompt += `Buyer: ${msg.buyerMessage}\nAssistant: ${msg.aiReply}\n\n`
-      }
-    }
-  }
+  prompt += formatConversationHistory(conversationHistory)
 
   // Quoted context (buyer replied to a previous message)
   if (quotedText) {

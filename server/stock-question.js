@@ -15,12 +15,10 @@ export function isDeferLine(text) {
 // When he answers an earlier message, a voice note, or a photo, the pair is wrong — "yes send qr"
 // → "XXL add kar raha hoon" landed on 2026-09-02 08:50 IST, and the audit found 12 more. Stored,
 // such a row is boosted in retrieval and injected as Ketu's own rule for THAT buyer text.
-// One cheap Haiku yes/no before the write (~₹0.05). FAIL-OPEN: any API error → true (store as
-// before), so a Haiku outage never silences learning. Pass a fake `anthropic` in tests.
-export async function replyAnswersBuyer(anthropic, buyerText, ketuReply) {
+export async function assessReplyPair(anthropic, buyerText, ketuReply) {
   const b = String(buyerText || '').trim().slice(0, 600)
   const k = String(ketuReply || '').trim().slice(0, 600)
-  if (!b || !k) return false
+  if (!b || !k) return { verdict: 'rejected', reason: 'missing_text' }
   try {
     const resp = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -28,11 +26,18 @@ export async function replyAnswersBuyer(anthropic, buyerText, ketuReply) {
       messages: [{ role: 'user', content: `A wholesale t-shirt seller (Ketu) replies to buyers on WhatsApp in Hinglish / Hindi / English; his Hindi is often a rough voice-note transcript. Decide whether his REPLY is a direct answer or response to THIS buyer text — the same topic, as a reply to it. It is NOT a match when the reply plainly addresses something else (an earlier question, a photo we cannot see, a different product, a payment step the buyer never mentioned), or when the buyer text is itself one of our own outbound lines.\n\nBUYER TEXT:\n${b}\n\nKETU'S REPLY:\n${k}\n\nAnswer with exactly one word: YES or NO.` }],
     })
     const t = (resp.content?.[0]?.text || '').trim().toUpperCase()
-    return !/^NO\b/.test(t)
+    if (resp.stop_reason && resp.stop_reason !== 'end_turn') return { verdict: 'pending', reason: 'incomplete_validator_response' }
+    if (t === 'YES') return { verdict: 'accepted', reason: 'same_topic' }
+    if (/^NO[.!]?$/.test(t)) return { verdict: 'rejected', reason: 'different_topic' }
+    return { verdict: 'pending', reason: 'ambiguous_validator_response' }
   } catch (err) {
-    console.error('[CorrectionGuard] replyAnswersBuyer failed open:', err.message)
-    return true
+    console.error('[CorrectionGuard] pairing validation unavailable')
+    return { verdict: 'pending', reason: 'validator_unavailable' }
   }
+}
+
+export async function replyAnswersBuyer(anthropic, buyerText, ketuReply) {
+  return (await assessReplyPair(anthropic, buyerText, ketuReply)).verdict === 'accepted'
 }
 
 // A voice note that transcribed badly. Ketu's Hindi replies sometimes come back with stray Greek /

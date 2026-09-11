@@ -91,6 +91,7 @@ t('MISS 10:59: Red 240 → Ketu 8-9 din', (timedFactFor(F, 'Oversize 240gsm', 'R
 t('Off-white 240 also covered', !!timedFactFor(F, 'Oversize 240gsm', 'Off-white'), true)
 t('Black 240 not covered (fact names colours)', timedFactFor(F, 'Oversize 240gsm', 'Black'), null)
 t('grey cotton polo covered', !!timedFactFor(F, 'Cotton Polo', 'Grey'), true)
+t('generic grey polo cannot choose cotton SKU', timedFactFor([{ content: '[stated 2026-09-10] Buyer asked: "Polo grey restock kab?" — Ketu\'s answer: "8-9 din mein"' }], 'Cotton Polo', 'Grey'), null)
 t('navy cotton polo not covered', timedFactFor(F, 'Cotton Polo', 'Navy'), null)
 t('sweatshirt not covered by polo/240 facts', timedFactFor(F, 'Sweatshirt', 'Navy'), null)
 const snapTF = { inStock: { 'Oversize 240gsm': { Red: { S: 1, M: 1, XL: 1 } } }, oos: { 'Oversize 240gsm': { Red: 'S,M' } }, coming: {}, fetchedAt: 0 }

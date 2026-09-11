@@ -1,0 +1,166 @@
+[
+  {
+    "stock": true,
+    "at": "2026-09-11T12:00:00+05:30",
+    "id": "timing-white-must-not-borrow-offwhite",
+    "why": "Synthetic regression: one Off-white timed answer must not grant an ETA to White with no matching shipment.",
+    "stockSnapshot": {
+      "inStock": {
+        "Oversize 240gsm": {
+          "White": {
+            "S": 1,
+            "M": 1
+          },
+          "Off-white": {
+            "S": 1,
+            "M": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "White": "M",
+          "Off-white": "M"
+        }
+      },
+      "coming": {},
+      "fetchedAt": 1789108200000
+    },
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-11] Buyer asked: \"240 gsm oversized Off-white restock kab aayega?\" — Ketu's answer: \"8-9 din mein aayega sir\""
+      }
+    ],
+    "msg": "Sir 240 gsm oversized White M ka hi restock time batana, doosra colour nahi chahiye. Kab aayega?",
+    "mustNot": [
+      "\\b(?:8|9|eight|nine)\\b[^.]{0,35}\\b(?:din|days?|week)|\\b(?:week|hafte|hafta)\\b",
+      "\\b\\d{1,2}\\s*(?:-|to|se|–)?\\s*\\d*\\s*(?:din|days?)\\b"
+    ]
+  },
+  {
+    "stock": true,
+    "at": "2026-09-11T12:00:00+05:30",
+    "id": "control-timing-offwhite-keeps-own-answer",
+    "why": "CONTROL: the explicitly matching Off-white timing remains available.",
+    "stockSnapshot": {
+      "inStock": {
+        "Oversize 240gsm": {
+          "White": {
+            "S": 1,
+            "M": 1
+          },
+          "Off-white": {
+            "S": 1,
+            "M": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "White": "M",
+          "Off-white": "M"
+        }
+      },
+      "coming": {},
+      "fetchedAt": 1789108200000
+    },
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-11] Buyer asked: \"240 gsm oversized Off-white restock kab aayega?\" — Ketu's answer: \"8-9 din mein aayega sir\""
+      }
+    ],
+    "msg": "Sir 240 gsm oversized Off-white M kab restock hoga?",
+    "must": [
+      "(?:8|9|eight|nine)[^.]{0,25}(?:din|day)"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "stock": true,
+    "at": "2026-09-11T12:00:00+05:30",
+    "id": "timing-bio-must-not-borrow-truebio",
+    "why": "Synthetic regression: True Bio timing cannot be attached to Bio Rneck.",
+    "stockSnapshot": {
+      "inStock": {
+        "Bio Rneck": {
+          "Red": {
+            "42": 1,
+            "44": 1
+          }
+        },
+        "True Bio Rneck": {
+          "Red": {
+            "42": 1,
+            "44": 1
+          }
+        }
+      },
+      "oos": {
+        "Bio Rneck": {
+          "Red": "44"
+        },
+        "True Bio Rneck": {
+          "Red": "44"
+        }
+      },
+      "coming": {},
+      "fetchedAt": 1789108200000
+    },
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-11] Buyer asked: \"True Bio Rneck Red 44 restock kab aayega?\" — Ketu's answer: \"8-9 din mein aayega sir\""
+      }
+    ],
+    "msg": "Sir Bio Rneck Red 44 ka hi restock time batana. Kab aayega?",
+    "mustNot": [
+      "\\b(?:8|9|eight|nine)\\b[^.]{0,35}\\b(?:din|days?|week)|\\b(?:week|hafte|hafta)\\b",
+      "\\b\\d{1,2}\\s*(?:-|to|se|–)?\\s*\\d*\\s*(?:din|days?)\\b"
+    ]
+  },
+  {
+    "stock": true,
+    "at": "2026-09-11T12:00:00+05:30",
+    "id": "control-timing-truebio-keeps-own-answer",
+    "why": "CONTROL: the exact True Bio product and colour retain their human timing.",
+    "stockSnapshot": {
+      "inStock": {
+        "Bio Rneck": {
+          "Red": {
+            "42": 1,
+            "44": 1
+          }
+        },
+        "True Bio Rneck": {
+          "Red": {
+            "42": 1,
+            "44": 1
+          }
+        }
+      },
+      "oos": {
+        "Bio Rneck": {
+          "Red": "44"
+        },
+        "True Bio Rneck": {
+          "Red": "44"
+        }
+      },
+      "coming": {},
+      "fetchedAt": 1789108200000
+    },
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-11] Buyer asked: \"True Bio Rneck Red 44 restock kab aayega?\" — Ketu's answer: \"8-9 din mein aayega sir\""
+      }
+    ],
+    "msg": "Sir True Bio Rneck Red 44 kab restock hoga?",
+    "must": [
+      "(?:8|9|eight|nine)[^.]{0,25}(?:din|day)"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ]
+  }
+]

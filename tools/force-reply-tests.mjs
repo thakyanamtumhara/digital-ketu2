@@ -1,5 +1,5 @@
 // Regression: the restraint gate's FORCE_REPLY_RE — requests that must never be silenced.
-const src = (await import('fs')).readFileSync('/Users/ankit/Projects/digital-ketu2/server/process.js', 'utf8')
+const src = (await import('fs')).readFileSync(new URL('../server/process.js', import.meta.url), 'utf8')
 const m = src.match(/const FORCE_REPLY_RE = (\/[\s\S]*?\/i)\n/)
 if (!m) { console.error('FORCE_REPLY_RE not found'); process.exit(2) }
 const RE = new Function('return ' + m[1])()

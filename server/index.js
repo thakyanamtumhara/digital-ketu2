@@ -5,7 +5,8 @@ import { serveStatic } from 'hono/bun'
 import { PrismaClient } from '@prisma/client'
 import Anthropic from '@anthropic-ai/sdk'
 import { processIncomingMessage, recoverPendingFollowups, DEFAULT_SYSTEM_PROMPT, pendingWelcomeFollowups, pendingDefers, cacheTouch, fallbackState, IG_BUSINESS_ID, IG_VERIFY_TOKEN, notifyOwner, notifySkippedViaWwbun, lastReplySentAt, resolveReplyModel, REPLY_MODEL_INFO, sendReplyViaWwbun, holdingLineJustSent, stampHoldingLine, isPureEnder } from './process.js'
-import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine, hasGarbledTranscript, replyAnswersBuyer, looksLikeTimingAnswer } from './stock-question.js'
+import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine, looksLikeTimingAnswer } from './stock-question.js'
+import { ensureLearningCandidates, validateLearningCandidate, markLearningPromoted, legacyCorrectionBackfillResponse } from './learning-candidates.js'
 import { syncSavedReplies, syncCatalog, syncStylePairs } from './sync.js'
 import { scanFollowupCandidates, handleOwnerShortlistReply, actOnDraft } from './followup.js'
 import { getEmbedding, reEmbedAllDeferItems, reEmbedAllChunks, isVoyageConfigured, storeChunkWithEmbedding } from './embeddings.js'
@@ -16,6 +17,7 @@ import { fetchRecentInbound, mergeUnseenInbound, pickSweepCandidates, orderBurst
 const app = new Hono()
 const db = new PrismaClient()
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+ensureLearningCandidates(db).catch(() => console.error('[Learning] Candidate store unavailable; unverified replies will not be promoted'))
 
 // --- Middleware ---
 app.use('*', cors({
@@ -38,6 +40,7 @@ const readGuard = async (c, next) => {
 }
 app.use('/api/logs', readGuard)
 app.use('/api/learning/manual-pairs', readGuard)
+app.use('/api/learning/candidates', readGuard)
 app.use('/api/defer-list', readGuard)
 app.use('/api/defer-list/*', readGuard)
 app.use('/api/knowledge/chunks', readGuard)
@@ -889,16 +892,22 @@ let lastProcessErrorAlertAt = 0   // throttles the process-error alert to once p
 // perishable for the permanent KB, too valuable to discard. Stored WITHOUT an embedding (vector
 // search has WHERE embedding IS NOT NULL, so these can never resurface stale) and injected into
 // every prompt while fresh; process.js lazily deletes them after expiry.
-async function storeTimedFact(db, buyerText, ketuText, origin) {
-  const id = crypto.randomUUID()
+async function storeTimedFact(db, buyerText, ketuText, origin, evidence = {}) {
+  const candidate = await validateLearningCandidate(db, anthropic, { buyerQuestion: buyerText, correctReply: ketuText, origin, evidence, timed: true })
+  if (candidate.verdict !== 'accepted') return { ...candidate, stored: false }
+  if (candidate.alreadyPromoted) return { ...candidate, stored: true }
+  const id = `timed_${candidate.id}`
   const expiresAt = new Date(Date.now() + 10 * 24 * 3600 * 1000).toISOString()
   const today = new Date().toISOString().slice(0, 10)
   const content = `[stated ${today}] Buyer asked: "${String(buyerText || '').slice(0, 200)}" — Ketu's answer: "${String(ketuText || '').slice(0, 300)}"`
-  const meta = JSON.stringify({ expiresAt, origin })
+  const meta = JSON.stringify({ expiresAt, origin, author: 'human_owner', candidateId: candidate.id, evidence })
   await db.$executeRaw`
     INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
-    VALUES (${id}, 'TIMED_FACT'::"ChunkSource", ${'timed_' + id.slice(0, 8)}, ${'Timing: ' + String(buyerText || '').slice(0, 60)}, ${content}, NULL, ${meta}::jsonb, NOW(), NOW())
+    VALUES (${id}, 'TIMED_FACT'::"ChunkSource", ${id}, ${'Timing: ' + String(buyerText || '').slice(0, 60)}, ${content}, NULL, ${meta}::jsonb, NOW(), NOW())
+    ON CONFLICT (id) DO NOTHING
   `
+  await markLearningPromoted(db, candidate.id)
+  return { ...candidate, stored: true }
 }
 
 // Shared enqueue used by BOTH /api/incoming (WhatsApp via wwbun) and /ig/webhook (Instagram,
@@ -1460,9 +1469,10 @@ app.post('/api/intervention', async (c) => {
   // pairs and interventions go to corrections, so manual replies were invisible to the watch loop.
   // Log every manual reply (status SKIPPED + deferReason 'manual_reply', cost 0) so /api/logs is a
   // single live feed of both AI replies and Om's manual replies. Does not affect learning.
+  let manualLogId = null
   if (ketuReply && ketuReply.trim()) {
     try {
-      await db.messageLog.create({
+      const manualLog = await db.messageLog.create({
         data: {
           conversationId: interventionConvo.id,
           buyerMessage: buyerMessage || '',
@@ -1473,6 +1483,7 @@ app.post('/api/intervention', async (c) => {
           processingMs: 0,
         },
       })
+      manualLogId = manualLog.id
     } catch (e) { console.error('[Intervention] manual-reply log failed:', e.message) }
   }
 
@@ -1501,9 +1512,9 @@ app.post('/api/intervention', async (c) => {
       const candidates = [buyerMessage, ...recentRows.map(r => r.buyerMessage)].filter(Boolean)
       const question = candidates.find(q => isStockAvailabilityQuestion(q) && !isMediaPlaceholder(q) && wordCount(q) >= 2)
       if (question) {
-        await storeTimedFact(db, question, ketuReply, 'backlog')
-        learned = 'backlog_timed_fact'
-        console.log(`[AutoLearn] Backlog timing answer saved as TIMED FACT: "${question.substring(0, 50)}..." → "${ketuReply.substring(0, 40)}..."`)
+        const result = await storeTimedFact(db, question, ketuReply, 'backlog', { conversationId: interventionConvo.id, manualLogId, aiRepliedAt: aiRepliedAt || null })
+        learned = result.stored ? 'backlog_timed_fact' : `backlog_timing_${result.verdict}`
+        console.log(`[AutoLearn] Backlog timing: ${learned}`)
       }
     } catch (e) { console.error('[AutoLearn] backlog timed-fact capture failed:', e.message) }
   }
@@ -1517,9 +1528,9 @@ app.post('/api/intervention', async (c) => {
     // instead of vanishing (2026-08-14, the "not remembering my edits" zipper case).
     if (isStockAvailabilityQuestion(buyerMessage) && !isDeferLine(ketuReply) && !isMediaPlaceholder(buyerMessage) && !isTransactionalReply(ketuReply, { forTiming: true })) {
       try {
-        await storeTimedFact(db, buyerMessage, ketuReply, 'intervention')
-        learned = 'intervention_timed_fact'
-        console.log(`[AutoLearn] Intervention saved as TIMED FACT (auto-expires): "${buyerMessage.substring(0, 50)}..."`)
+        const result = await storeTimedFact(db, buyerMessage, ketuReply, 'intervention', { conversationId: interventionConvo.id, manualLogId, aiRepliedAt })
+        learned = result.stored ? 'intervention_timed_fact' : `intervention_timing_${result.verdict}`
+        console.log(`[AutoLearn] Intervention timing: ${learned}`)
       } catch (tfErr) {
         learned = 'intervention_skipped_point_in_time'
         console.error('[AutoLearn] timed-fact store failed:', tfErr.message)
@@ -1528,26 +1539,32 @@ app.post('/api/intervention', async (c) => {
       learned = 'intervention_skipped_point_in_time'
       console.log(`[AutoLearn] Intervention SKIPPED — point-in-time/transactional, not learnable: "${buyerMessage.substring(0, 50)}..."`)
     }
-  } else if (isQualityPair && isIntervention && buyerMessage && ketuReply
-    // MISPAIRED / GARBLED GUARD (2026-09-02): the pair is made by timing, so Ketu answering an
-    // earlier message, a photo or a voice note gets stapled to the wrong buyer text ("yes send qr"
-    // → "XXL add kar raha hoon", 2026-09-02). One Haiku yes/no (~₹0.05, fail-open) before the
-    // write; garbled voice transcripts never become rules either (reviewer already had this).
-    && !hasGarbledTranscript(ketuReply) && await replyAnswersBuyer(anthropic, buyerMessage, ketuReply)) {
+  } else if (isQualityPair && isIntervention && buyerMessage && ketuReply) {
     try {
+      const candidate = await validateLearningCandidate(db, anthropic, {
+        buyerQuestion: buyerMessage, correctReply: ketuReply, aiWrongReply: aiReply,
+        origin: 'intervention', evidence: { conversationId: interventionConvo.id, manualLogId, aiRepliedAt },
+      })
+      if (candidate.verdict !== 'accepted' || candidate.alreadyPromoted) {
+        console.log(`[AutoLearn] Intervention validation: ${candidate.reason}, candidate=${candidate.id}`)
+        return
+      }
       const embedding = await getEmbedding(anthropic, buyerMessage)
-      const deferId = crypto.randomUUID()
+      const deferId = candidate.id
       await db.$executeRaw`
         INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")
         VALUES (${deferId}, ${buyerMessage}, ${aiReply}, ${ketuReply}, ${embedding}::vector, 0, NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING
       `
       // Also add to KnowledgeChunk as CORRECTION source (4th vector search source)
       const content = `Buyer: ${buyerMessage}\nCorrect reply: ${ketuReply}`
-      const chunkId = crypto.randomUUID()
+      const chunkId = `correction_${candidate.id}`
       await db.$executeRaw`
         INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
-        VALUES (${chunkId}, 'CORRECTION', ${deferId}, ${buyerMessage.substring(0, 80)}, ${content}, ${embedding}::vector, ${JSON.stringify({ aiWrongReply: aiReply || '', correctReply: ketuReply })}::jsonb, NOW(), NOW())
+        VALUES (${chunkId}, 'CORRECTION', ${deferId}, ${buyerMessage.substring(0, 80)}, ${content}, ${embedding}::vector, ${JSON.stringify({ aiWrongReply: aiReply || '', correctReply: ketuReply, origin: 'intervention', author: 'human_owner', candidateId: candidate.id, conversationId: interventionConvo.id, aiRepliedAt })}::jsonb, NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING
       `
+      await markLearningPromoted(db, candidate.id)
       learned = 'intervention_correction'
       console.log(`[AutoLearn] Intervention — added correction to knowledge base: "${buyerMessage.substring(0, 50)}..."`)
     } catch (err) {
@@ -1597,9 +1614,8 @@ app.post('/api/correction', async (c) => {
       && !isDeferLine(correctReply) && !isMediaPlaceholder(buyerQuestion) && !isTransactionalReply(correctReply, { forTiming: true })
     if (isTimingAnswer) {
       try {
-        await storeTimedFact(db, buyerQuestion, correctReply, 'edit')
-        console.log(`[Correction] saved as TIMED FACT (auto-expires): "${buyerQuestion.substring(0, 50)}..."`)
-        return c.json({ status: 'saved_timed_fact', reason: 'Stock-timing answer stored as an auto-expiring timed fact (injected into every reply for ~10 days, never permanent).' })
+        const result = await storeTimedFact(db, buyerQuestion, correctReply, 'edit', { aiWrongReply: aiWrongReply || '' })
+        return c.json({ status: result.stored ? 'saved_timed_fact' : result.verdict, reason: result.reason, candidateId: result.id })
       } catch (tfErr) {
         console.error('[Correction] timed-fact store failed:', tfErr.message)
       }
@@ -1608,71 +1624,51 @@ app.post('/api/correction', async (c) => {
     return c.json({ status: 'skipped_point_in_time', reason: 'Stock/availability, dispatch/tracking and defer-line replies are not saved as corrections (they go stale, leak a one-order link, or suppress real answers).' })
   }
 
-  // MISPAIRED / GARBLED GUARD (2026-09-02) — same as the intervention path: wwbun pairs an edit
-  // with the last DELIVERED buyer text, which for an image+caption can be the wrong message.
-  if (hasGarbledTranscript(correctReply)) {
-    console.log(`[Correction] SKIPPED — garbled transcript, not saved: "${correctReply.substring(0, 50)}..."`)
-    return c.json({ status: 'skipped', reason: 'Reply looks like a garbled voice transcript; not saved as a rule.' })
+  const candidate = await validateLearningCandidate(db, anthropic, { buyerQuestion, correctReply, aiWrongReply, origin: 'edit' })
+  if (candidate.verdict !== 'accepted') {
+    return c.json({ status: candidate.verdict, reason: candidate.reason, candidateId: candidate.id })
   }
-  if (!(await replyAnswersBuyer(anthropic, buyerQuestion, correctReply))) {
-    console.log(`[Correction] SKIPPED — reply does not answer the paired buyer text: "${buyerQuestion.substring(0, 50)}..."`)
-    return c.json({ status: 'skipped', reason: 'Reply does not answer the paired buyer text (mispaired); not saved as a rule.' })
-  }
+  if (candidate.alreadyPromoted) return c.json({ status: 'saved', candidateId: candidate.id })
 
   // Generate embedding for the buyer question
   const embedding = await getEmbedding(anthropic, buyerQuestion)
 
   // Store in DeferToKetu table (for dashboard display)
-  const deferId = crypto.randomUUID()
+  const deferId = candidate.id
   await db.$executeRaw`
     INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")
     VALUES (${deferId}, ${buyerQuestion}, ${aiWrongReply || ''}, ${correctReply}, ${embedding}::vector, 0, NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING
   `
 
   // Also add to KnowledgeChunk as CORRECTION source (4th vector search source)
   const content = `Buyer: ${buyerQuestion}\nCorrect reply: ${correctReply}`
-  const chunkId = crypto.randomUUID()
+  const chunkId = `correction_${candidate.id}`
   await db.$executeRaw`
     INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
-    VALUES (${chunkId}, 'CORRECTION', ${deferId}, ${buyerQuestion.substring(0, 80)}, ${content}, ${embedding}::vector, ${JSON.stringify({ aiWrongReply: aiWrongReply || '', correctReply })}::jsonb, NOW(), NOW())
+    VALUES (${chunkId}, 'CORRECTION', ${deferId}, ${buyerQuestion.substring(0, 80)}, ${content}, ${embedding}::vector, ${JSON.stringify({ aiWrongReply: aiWrongReply || '', correctReply, origin: 'edit', author: 'human_owner', candidateId: candidate.id })}::jsonb, NOW(), NOW())
+        ON CONFLICT (id) DO NOTHING
   `
 
+  await markLearningPromoted(db, candidate.id)
   console.log(`[Correction] Added to knowledge base: "${buyerQuestion.substring(0, 50)}..."`)
   return c.json({ status: 'saved' })
 })
 
-// One-time (idempotent) backfill — copy reviewer-generated corrections from DeferToKetu
-// into KnowledgeChunk(CORRECTION), the table the live AI actually reads. The reviewer used
-// to write ONLY to DeferToKetu, so months of learned corrections were invisible to the clone.
-// Excludes context-dependent (empty) replies and rows already present (dedupe by sourceId).
-// Safe to run multiple times. Requires ?confirm=yes.
-app.post('/api/admin/backfill-corrections', async (c) => {
-  if (c.req.query('confirm') !== 'yes') {
-    return c.json({ error: 'Add ?confirm=yes to run. Copies reusable DeferToKetu corrections into KnowledgeChunk(CORRECTION).' }, 400)
-  }
-  try {
-    const before = await db.knowledgeChunk.count({ where: { source: 'CORRECTION' } })
-    const inserted = await db.$executeRaw`
-      INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
-      SELECT gen_random_uuid()::text, 'CORRECTION', d.id, LEFT(d."buyerQuestion", 80),
-             'Buyer: ' || d."buyerQuestion" || E'\nCorrect reply: ' || d."correctReply",
-             d.embedding,
-             jsonb_build_object('aiWrongReply', d."aiWrongReply", 'correctReply', d."correctReply", 'backfilled', true),
-             NOW(), NOW()
-      FROM "DeferToKetu" d
-      WHERE d."correctReply" IS NOT NULL AND d."correctReply" <> ''
-        AND d.embedding IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM "KnowledgeChunk" k WHERE k.source = 'CORRECTION' AND k."sourceId" = d.id
-        )
-    `
-    const after = await db.knowledgeChunk.count({ where: { source: 'CORRECTION' } })
-    console.log(`[Backfill] CORRECTION chunks: ${before} → ${after} (+${Number(inserted)})`)
-    return c.json({ status: 'done', correctionsBefore: before, correctionsAfter: after, inserted: Number(inserted) })
-  } catch (err) {
-    console.error('[Backfill] Error:', err.message)
-    return c.json({ error: err.message }, 500)
-  }
+app.post('/api/admin/backfill-corrections', (c) => c.json(legacyCorrectionBackfillResponse(), 410))
+
+app.get('/api/learning/candidates', async (c) => {
+  await ensureLearningCandidates(db)
+  const status = c.req.query('status') || 'pending'
+  const limit = Math.min(200, Math.max(1, Number(c.req.query('limit')) || 50))
+  const rows = await db.$queryRaw`
+    SELECT id, origin, status, reason, payload, "createdAt", "updatedAt"
+    FROM "LearningCandidate"
+    WHERE (${status} = 'all' OR status = ${status})
+    ORDER BY "createdAt" DESC LIMIT ${limit}
+  `
+  const counts = await db.$queryRaw`SELECT status, COUNT(*)::int AS count FROM "LearningCandidate" GROUP BY status`
+  return c.json({ rows, counts })
 })
 
 // ===========================================

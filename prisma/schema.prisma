@@ -206,6 +206,16 @@ model FollowupDraft {
 
 // --- Self-Learning: Manual Reply Pairs (collected when AI is OFF) ---
 
+model LearningCandidate {
+  id        String   @id
+  origin    String
+  status    String   @default("pending")
+  reason    String
+  payload   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model ManualReplyPair {
   id              String    @id @default(cuid())
   whatsappNumber  String

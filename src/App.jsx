@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 
 const API = '/api'
+const APP_VERSION = '2026.09.11.1'
 
 function App() {
   const [tab, setTab] = useState('live')
@@ -254,6 +255,7 @@ function App() {
     <div style={styles.container}>
       <header style={styles.header}>
         <h1 style={styles.title}>Digital Ketu — AI Dashboard</h1>
+        <span style={{ fontSize: 12 }}>v{APP_VERSION}</span>
         <div style={styles.headerControls}>
           <span style={{ ...styles.statusDot, background: settings.isActive ? '#22c55e' : '#ef4444' }} />
           <button

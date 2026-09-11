@@ -1,78 +1,44 @@
-// THE WATCH LOOP, IN ONE COMMAND.
-//
-// Ketu's rule: "If I had to reply manually, the AI failed." This pulls recent traffic and finds
-// every paid AI reply that Ketu followed up on by hand within 3h — that pairing IS the miss signal.
-// Everything else in the audit (classify, verify, fix) hangs off this list.
-//
-//   node tools/audit-interventions.mjs [days]        # default 3
-//
-// Needs ~/.dk2_read_token. Writes interventions.json next to itself for downstream tooling.
-
-import { readFileSync, writeFileSync } from 'fs'
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import { buildAudit } from './audit-interventions-lib.mjs'
 
 const DAYS = Number(process.argv[2] || 3)
+if (!Number.isFinite(DAYS) || DAYS <= 0) throw new Error('days must be a positive number')
 const BASE = 'https://digital-ketu2-production.up.railway.app'
 const TOKEN = readFileSync(join(homedir(), '.dk2_read_token'), 'utf8').trim()
-
-// Sequential lite pages (2026-09-06): 8 parallel 300-row pages with promptSent choked the server.
-const pages = []
-for (let i = 0; i < 12; i++) {
-  const page = await fetch(`${BASE}/api/logs?limit=200&offset=${i * 200}&lite=1`, { headers: { 'X-DK-Read-Token': TOKEN }, signal: AbortSignal.timeout(60000) })
-    .then(r => r.json()).catch(() => [])
-  pages.push(page)
-  if (!Array.isArray(page) || page.length < 200) break
-  const oldest = page[page.length - 1]?.createdAt
-  if (oldest && Date.now() - new Date(oldest).getTime() > (DAYS + 1) * 86400000) break
-}
-
-const rows = new Map()
-for (const p of pages) if (Array.isArray(p)) for (const r of p) if (r && r.id) rows.set(r.id, r)
-
 const cutoff = Date.now() - DAYS * 86400000
-const all = [...rows.values()]
-  .filter(r => new Date(r.createdAt).getTime() >= cutoff)
-  .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+const fetchSince = new Date(cutoff - 86400000).toISOString()
 
-const convOf = r => (r.conversation || {}).id || (r.conversation || {}).whatsappNumber
-const numOf = r => (r.conversation || {}).whatsappNumber || '?'
-const byConv = new Map()
-for (const r of all) {
-  if (!byConv.has(convOf(r))) byConv.set(convOf(r), [])
-  byConv.get(convOf(r)).push(r)
+const pages = []
+let truncated = true
+for (let i = 0; i < 12; i++) {
+  const response = await fetch(`${BASE}/api/logs?limit=200&offset=${i * 200}&lite=1&since=${encodeURIComponent(fetchSince)}`, { headers: { 'X-DK-Read-Token': TOKEN }, signal: AbortSignal.timeout(60000) })
+  if (!response.ok) throw new Error(`logs HTTP ${response.status}; audit incomplete`)
+  const page = await response.json()
+  if (!Array.isArray(page)) throw new Error('logs returned no row array; audit incomplete')
+  pages.push(page)
+  if (page.length < 200) { truncated = false; break }
 }
 
-const paid = all.filter(r => r.status === 'REPLIED')
-const ivs = []
-for (const seq of byConv.values()) {
-  for (let i = 0; i < seq.length; i++) {
-    if (seq[i].status !== 'REPLIED') continue
-    for (const nx of seq.slice(i + 1)) {
-      const mins = (new Date(nx.createdAt) - new Date(seq[i].createdAt)) / 60000
-      if (mins > 180) break
-      // Ketu typing by hand after the clone already answered = the clone probably failed.
-      if (nx.deferReason === 'manual_reply' && (nx.aiReply || '').trim()) {
-        ivs.push({
-          num: numOf(seq[i]), at: seq[i].createdAt.slice(5, 16), mins: Math.round(mins),
-          buyer: (seq[i].buyerMessage || '').slice(0, 300),
-          ai: (seq[i].aiReply || '').slice(0, 300),
-          ketu: (nx.aiReply || '').slice(0, 300),
-        })
-        break
-      }
-    }
-  }
-}
-
+const audit = buildAudit(pages.flat(), { since: cutoff })
+audit.fetchedAt = new Date().toISOString()
+audit.windowSince = new Date(cutoff).toISOString()
+audit.truncated = truncated
 const out = join(dirname(fileURLToPath(import.meta.url)), 'interventions.json')
-writeFileSync(out, JSON.stringify(ivs, null, 1))
-
-console.log(`window            : last ${DAYS} day(s), ${all.length} rows`)
-console.log(`paid AI replies   : ${paid.length}`)
-console.log(`Ketu had to type  : ${ivs.length}`)
-console.log(`intervention rate : ${(100 * ivs.length / Math.max(1, paid.length)).toFixed(1)}%`)
-console.log(`\nwrote ${out}`)
-console.log('\nNOTE: raw rate OVERSTATES the problem — roughly half are Ketu saying "Ok" or handling')
-console.log('something only he can (bank details, a dispute, a refund). Classify before acting.')
+writeFileSync(out, JSON.stringify(audit.interventions, null, 1), { mode: 0o600 })
+chmodSync(out, 0o600)
+const privateDir = process.env.DK2_AUDIT_DIR || join(homedir(), 'dk2_corpus/audits')
+mkdirSync(privateDir, { recursive: true, mode: 0o700 })
+const privateOut = join(privateDir, `audit-${audit.fetchedAt.replace(/[:.]/g, '-')}.json`)
+writeFileSync(privateOut, JSON.stringify(audit, null, 1), { mode: 0o600 })
+console.log(`window            : last ${DAYS} day(s), ${audit.stats.rows} rows${truncated ? ' (TRUNCATED at 2400 fetched rows)' : ''}`)
+console.log(`paid AI replies   : ${audit.stats.paidReplies} (${audit.stats.repliedRows} including canned replies)`)
+console.log(`reply follow-ups  : ${audit.stats.replyFollowupCandidates} unreviewed candidates; ${audit.stats.paidReplyFollowupCandidates} after paid replies`)
+console.log(`other follow-ups  : ${audit.stats.otherFollowupCandidates} defer/silence/cooldown/failure candidates`)
+console.log(`manual acks       : ${audit.stats.acknowledgmentCount} excluded; ${audit.stats.unpairedManualCount} other manual rows unpaired`)
+console.log(`review samples    : ${audit.stats.reviewSamples} without a linked manual follow-up`)
+console.log(`wrote ${out}\nprivate audit ${privateOut}`)
+console.log('Candidates are not mistakes or a fidelity score. Inspect the full thread and media before grading.')
+if (truncated) process.exitCode = 1

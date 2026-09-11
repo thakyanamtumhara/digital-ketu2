@@ -1,4 +1,4 @@
-// Regression: the mispaired-correction guard (replyAnswersBuyer) — fail-open + verdict parsing.
+// Regression: correction validation requires an explicit positive response.
 // Uses a FAKE anthropic client; the real Haiku call is one yes/no (~₹0.05) and is not exercised here.
 import { replyAnswersBuyer, hasGarbledTranscript, isDeferLine } from '../server/stock-question.js'
 
@@ -9,8 +9,10 @@ const t = async (name, got, want) => { total++; const ok = got === want; if (ok)
 await t('YES → store',                 await replyAnswersBuyer(fake('YES'), 'oversize 240 ka rate?', 'Bulk ₹195 sir 👉 link'), true)
 await t('NO → skip',                   await replyAnswersBuyer(fake('NO'), 'yes send qr', 'XXL add kar raha hoon'), false)
 await t('"No." punctuation → skip',    await replyAnswersBuyer(fake('No.'), 'ok', 'kal aayega'), false)
-await t('"NOTED"-like word ≠ NO',      await replyAnswersBuyer(fake('YES — same topic'), 'a', 'b'), true)
-await t('API error → fail OPEN',       await replyAnswersBuyer(fake('', true), 'rate?', '₹195 sir'), true)
+await t('extra explanation → pending', await replyAnswersBuyer(fake('YES — same topic'), 'a', 'b'), false)
+await t('API error → no promotion',    await replyAnswersBuyer(fake('', true), 'rate?', '₹195 sir'), false)
+await t('empty response → no promotion', await replyAnswersBuyer(fake(''), 'a', 'b'), false)
+await t('unknown verdict → no promotion', await replyAnswersBuyer(fake('MAYBE'), 'a', 'b'), false)
 await t('empty buyer → false',         await replyAnswersBuyer(fake('YES'), '', 'reply'), false)
 await t('empty reply → false',         await replyAnswersBuyer(fake('YES'), 'buyer', '  '), false)
 // the two deterministic siblings the write paths also apply

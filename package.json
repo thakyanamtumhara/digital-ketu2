@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "AI Auto-Reply Server for WhatsApp — processes messages via RAG + Claude API",
   "scripts": {
+    "test": "node tools/check.mjs",
     "dev": "bun run --watch server/index.js",
     "start": "bun run server/index.js",
     "build": "bun run vite build",

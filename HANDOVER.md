@@ -1,5 +1,7 @@
 # dk2 — Handover
 
+Read `docs/clone-learning/WATCH.md` and the private `thakyanamtumhara/ai-memory` repository's `START_HERE.md` for the current provider-neutral watch and learning records (11-Sep-2026). Session-only schedules in older sections are superseded by the persistent runner. The private lesson ledger tracks validation and unfinished work. `bun tools/check.mjs` runs the regression suites and is now required by the container build. Guard exceptions now defer visibly; they no longer send unchecked model output.
+
 Read this before touching anything. It is written for whoever picks up the work next — a new
 session, a new model, a new person. Last updated 2026-09-02.
 

@@ -10,7 +10,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import { chargeSpend } from './process.js'
 import { getEmbedding } from './embeddings.js'
 import { clearFilterCache } from './process.js'
-import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine, hasGarbledTranscript, replyAnswersBuyer } from './stock-question.js'
+import { isStockAvailabilityQuestion, isTransactionalReply, isMediaPlaceholder, isOwnerNumber, isDeferLine, hasGarbledTranscript } from './stock-question.js'
+import { validateLearningCandidate, markLearningPromoted } from './learning-candidates.js'
 
 // Quality filter: both sides need 4+ words, no media/reaction placeholders
 const wordCount = (s) => (s || '').split(/\s+/).filter(w => w.length > 0).length
@@ -337,55 +338,52 @@ export async function reviewManualPairs(db, { model, batchSize } = {}) {
     const pair = pairs.find(p => p.id === result.id)
     if (!pair) continue
 
-    if (result.aiWouldFail && isQualityPair(pair.buyerMessage, pair.ketuReply)
-      // MISPAIRED GUARD (2026-09-02): manual pairs are stapled together by timing in /api/intervention,
-      // so Ketu's reply to an earlier message / photo / voice note can sit under the wrong buyer text.
-      // 50 of this path's 396 stored corrections were bad in the 2026-09-02 audit. Haiku yes/no, fail-open.
-      && await replyAnswersBuyer(anthropic, pair.buyerMessage, pair.ketuReply)) {
-      try {
-        const embedding = await getEmbedding(null, pair.buyerMessage)
-        // Context-dependent replies → store with empty correctReply (triggers defer to Ketu)
-        // Context-independent replies → store with actual reply (reusable answer)
-        // Stock/availability/timing AND dispatch/tracking replies are point-in-time → force defer-only
-        // even if the LLM missed it (never inject a stale stock answer or a one-order tracking link).
-        // hasGarbledTranscript: a badly-transcribed voice note ("बाहर देवली मσειल के लिए") must never
-        // become a stored answer — it is boosted in retrieval and replayed to a buyer as Ketu's own
-        // words, so the buyer gets gibberish. 4 such rows had been stored by 2026-07-30.
-        const correctReply = (result.contextDependent || isStockAvailabilityQuestion(pair.buyerMessage) || isTransactionalReply(pair.ketuReply) || isMediaPlaceholder(pair.buyerMessage) || isDeferLine(pair.ketuReply) || hasGarbledTranscript(pair.ketuReply)) ? '' : pair.ketuReply
-        const deferId = crypto.randomUUID()
-        await db.$executeRaw`
-          INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")
-          VALUES (${deferId}, ${pair.buyerMessage}, ${'[AI would not know]'}, ${correctReply}, ${embedding}::vector, 0, NOW(), NOW())
-        `
-        // Context-INDEPENDENT (reusable) → also write to KnowledgeChunk(CORRECTION), the table the live AI reads.
-        // Context-dependent rows keep an empty reply and stay defer-only — NOT injected (would reply blank).
-        // Skipped when the same question+answer is already stored: the pipeline had written 6 pairs
-        // 2-3× over (2026-07-30), and every copy takes one of the 5 retrieval slots, crowding out
-        // other corrections for the same query.
-        const alreadyStored = correctReply ? await db.knowledgeChunk.findFirst({
-          where: { source: 'CORRECTION', title: pair.buyerMessage.substring(0, 80) },
-          select: { metadata: true },
-        }).then(row => (row?.metadata?.correctReply || '').trim() === correctReply.trim()).catch(() => false) : false
-        if (alreadyStored) console.log(`[Reviewer] duplicate correction skipped: "${pair.buyerMessage.substring(0, 40)}…"`)
-        if (correctReply && !alreadyStored) {
-          const ccContent = `Buyer: ${pair.buyerMessage}\nCorrect reply: ${correctReply}`
-          await db.$executeRaw`
-            INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
-            VALUES (${crypto.randomUUID()}, 'CORRECTION', ${deferId}, ${pair.buyerMessage.substring(0, 80)}, ${ccContent}, ${embedding}::vector, ${JSON.stringify({ aiWrongReply: '[AI would not know]', correctReply, source: 'reviewer_manual' })}::jsonb, NOW(), NOW())
-          `
-        }
-        corrections++
-      } catch (err) {
-        console.error(`[Reviewer] Failed to add manual correction for ${pair.id}:`, err.message)
-      }
-    }
-
-    // Record the review result and category (for analytics)
     const quality = isQualityPair(pair.buyerMessage, pair.ketuReply)
     let reviewResult = 'ai_would_handle'
     let reviewNote = result.reason || null
     if (result.aiWouldFail && quality) {
-      reviewResult = result.contextDependent ? 'defer_only' : 'correction_added'
+      reviewResult = 'pending_validation'
+      try {
+        const candidate = await validateLearningCandidate(db, anthropic, {
+          buyerQuestion: pair.buyerMessage, correctReply: pair.ketuReply,
+          origin: 'reviewer_manual', evidence: { manualPairId: pair.id, createdAt: pair.createdAt },
+        })
+        if (candidate.verdict !== 'accepted') {
+          reviewResult = candidate.verdict === 'pending' ? 'pending_validation' : 'skipped'
+          reviewNote = `${candidate.reason}; candidate=${candidate.id}`
+        } else if (candidate.alreadyPromoted) {
+          reviewResult = 'correction_exists'
+        } else if (result.contextDependent) {
+          reviewResult = 'defer_only'
+        } else {
+          const alreadyStored = await db.knowledgeChunk.findFirst({
+            where: { source: 'CORRECTION', title: pair.buyerMessage.substring(0, 80) },
+            select: { metadata: true },
+          }).then(row => (row?.metadata?.correctReply || '').trim() === pair.ketuReply.trim())
+          if (!alreadyStored) {
+            const embedding = await getEmbedding(null, pair.buyerMessage)
+            const deferId = candidate.id
+            await db.$executeRaw`
+              INSERT INTO "DeferToKetu" (id, "buyerQuestion", "aiWrongReply", "correctReply", embedding, "triggerCount", "createdAt", "updatedAt")
+              VALUES (${deferId}, ${pair.buyerMessage}, ${'[AI would not know]'}, ${pair.ketuReply}, ${embedding}::vector, 0, NOW(), NOW())
+              ON CONFLICT (id) DO NOTHING
+            `
+            const content = `Buyer: ${pair.buyerMessage}\nCorrect reply: ${pair.ketuReply}`
+            const metadata = { aiWrongReply: '[AI would not know]', correctReply: pair.ketuReply, source: 'reviewer_manual', author: 'human_owner', candidateId: candidate.id, manualPairId: pair.id }
+            await db.$executeRaw`
+              INSERT INTO "KnowledgeChunk" (id, source, "sourceId", title, content, embedding, metadata, "createdAt", "updatedAt")
+              VALUES (${'correction_' + candidate.id}, 'CORRECTION', ${deferId}, ${pair.buyerMessage.substring(0, 80)}, ${content}, ${embedding}::vector, ${JSON.stringify(metadata)}::jsonb, NOW(), NOW())
+              ON CONFLICT (id) DO NOTHING
+            `
+            corrections++
+          }
+          await markLearningPromoted(db, candidate.id)
+          reviewResult = alreadyStored ? 'correction_exists' : 'correction_added'
+        }
+      } catch (err) {
+        reviewNote = 'Validation or storage unavailable; original manual pair retained for review'
+        console.error(`[Reviewer] Manual correction remains pending for ${pair.id}`)
+      }
     } else if (result.aiWouldFail && !quality) {
       reviewResult = 'skipped'
       reviewNote = 'Skipped — low quality pair (under 4 words or media placeholder)'

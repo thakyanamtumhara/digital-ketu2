@@ -1,4 +1,4 @@
-const src = await import('fs').then(m=>m.readFileSync('/Users/ankit/Projects/digital-ketu2/server/process.js','utf8'))
+const src = await import('fs').then(m=>m.readFileSync(new URL('../server/process.js', import.meta.url),'utf8'))
 const grab = (name, re) => { const m = src.match(re); if(!m) throw new Error('not found: '+name); return m[0] }
 const code = [
   grab('billTextConfirmsOrder', /function billTextConfirmsOrder[\s\S]*?\n}/),

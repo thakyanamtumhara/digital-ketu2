@@ -181,28 +181,63 @@ function istTime(ts) {
 // block's own "NO shipment — give NO date" line: buyer 6207361625 asked "240 red refilling kab tak"
 // and got "koi date nahi" while Ketu's "8-9 din" from the day before sat right above it. The model
 // trusts THIS block, so his timing has to be written into the verdict itself.
-const PRODUCT_KEYWORDS = {
-  'Oversize 240gsm': ['240'], 'Oversize 210gsm': ['210'], 'Oversize 180gsm': ['180 ?gsm oversize', 'oversize 180', 'os180'], 'Oversize 260gsm': ['260'],
-  'Cotton Polo': ['cotton polo', 'polo'], 'Premium Polo': ['premium polo', 'polo'], 'True Bio Rneck': ['true bio', 'truebio'], 'Bio Rneck': ['bio'],
-  'Non Bio Rneck': ['non bio', 'nonbio'], 'Kids Rneck': ['kids', 'kid'], 'Sublimation tshirt': ['sublimation'], 'Shorts': ['shorts'],
-  'Zip Hoodie': ['zip'], 'AcidWash OS': ['acid'], 'Sweatshirt': ['sweatshirt', 'sweat shirt'], 'Sweatshirt-2': ['sweatshirt', 'sweat shirt'],
-  'Hoodie 320gsm-1': ['320', 'hoodie'], 'Hoodie 320gsm-2': ['320', 'hoodie'], 'Hoodie 430gsm-2': ['430', 'hoodie'], 'Dropsho Hoodie 430gsm': ['430', 'dropshoulder', 'drop shoulder'],
+const HOODIE_PRODUCTS = ['Hoodie 320gsm-1', 'Hoodie 320gsm-2', 'Hoodie 430gsm-2', 'Dropsho Hoodie 430gsm']
+const PRODUCT_KEYWORDS = [
+  [/\bhoodie\s*320\s*gsm\s*-\s*1\b/gi, ['Hoodie 320gsm-1']],
+  [/\bhoodie\s*320\s*gsm\s*-\s*2\b/gi, ['Hoodie 320gsm-2']],
+  [/\bhoodie\s*430\s*gsm\s*-\s*2\b/gi, ['Hoodie 430gsm-2']],
+  [/\bsweat\s*shirt\s*-\s*2\b/gi, ['Sweatshirt-2']],
+  [/\b(?:dropsho|drop\s*shoulder)\s+hoodie(?:\s*430\s*gsm)?\b/gi, ['Dropsho Hoodie 430gsm']],
+  [/\bzip(?:per)?(?:\s+hoodie)?\b/gi, ['Zip Hoodie']],
+  [/\btrue[\s-]*bio(?:[\s-]*wash)?(?:\s+rneck)?\b/gi, ['True Bio Rneck']],
+  [/\bnon[\s-]*bio(?:[\s-]*wash)?(?:\s+rneck)?\b/gi, ['Non Bio Rneck']],
+  [/\bbio(?:[\s-]*wash)?(?:\s+rneck)?\b/gi, ['Bio Rneck']],
+  [/\bcotton\s+polo\b/gi, ['Cotton Polo']],
+  [/\bpremium\s+polo\b/gi, ['Premium Polo']],
+  [/\bpolo\b/gi, ['Cotton Polo', 'Premium Polo']],
+  [/\bkids?(?:\s+rneck)?\b/gi, ['Kids Rneck']],
+  [/\bsublimation(?:\s+tshirt)?\b/gi, ['Sublimation tshirt']],
+  [/\bshorts\b/gi, ['Shorts']],
+  [/\bacid(?:\s*wash)?(?:\s+os)?\b/gi, ['AcidWash OS']],
+  [/\bsweat\s*shirt\b/gi, ['Sweatshirt', 'Sweatshirt-2']],
+  [/\bhoodie\b/gi, [...HOODIE_PRODUCTS, 'Zip Hoodie']],
+]
+
+export function resolveTimedFactProduct(text) {
+  let remaining = String(text || '').toLowerCase()
+  const groups = []
+  for (const [pattern, identities] of PRODUCT_KEYWORDS) {
+    remaining = remaining.replace(pattern, () => {
+      groups.push(identities)
+      return ' '
+    })
+  }
+  const namedOversize = /\b(?:oversized?|over\s*size|os\s*-?\s*(?:180|210|240|260))\b/i.test(remaining)
+  if (!groups.length || namedOversize) {
+    const weights = remaining.matchAll(/\b(?:os\s*-?\s*)?(180|210|240|260)(?:\s*gsm)?\b(?!\s*(?:pcs?|pieces?))/gi)
+    for (const match of weights) {
+      if (/(?:₹|\brs\.?|\binr)\s*$/i.test(remaining.slice(0, match.index))) continue
+      groups.push([`Oversize ${match[1]}gsm`])
+    }
+  }
+  const products = groups.reduce((candidates, identities) => candidates.filter(product => identities.includes(product)), groups[0] || [])
+  return products.length === 1 ? products[0] : null
 }
 export function parseTimedFact(content) {
   const m = String(content || '').match(/\[stated (\d{4}-\d{2}-\d{2})\]\s*Buyer asked:\s*"([\s\S]*?)"\s*—\s*Ketu's answer:\s*"([\s\S]*?)"\s*$/)
   return m ? { date: m[1], question: m[2], answer: m[3] } : null
 }
 export function timedFactFor(facts, product, colour) {
-  const keys = (PRODUCT_KEYWORDS[product] || [product.toLowerCase()]).map(k => new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))
-  const colourWords = [String(colour || '').toLowerCase(), String(colour || '').toLowerCase().replace('-', ' ')]
-  const anyColour = /\b(black|white|off[- ]?white|navy|red|maroon|grey|gray|charcoal|beige|brown|orange|lavender|pink|yellow|mustard|green|blue|sky|bhagwa)\b/i
+  const normalizeColour = value => String(value || '').toLowerCase().replace(/[-\s]+/g, ' ').trim().replace(/^offwhite$/, 'off white').replace(/^gray$/, 'grey').replace(/^charcol$/, 'charcoal').replace(/^biege$/, 'beige').replace(/^sky blue$/, 'sky')
+  const targetColour = normalizeColour(colour)
+  const namedColours = /\b(off[\s-]*white|royal\s+blue|powder\s+blue|sky\s+blue|bottle\s+green|army\s+green|flag\s+green|sage\s+green|mustard\s+yellow|baby\s+pink|rose\s+pink|black|white|navy|red|maroon|grey|gray|charcoal|charcol|beige|biege|brown|orange|lavender|pink|yellow|mustard|green|blue|sky|bhagwa)\b/gi
   for (const f of facts || []) {
     const t = typeof f === 'string' ? f : f.content
     const parsed = parseTimedFact(t); if (!parsed) continue
     const text = `${parsed.question} ${parsed.answer}`.toLowerCase()
-    if (!keys.some(k => k.test(text))) continue
-    const factNamesColour = anyColour.test(text)
-    if (factNamesColour && !colourWords.some(c => c && text.includes(c))) continue
+    if (resolveTimedFactProduct(text) !== product) continue
+    const factColours = [...text.matchAll(namedColours)].map(match => normalizeColour(match[0]))
+    if (factColours.length && !factColours.includes(targetColour)) continue
     return parsed
   }
   return null

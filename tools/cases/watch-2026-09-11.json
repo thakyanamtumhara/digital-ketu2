@@ -1,0 +1,30 @@
+[
+  {
+    "id": "morning-call-today",
+    "why": "Synthetic regression for the pre-opening clock branch; it previously instructed every outside-hours caller to wait until tomorrow.",
+    "at": "2026-09-11T08:32:00+05:30",
+    "msg": "Please give me your phone number. When can I call?",
+    "must": ["10", "9336695049"],
+    "mustNot": ["tomorrow", "\\bkal\\b", "\\[DEFER\\]"]
+  },
+  {
+    "id": "control-evening-call-tomorrow",
+    "why": "CONTROL: after closing, tomorrow remains the correct calling day.",
+    "at": "2026-09-11T21:32:00+05:30",
+    "msg": "Please give me your phone number. When can I call?",
+    "must": ["tomorrow", "10", "9336695049"],
+    "mustNot": ["call now", "\\[DEFER\\]"]
+  },
+  {
+    "id": "owner-context-no-repeat-question",
+    "why": "Synthetic owner-history regression: the buyer already selected the product during a manual owner reply.",
+    "at": "2026-09-11T12:00:00+05:30",
+    "history": [
+      { "buyer": "Which oversized tee should I try?", "ai": "Which GSM do you need sir?" },
+      { "manual": true, "ai": "260gsm oversized sample le lo sir.", "at": "2026-09-11T11:30:00+05:30" }
+    ],
+    "msg": "Yes, how do I order that sample?",
+    "must": ["sale91.com"],
+    "mustNot": ["which (GSM|product|fit)", "kaunsa (GSM|product|fit)", "\\[DEFER\\]"]
+  }
+]
