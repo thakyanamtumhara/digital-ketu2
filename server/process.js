@@ -12,6 +12,7 @@ import { transcribeAudio, isTranscriptionConfigured, getTranscriptionProvider } 
 import { evaluateIgGate } from './ig-gate.js'
 import { lookupOrdersByPhone, formatOrderLookupBlock, getBuyerProfile, formatBuyerProfileBlock } from './order-lookup.js'
 import { getStockSnapshot, formatStockBlock, resolveUnnamedProduct, unnamedProductCandidates, unnamedProductGuard } from './stock-lookup.js'
+import { formatTimedFactsBlock } from './timed-facts.js'
 import { catalogProductsFromChunks, gsmAmbiguityHint } from './gsm-hint.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
 import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
@@ -3343,9 +3344,10 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     + '|\\b(hai|hain)\\b[^]{0,30}(' + PRODUCT_WORD + ')'          // "hai kya acid wash"
   , 'i')
   let unnamedCandidates = []
+  const timingNow = Date.now()
   if (STOCK_INTENT_RE.test(mergedText || '')) {
     try {
-      const stockBlock = formatStockBlock(await getStockSnapshot(), { timedFacts: await fetchTimedFacts(db) })
+      const stockBlock = formatStockBlock(await getStockSnapshot(), { timedFacts: await fetchTimedFacts(db), now: timingNow })
       if (stockBlock) {
         // 2026-09-05: colour/size named but no product → the per-product verdicts, resolved in code
         // (buyer 8595383520 "White and nevy 38 kab tak restock hoga?" was deferred with the block
@@ -3423,8 +3425,9 @@ Reply with exactly one word: KETU or ASSISTANT.`,
         AND (metadata->>'expiresAt')::timestamptz > NOW()
       ORDER BY "createdAt" DESC LIMIT 8
     `
-    if (timedFacts && timedFacts.length) {
-      userPrompt = `⏰ KETU'S RECENT TIMING ANSWERS (his OWN words to buyers in the last few days — EACH ENTRY APPLIES ONLY TO THE PRODUCT AND COLOUR NAMED IN IT: never carry one colour's or product's timing over to another (2026-09-08: '240 red 8-9 din' was reused for KIDS red, which has no shipment) — each entry SUPERSEDES any seasonal default ("Winter stock after September"), Coming-Soon pointer, no-date ban, stale-correction ban, or older correction about the SAME product's timing. Relay HIS stated timing in his style, adjusting for days already passed — today is ${new Date().toISOString().slice(0, 10)}):\n${timedFacts.map(f => '- ' + f.content).join('\n')}\n\n${userPrompt}`
+    const timedBlock = formatTimedFactsBlock(timedFacts, timingNow, mergedText || '')
+    if (timedBlock) {
+      userPrompt = timedBlock + '\n\n' + userPrompt
       console.log(`[TimedFacts] injected ${timedFacts.length} fresh timing fact(s)`)
     }
     db.$executeRaw`DELETE FROM "KnowledgeChunk" WHERE source = 'TIMED_FACT'::"ChunkSource" AND (metadata->>'expiresAt')::timestamptz <= NOW()`.catch(() => {})

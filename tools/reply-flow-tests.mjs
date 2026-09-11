@@ -5,7 +5,7 @@ import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [] } = {}) {
+async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [] } = {}) {
   const sent = [], logs = [], errors = [], requests = []
   let calls = 0, conversationReads = 0
   const context = createContext({
@@ -62,7 +62,7 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     knowledgeChunk: { findFirst: async () => null, findMany: async () => [] },
     buyerMemory: { findUnique: async () => null },
     buyerConversation: { findUnique: async () => ({ cooldownUntil: cooldown && ++conversationReads > 1 ? new Date(Date.now() + 60000) : null }) },
-    $queryRaw: async () => [], $executeRaw: async () => 0,
+    $queryRaw: async () => timedFacts, $executeRaw: async () => 0,
   }
   const anthropic = { messages: { create: async body => {
     if (body.model.includes('haiku')) return { content: [{ type: 'text', text: 'ASSISTANT' }], usage: { input_tokens: 1, output_tokens: 1 } }
@@ -76,6 +76,15 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['runtime timing injection removes elapsed days before the model sees it', async () => {
+    const date = new Date(Date.now() + 19800000 - 4 * 86400000).toISOString().slice(0, 10)
+    const r = await runCase({ timedFacts: [{ content: `[stated ${date}] Buyer asked: "Oversize 240gsm Red restock?" — Ketu's answer: "8-9 din mein aayega"` }] })
+    const prompt = r.requests[0].messages[0].content
+    assert.match(prompt, /4-5 days/)
+    assert.doesNotMatch(prompt, /8-9 din/)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.logs.at(-1).status, 'REPLIED')
+  }],
   ['normal reply reaches transport and records sent status', async () => {
     const r = await runCase()
     assert.equal(r.sent.length, 1)

@@ -24,6 +24,9 @@
 // fewer false "aa raha hai" promises. Any fetch/parse failure → null → the caller injects nothing
 // and the old always-defer behaviour is untouched (fail-closed).
 
+import { parseTimedFact, currentTimedFact } from './timed-facts.js'
+export { parseTimedFact } from './timed-facts.js'
+
 const PC_JS_URL = 'https://www.bulkplaintshirt.com/pc.js'
 const INSTOCK_DB = 'https://in-stock-6d6cb-default-rtdb.asia-southeast1.firebasedatabase.app'
 const OFFLINE_DB = 'https://new-main-offline-app-default-rtdb.asia-southeast1.firebasedatabase.app'
@@ -223,10 +226,6 @@ export function resolveTimedFactProduct(text) {
   const products = groups.reduce((candidates, identities) => candidates.filter(product => identities.includes(product)), groups[0] || [])
   return products.length === 1 ? products[0] : null
 }
-export function parseTimedFact(content) {
-  const m = String(content || '').match(/\[stated (\d{4}-\d{2}-\d{2})\]\s*Buyer asked:\s*"([\s\S]*?)"\s*—\s*Ketu's answer:\s*"([\s\S]*?)"\s*$/)
-  return m ? { date: m[1], question: m[2], answer: m[3] } : null
-}
 export function timedFactFor(facts, product, colour) {
   const normalizeColour = value => String(value || '').toLowerCase().replace(/[-\s]+/g, ' ').trim().replace(/^offwhite$/, 'off white').replace(/^gray$/, 'grey').replace(/^charcol$/, 'charcoal').replace(/^biege$/, 'beige').replace(/^sky blue$/, 'sky')
   const targetColour = normalizeColour(colour)
@@ -287,8 +286,8 @@ export function formatStockBlock(snapshot, opts = {}) {
         // for True Bio Navy 38 (2026-08-31, buyer 9764372985). Neither had a shipment at all.
         // Same medicine as the Maroon-46 fix above: never leave a join to the model.
         const verdict = (sizes) => {
-          const tf = timedFactFor(timedFacts, product, colour)
-          if (tf) return `⏰ Ketu said on ${tf.date}: "${tf.answer}" — RELAY HIS TIMING (it overrides the no-date rule for this colour; adjust for days already passed)`
+          const tf = currentTimedFact(timedFactFor(timedFacts, product, colour), opts.now ?? Date.now())
+          if (tf) return `⏰ Ketu said on ${tf.date}; ${tf.adjusted ? `remaining estimate as of ${tf.asOf} IST (already adjusted; DO NOT subtract again)` : 'dated estimate'}: "${tf.timingEstimate || tf.answer}" — RELAY THIS TIMING in the buyer's language (it overrides the no-date rule for this colour)`
           const row = (snapshot.coming || {})[`${product}|${colour}`]
           if (!row) return '⛔ NO shipment for this colour — give NO date, NO "din mein aayega"'
           const incoming = row.sizes || []

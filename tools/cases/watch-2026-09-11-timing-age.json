@@ -1,0 +1,310 @@
+[
+  {
+    "at": "2026-09-11T12:43:31+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "fetchedAt": 1789110811873,
+      "inStock": {
+        "Oversize 240gsm": {
+          "Red": {
+            "M": 1,
+            "L": 1,
+            "XL": 1
+          },
+          "White": {
+            "M": 1
+          }
+        },
+        "Kids Rneck": {
+          "Red": {
+            "24": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Red": "M,L",
+          "White": "M"
+        },
+        "Kids Rneck": {
+          "Red": "24"
+        }
+      },
+      "coming": {}
+    },
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-07] Buyer asked: \"Oversize 240gsm Red restock?\" \u2014 Ketu's answer: \"8-9 din mein aa jana chahiye\""
+      }
+    ],
+    "id": "elapsed-stock-estimate",
+    "why": "Synthetic stock question four calendar days after an owner estimate; do not restart the wait.",
+    "msg": "When will Oversize 240gsm Red M and L be back in stock?",
+    "must": [
+      "4\\s*(?:-|\u2013|to)\\s*5\\s*days"
+    ],
+    "mustNot": [
+      "8\\s*[-\u2013]\\s*9",
+      "\\[DEFER\\]",
+      "\\b(?:din|hai|aayega)\\b"
+    ]
+  },
+  {
+    "at": "2026-09-11T12:43:31+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "fetchedAt": 1789110811873,
+      "inStock": {
+        "Oversize 240gsm": {
+          "Red": {
+            "M": 1,
+            "L": 1,
+            "XL": 1
+          },
+          "White": {
+            "M": 1
+          }
+        },
+        "Kids Rneck": {
+          "Red": {
+            "24": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Red": "M,L",
+          "White": "M"
+        },
+        "Kids Rneck": {
+          "Red": "24"
+        }
+      },
+      "coming": {}
+    },
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-07] Buyer asked: \"Oversize 240gsm Red restock?\" \u2014 Ketu's answer: \"8-9 din mein aa jana chahiye\""
+      }
+    ],
+    "id": "followup-keeps-aged-estimate",
+    "why": "An earlier incorrect AI estimate in history must not restart a dated owner estimate.",
+    "history": [
+      {
+        "buyer": "When will Oversize 240gsm Red M and L restock?",
+        "ai": "It should arrive in 8-9 days."
+      }
+    ],
+    "msg": "I will order after Red M and L are available.",
+    "mustNot": [
+      "8\\s*[-\u2013]\\s*9",
+      "\\b(?:din|hai|aayega)\\b",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "at": "2026-09-11T12:43:31+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "fetchedAt": 1789110811873,
+      "inStock": {
+        "Oversize 240gsm": {
+          "Red": {
+            "M": 1,
+            "L": 1,
+            "XL": 1
+          },
+          "White": {
+            "M": 1
+          }
+        },
+        "Kids Rneck": {
+          "Red": {
+            "24": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Red": "M,L",
+          "White": "M"
+        },
+        "Kids Rneck": {
+          "Red": "24"
+        }
+      },
+      "coming": {}
+    },
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-11] Buyer asked: \"Oversize 240gsm Red restock?\" \u2014 Ketu's answer: \"8-9 din mein aa jana chahiye\""
+      }
+    ],
+    "id": "same-day-estimate-control",
+    "why": "An estimate from this IST date retains its original duration.",
+    "msg": "When will Oversize 240gsm Red M be available?",
+    "must": [
+      "8\\s*(?:-|\u2013|to)\\s*9\\s*days"
+    ],
+    "mustNot": [
+      "4\\s*[-\u2013]\\s*5",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "at": "2026-09-11T12:43:31+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "fetchedAt": 1789110811873,
+      "inStock": {
+        "Oversize 240gsm": {
+          "Red": {
+            "M": 1,
+            "L": 1,
+            "XL": 1
+          },
+          "White": {
+            "M": 1
+          }
+        },
+        "Kids Rneck": {
+          "Red": {
+            "24": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Red": "M,L",
+          "White": "M"
+        },
+        "Kids Rneck": {
+          "Red": "24"
+        }
+      },
+      "coming": {}
+    },
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-07] Buyer asked: \"Oversize 240gsm Red restock?\" \u2014 Ketu's answer: \"8-9 din mein aa jana chahiye\""
+      }
+    ],
+    "id": "other-colour-control",
+    "why": "The dated Red estimate does not authorize a White date.",
+    "msg": "When will Oversize 240gsm White M be available?",
+    "mustNot": [
+      "\\d+\\s*(?:[-\u2013]\\s*\\d+)?\\s*(?:days|din)",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "at": "2026-09-11T12:43:31+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "fetchedAt": 1789110811873,
+      "inStock": {
+        "Oversize 240gsm": {
+          "Red": {
+            "M": 1,
+            "L": 1,
+            "XL": 1
+          },
+          "White": {
+            "M": 1
+          }
+        },
+        "Kids Rneck": {
+          "Red": {
+            "24": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Red": "M,L",
+          "White": "M"
+        },
+        "Kids Rneck": {
+          "Red": "24"
+        }
+      },
+      "coming": {}
+    },
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-07] Buyer asked: \"Oversize 240gsm Red restock?\" \u2014 Ketu's answer: \"8-9 din mein aa jana chahiye\""
+      }
+    ],
+    "id": "other-product-control",
+    "why": "The dated Oversize estimate does not authorize a Kids date.",
+    "msg": "When will Kids Red 24 be back in stock?",
+    "mustNot": [
+      "\\d+\\s*(?:[-\u2013]\\s*\\d+)?\\s*(?:days|din)",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "at": "2026-09-11T12:43:31+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "fetchedAt": 1789110811873,
+      "inStock": {
+        "Oversize 240gsm": {
+          "Red": {
+            "M": 1,
+            "L": 1,
+            "XL": 1
+          },
+          "White": {
+            "M": 1
+          }
+        },
+        "Kids Rneck": {
+          "Red": {
+            "24": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Red": "M,L",
+          "White": "M"
+        },
+        "Kids Rneck": {
+          "Red": "24"
+        }
+      },
+      "coming": {}
+    },
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-07] Buyer asked: \"Oversize 240gsm Red restock?\" \u2014 Ketu's answer: \"2-3 din mein aa jana chahiye\""
+      }
+    ],
+    "id": "due-estimate-control",
+    "why": "A numeric estimate whose lower bound is already due cannot start a fresh wait.",
+    "msg": "When will Oversize 240gsm Red M be available?",
+    "mustNot": [
+      "\\d+\\s*(?:[-\u2013]\\s*\\d+)?\\s*(?:days|din)",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "launch-timing-control",
+    "why": "Launch timing still uses the dated owner fact, with elapsed days computed once.",
+    "at": "2026-09-11T12:43:31+05:30",
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-06] Buyer asked: \"When will the womens range launch?\" \u2014 Ketu's answer: \"30 to 45 days max\""
+      }
+    ],
+    "msg": "When will the womens range launch?",
+    "must": [
+      "25\\s*(?:-|\u2013|to)\\s*40\\s*days"
+    ],
+    "mustNot": [
+      "30\\s*(?:-|\u2013|to)\\s*45",
+      "\\[DEFER\\]"
+    ]
+  }
+]

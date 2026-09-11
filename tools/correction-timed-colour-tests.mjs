@@ -19,7 +19,7 @@ const snapshot = {
   oos: { 'Oversize 240gsm': { White: 'XS', 'Off-white': 'M', Red: 'M' } },
   coming: {}, fetchedAt: Date.parse('2026-09-11T00:00:00Z'),
 }
-const block = formatStockBlock(snapshot, { timedFacts: facts })
+const block = formatStockBlock(snapshot, { timedFacts: facts, now: snapshot.fetchedAt })
 const whiteVerdict = block.match(/White \[out: XS[^\]]*\]/)?.[0]
 assert.ok(whiteVerdict)
 assert.match(whiteVerdict, /NO shipment/)

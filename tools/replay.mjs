@@ -64,6 +64,7 @@ const catalogBlock = lines.length ? `AUTHORITATIVE CATALOG — the COMPLETE, cur
 
 // ---- optional per-case blocks ----
 const { getStockSnapshot, formatStockBlock, resolveUnnamedProduct } = await import('../server/stock-lookup.js')
+const { formatTimedFactsBlock } = await import('../server/timed-facts.js')
 const { getPhotoIndex, formatPhotoBlock } = await import('../server/photo-links.js')
 const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysGuard, bigBuyerDiscountGuard, formatConversationHistory } = await import('../server/process.js')
 const { catalogProductsFromChunks, gsmAmbiguityHint } = await import('../server/gsm-hint.js')
@@ -76,9 +77,10 @@ if (cases.some(c => c.stock && !c.stockSnapshot)) { stockSnapshot = await getSto
 if (cases.some(c => c.photo)) photoBlock = formatPhotoBlock(await getPhotoIndex())
 
 function userPromptFor(c) {
+  const now = c.at ? Date.parse(c.at) : Date.now()
   const caseTimedFacts = c.timedFacts || timedFacts
   const caseSnapshot = c.stockSnapshot || stockSnapshot
-  const caseStockBlock = c.stockSnapshot ? formatStockBlock(c.stockSnapshot, { timedFacts: caseTimedFacts }) : stockBlock
+  const caseStockBlock = caseSnapshot ? formatStockBlock(caseSnapshot, { timedFacts: caseTimedFacts, now }) : stockBlock
   let p = ''
   if (c.history && c.history.length) {
     p += formatConversationHistory(c.history.map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.deferred ? 'DEFERRED' : (h.manual || h.silent ? 'SKIPPED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : (h.silent ? 'ai_chose_silence' : null), createdAt: h.at })))
@@ -91,7 +93,8 @@ function userPromptFor(c) {
     const unnamed = resolveUnnamedProduct(caseSnapshot, c.msg) // mirrors runAiFlow (2026-09-05)
     p = caseStockBlock + (unnamed ? '\n' + unnamed : '') + '\n\n' + p
   }
-  if (caseTimedFacts.length) p = `⏰ KETU'S RECENT TIMING ANSWERS (his OWN words to buyers in the last few days — EACH ENTRY APPLIES ONLY TO THE PRODUCT AND COLOUR NAMED IN IT: never carry one colour's or product's timing over to another (2026-09-08: '240 red 8-9 din' was reused for KIDS red, which has no shipment) — each entry SUPERSEDES any seasonal default ("Winter stock after September"), Coming-Soon pointer, no-date ban, stale-correction ban, or older correction about the SAME product's timing. Relay HIS stated timing in his style, adjusting for days already passed — today is ${new Date().toISOString().slice(0, 10)}):\n${caseTimedFacts.map(f => '- ' + f.content).join('\n')}\n\n${p}` // mirrors runAiFlow
+  const timedBlock = formatTimedFactsBlock(caseTimedFacts, now, c.msg)
+  if (timedBlock) p = timedBlock + '\n\n' + p
   if (EXPORT_ASK_RE.test(c.msg)) p = EXPORT_HINT + '\n\n' + p // mirrors runAiFlow (2026-09-05)
   const gsmHint = gsmAmbiguityHint(catalogProducts, c.msg) // mirrors runAiFlow (2026-09-06)
   if (gsmHint) p = gsmHint + '\n\n' + p

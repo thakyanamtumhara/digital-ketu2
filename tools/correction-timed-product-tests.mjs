@@ -58,7 +58,7 @@ const snapshot = {
   oos: Object.fromEntries(names.map(name => [name, { Red: 'M' }])),
   coming: {}, fetchedAt: Date.parse('2026-09-11T00:00:00Z'),
 }
-const block = formatStockBlock(snapshot, { timedFacts: [...facts, fact('hoodie red restock kab?')] })
+const block = formatStockBlock(snapshot, { timedFacts: [...facts, fact('hoodie red restock kab?')], now: snapshot.fetchedAt })
 for (const name of names) {
   const row = block.split('\n').find(line => line.startsWith(`- ${name}: Red [out:`))
   assert.ok(row, `missing output row for ${name}`)
