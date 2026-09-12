@@ -1,0 +1,37 @@
+[
+  {
+    "id": "known-quantity-code",
+    "msg": "Please give me a discount code",
+    "history": [{ "buyer": "I want Black tees, 63 pcs", "ai": "Please place your order online." }],
+    "must": ["^\\[DEFER\\]$"],
+    "why": "Synthetic: coupon issuance belongs to the owner once the buyer quantity is known."
+  },
+  {
+    "id": "large-quantity-code",
+    "msg": "Discount code for 850 pcs please",
+    "must": ["^\\[DEFER\\]$"],
+    "why": "Synthetic: code issuance must not become the separate automatic-discount explanation."
+  },
+  {
+    "id": "unknown-quantity-code",
+    "msg": "Could you give me a coupon please?",
+    "must": ["how many|kitne", "pieces|pcs"],
+    "mustNot": ["\\[DEFER\\]", "fixed price", "no coupon"],
+    "why": "Synthetic control: ask for the missing total once."
+  },
+  {
+    "id": "plain-haggle",
+    "msg": "I need 63 pcs. Any discount please?",
+    "must": ["fixed price"],
+    "mustNot": ["\\[DEFER\\]", "1000", "coupon"],
+    "why": "Synthetic control: ordinary small-order negotiation keeps the existing fixed-price policy."
+  },
+  {
+    "id": "existing-code-help",
+    "msg": "Where do I enter my coupon code?",
+    "history": [{ "buyer": "I need 63 pcs", "ai": "Please order online." }],
+    "must": ["pay now|checkout"],
+    "mustNot": ["\\[DEFER\\]"],
+    "why": "Synthetic control: applying an existing code remains self-service."
+  }
+]

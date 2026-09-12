@@ -20,6 +20,7 @@ import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
 import { partialDeferSplit } from './reconcile.js'
 import { repairEnglishReply } from './reply-language.js'
 import { arrivalClockGuard } from './arrival-clock.js'
+import { couponCodeGuard } from './coupon-code.js'
 import { openaiReply, isOpenAiFallbackConfigured } from './openai-fallback.js'
 
 // ===========================================
@@ -3704,8 +3705,15 @@ Reply with exactly one word: KETU or ASSISTANT.`,
 
   let postModelGuardFailed = false
   let arrivalClockBlocked = false
+  let couponCodeHeld = false
   try {
     aiReply = canonicalizeCatalogLinks(aiReply, catalogProducts)
+    const couponHandoff = couponCodeGuard({ buyerText: mergedText, history: conversationHistory, reply: aiReply })
+    if (couponHandoff) {
+      aiReply = couponHandoff
+      couponCodeHeld = true
+      console.log(`[CouponCodeGuard] ${whatsappNumber} — known-quantity code request held for owner`)
+    }
   // --- PAYMENT-FIX FABRICATION GUARD (2026-09-04) ---
   // The prompt has banned invented payment troubleshooting since 2026-08-13 ("NEVER invent retry
   // timing"), and the model still wrote "10 minute wait karke dobara order daal dijiye" to a payment
@@ -3776,7 +3784,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   // carries a real answer and a held question — the partial path below sends the answer and
   // schedules the holding line; overriding it here would drop both (review finding).
   const deferSplit = partialDeferSplit(aiReply)
-  if (!postModelGuardFailed && !arrivalClockBlocked && deferSplit.isDefer && !deferSplit.isPartial) {
+  if (!postModelGuardFailed && !arrivalClockBlocked && !couponCodeHeld && deferSplit.isDefer && !deferSplit.isPartial) {
     const DISPATCH_BLOCK_RE = /nahi|nhi\b|\bnot\b|abhi\s*tak|cancel|return|wapas|refund|complaint|damage|ref:\s*wo_|total\s*\d+\s*pcs|kyu\b|why/i
     const DISPATCH_YESNO_RE = /\b(aa?j|kal|abhi|today|tomorrow)\b[^]{0,40}\b(dispatch|nika?l|bhej)[^]{0,25}(hoga|hogi|jayega|jaega|\bna\b|\?)|\bdispatch\s*(hoga|ho\s*jayega)\b/i
     const DISPATCH_INSTRUCT_RE = /(nikal\s*wa|nikalwa|nikla?wa|bhij\s*wa|bhijwa|rakh\s*wa|rakhwa|porter\s*kar[wv]a)\s*(de?na|di?jiye|do\b|dena)|dispatch\s*(kar|kr)[wv]a\s*(dena|do|dijiye)|(aa?j|kal)[^]{0,20}(bhijwa|nikalwa|rakhwa)\s*(dena|dijiye|do)/i
@@ -3818,7 +3826,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId,
         mergedText, messageIds, logData: {
-          status: 'DEFERRED', deferReason: postModelGuardFailed ? 'post_model_guard_failed' : (arrivalClockBlocked ? 'arrival_clock_blocked' : (split.isPartial ? 'claude_partial_defer' : 'claude_deferred')),
+          status: 'DEFERRED', deferReason: postModelGuardFailed ? 'post_model_guard_failed' : (arrivalClockBlocked ? 'arrival_clock_blocked' : (couponCodeHeld ? 'coupon_code_handoff' : (split.isPartial ? 'claude_partial_defer' : 'claude_deferred'))),
           // A partial's spend sits on its REPLIED row; zero here so messageLog sums do not double-count.
           promptTokens: split.isPartial ? 0 : promptTokens, completionTokens: split.isPartial ? 0 : completionTokens,
           totalTokens: split.isPartial ? 0 : totalTokens, costUsd: split.isPartial ? 0 : costUsd,

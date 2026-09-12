@@ -122,6 +122,47 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['known-quantity coupon refusal becomes a tracked owner handoff', async () => {
+    const r = await runCase({ buyerText: 'Please give me a discount code', reply: 'Fixed price sir. We have a tight margin.', history: [{ buyerMessage: 'Black tees: 63 pcs', aiReply: 'Please order online.', status: 'REPLIED' }] })
+    assert.equal(r.sent.length, 0)
+    const held = r.pending.get('buyer-test')?.messages[0]
+    assert.ok(held)
+    assert.equal(held.logData.deferReason, 'coupon_code_handoff')
+    assert.deepEqual(Array.from(held.messageIds), ['inbound-test'])
+    assert.ok(held.logData.costUsd > 0)
+  }],
+  ['coupon handoff takes precedence over the large-buyer discount guard', async () => {
+    const r = await runCase({ buyerText: 'Discount code for 850 pcs please', reply: 'Fixed price sir.' })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'coupon_code_handoff')
+  }],
+  ['coupon without a known count can ask the quantity', async () => {
+    const r = await runCase({ buyerText: 'Could you give me a coupon please?', reply: 'How many pieces in total sir?' })
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.sent[0].message, 'How many pieces in total sir?')
+  }],
+  ['ordinary small-order bargaining retains fixed-price wording', async () => {
+    const r = await runCase({ buyerText: '63 pcs, any discount please?', reply: 'Fixed price sir.' })
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.sent[0].message, 'Fixed price sir.')
+  }],
+  ['existing-code help remains answerable after quantity is known', async () => {
+    const r = await runCase({ buyerText: 'Where do I enter my coupon code?', reply: 'Enter it on the Pay Now page sir.', history: [{ buyerMessage: '63 pcs', status: 'REPLIED' }] })
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.sent[0].message, 'Enter it on the Pay Now page sir.')
+  }],
+  ['coupon guard preserves a mixed answer and its handoff', async () => {
+    const r = await runCase({ buyerText: 'Send hoodie photos and a coupon please', reply: 'All hoodie photos are in the catalogue sir: https://sale91.com/catalog [DEFER]', history: [{ buyerMessage: '63 pcs', status: 'REPLIED' }] })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /hoodie photos/)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'claude_partial_defer')
+  }],
+  ['manual cooldown remains ahead of coupon handoff', async () => {
+    const r = await runCase({ cooldown: true, incomingText: 'Coupon for 63 pcs please', reply: 'Fixed price sir.' })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.logs.at(-1).status, 'COOLDOWN')
+  }],
   ['bill PDF with a photo is held in full and partial AI', async () => {
     for (const active of [true, false]) {
       const r = await runCase({ active, incomingMessages: [

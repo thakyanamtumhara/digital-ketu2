@@ -54,6 +54,7 @@ const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysG
 const { gsmAmbiguityHint } = await import('../server/gsm-hint.js')
 const { repairEnglishReply } = await import('../server/reply-language.js')
 const { arrivalClockGuard } = await import('../server/arrival-clock.js')
+const { couponCodeGuard } = await import('../server/coupon-code.js')
 const rewriteClient = { messages: { create: async body => {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -136,6 +137,8 @@ for (const c of cases) {
     // Mirror the production post-model guards (2026-09-09) so a replay judges what the buyer would get.
     {
       txt = canonicalizeCatalogLinks(txt, catalogProducts)
+      const couponHandoff = couponCodeGuard({ buyerText: c.msg, reply: txt, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, deferReason: h.manual ? 'manual_reply' : null })) })
+      if (couponHandoff) { console.log('   Coupon-code guard retained an owner handoff'); txt = couponHandoff }
       const historyText = (c.history || []).map(h => `Buyer: ${h.buyer}\nAssistant: ${h.ai || ''}`).join('\n')
       const g1 = deliveryDaysGuard({ buyerText: c.msg, reply: txt })
       if (g1) { console.log(`   ⚙️ delivery-days guard replaced the model reply`); txt = g1 }
