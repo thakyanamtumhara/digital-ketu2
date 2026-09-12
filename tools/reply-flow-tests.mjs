@@ -123,6 +123,50 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['Hindi invoice answer is repaired before transport and recorded once', async () => {
+    const original = 'Your bills sync once you log in sir 👉 https://example.invalid/login'
+    const fixed = 'Login karte hi aapke bills sync ho jayenge sir 👉 https://example.invalid/login'
+    const r = await runCase({ buyerText: 'Sir invoice download kaise karna hai?', reply: original, rewriteReply: fixed, history: [{ buyerMessage: 'Please share your office location', status: 'REPLIED' }] })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.sent[0].message, fixed)
+    assert.equal(r.logs.at(-1).aiReply, fixed)
+    assert.equal(r.logs.at(-1).sentViaWwbun, true)
+  }],
+  ['Roman Hindi product spelling reaches the reverse language repair', async () => {
+    const r = await runCase({ buyerText: 'Plain tee chaihay mujay', reply: 'Which fit do you want sir?', rewriteReply: 'Kaunsa fit chahiye sir?' })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, 'Kaunsa fit chahiye sir?')
+  }],
+  ['an explicit English preference prevents reverse repair', async () => {
+    const original = 'Your bills sync once you log in sir'
+    const r = await runCase({ buyerText: 'Invoice kaise milega?', reply: original, preferredLanguage: 'english' })
+    assert.equal(r.rewriteRequests.length, 0)
+    assert.equal(r.sent[0].message, original)
+  }],
+  ['a neutral product-only turn does not trigger Hindi translation', async () => {
+    const r = await runCase({ buyerText: 'Polo', reply: 'Which colour do you want sir?', history: [{ buyerMessage: 'Mujhe shirts chahiye', status: 'REPLIED' }] })
+    assert.equal(r.rewriteRequests.length, 0)
+  }],
+  ['Hindi rewrite cannot change a size before transport', async () => {
+    const original = 'We have sizes S to XXL sir'
+    const r = await runCase({ buyerText: 'Sizes kya hai?', reply: original, rewriteReply: 'S se XL sizes hain sir' })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, original)
+  }],
+  ['Hindi rewrite outage preserves delivery', async () => {
+    const original = 'Your bills sync once you log in sir'
+    const r = await runCase({ buyerText: 'Invoice kaise milega?', reply: original, rewriteThrows: true })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, original)
+    assert.equal(r.logs.at(-1).status, 'REPLIED')
+  }],
+  ['Hindi reply repair cannot override the owner handoff', async () => {
+    const r = await runCase({ buyerText: 'Refund kab milega?', reply: '[DEFER]' })
+    assert.equal(r.rewriteRequests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.status, 'DEFERRED')
+  }],
   ['repeated stock pointer becomes a tracked owner handoff', async () => {
     const r = await runCase({ buyerText: 'Acid wash ka stock kab refill hoga, information nahi hai', reply: 'Coming Soon tab mein update aata rehta hai sir, wahin check karte rahiye', history: [{ buyerMessage: 'Black M acid wash kab aayega?', aiReply: 'Check Coming Soon sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
     assert.equal(r.sent.length, 0)

@@ -52,7 +52,7 @@ const { formatTimedFactsBlock } = await import('../server/timed-facts.js')
 const { getPhotoIndex, formatPhotoBlock } = await import('../server/photo-links.js')
 const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysGuard, bigBuyerDiscountGuard, formatConversationHistory } = await import('../server/process.js')
 const { gsmAmbiguityHint } = await import('../server/gsm-hint.js')
-const { repairEnglishReply } = await import('../server/reply-language.js')
+const { repairReplyLanguage } = await import('../server/reply-language.js')
 const { arrivalClockGuard } = await import('../server/arrival-clock.js')
 const { couponCodeGuard } = await import('../server/coupon-code.js')
 const { restockPointerGuard } = await import('../server/restock-pointer.js')
@@ -151,13 +151,13 @@ for (const c of cases) {
       if (g3) { console.log('   Arrival-clock guard retained a handoff'); txt = g3 }
     }
     if (!/^\s*\[(DEFER|SKIP)\]\s*$/.test(txt)) {
-      const repaired = await repairEnglishReply({
+      const repaired = await repairReplyLanguage({
         anthropic: rewriteClient, reply: txt, buyerText: c.msg, preferredLanguage: c.preferredLanguage,
         history: (c.history || []).map(h => ({ buyerMessage: h.buyer, deferReason: h.manual ? 'manual_reply' : null })),
       })
       usd += repaired.costUsd
       txt = repaired.reply
-      if (repaired.attempted) console.log(`   English repair: ${repaired.changed ? 'applied' : 'kept original'}`)
+      if (repaired.attempted) console.log(`   Language repair: ${repaired.changed ? 'applied' : 'kept original'}`)
     }
     for (const m of (c.must || [])) if (!new RegExp(m, 'i').test(txt)) fails.push(`missing /${m}/`)
     for (const m of (c.mustNot || [])) if (new RegExp(m, 'i').test(txt)) fails.push(`forbidden /${m}/`)

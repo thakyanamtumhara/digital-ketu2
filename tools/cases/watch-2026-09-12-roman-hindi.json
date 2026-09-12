@@ -1,0 +1,60 @@
+[
+  {
+    "id": "roman-invoice-after-english",
+    "why": "Current clear Roman Hindi must win over inferred older English. First invoice retrieval remains the login answer.",
+    "msg": "Sir invoice download kaise karna hai?",
+    "history": [{ "buyer": "Please share the warehouse location", "ai": "You can visit the warehouse sir." }],
+    "must": ["sale91\\.com/login", "login", "\\b(hai|jayenge|jayega|karke|karte|kar|lijiye)\\b"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]"]
+  },
+  {
+    "id": "roman-product-spelling",
+    "why": "Nonstandard Roman Hindi remains Hindi; current catalogue supplies any facts.",
+    "msg": "240gsm plain tee chaihay mujay",
+    "must": ["\\b(hai|hain|chahiye|karo|kar|lijiye|milega)\\b"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]"]
+  },
+  {
+    "id": "roman-fabric-spelling",
+    "why": "Roman Hindi possession spelling must not fall back to earlier English context.",
+    "msg": "Apnay paas Supima cotton hay ky?",
+    "history": [{ "buyer": "Please share shirt details", "ai": "Which shirt do you need sir?" }],
+    "must": ["\\b(nahi|nhi)\\b"],
+    "mustNot": ["\\[SKIP\\]"]
+  },
+  {
+    "id": "explicit-english-invoice-control",
+    "why": "An explicit English request overrides current Roman Hindi.",
+    "msg": "Invoice kaise download hoga? English please.",
+    "must": ["sale91\\.com/login", "\\b(log|login|bills|invoice)\\b"],
+    "mustNot": ["\\b(hai|nahi|lijiye|karke|jayega|jayenge)\\b", "\\[DEFER\\]"]
+  },
+  {
+    "id": "prior-explicit-english-control",
+    "why": "An earlier explicit language preference remains authoritative.",
+    "msg": "Invoice kaise milega?",
+    "history": [{ "buyer": "English please", "ai": "Sure sir, I can help in English." }],
+    "must": ["sale91\\.com/login"],
+    "mustNot": ["\\b(hai|nahi|lijiye|karke|jayega|jayenge)\\b", "\\[DEFER\\]"]
+  },
+  {
+    "id": "neutral-product-control",
+    "why": "Product-only text supplies no new Hindi preference; judge answer routing only.",
+    "msg": "Polo",
+    "mustNot": ["\\[SKIP\\]", "\\[DEFER\\]"]
+  },
+  {
+    "id": "owner-payment-control",
+    "why": "Language repair must retain the owner-only banking handoff.",
+    "msg": "Direct bank transfer karna hai, apni bank details bhejo",
+    "must": ["\\[DEFER\\]"],
+    "mustNot": ["IFSC", "account number"]
+  },
+  {
+    "id": "english-address-control",
+    "why": "The existing English repair and required warehouse proper name remain valid.",
+    "msg": "Please share your shop address",
+    "must": ["TSHIRT WALA GODAM"],
+    "mustNot": ["\\b(hai|nahi|lijiye|karke|jayega|jayenge)\\b", "\\[DEFER\\]"]
+  }
+]

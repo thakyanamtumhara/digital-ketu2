@@ -18,7 +18,7 @@ import { gsmAmbiguityHint } from './gsm-hint.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
 import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
 import { partialDeferSplit } from './reconcile.js'
-import { repairEnglishReply } from './reply-language.js'
+import { repairReplyLanguage } from './reply-language.js'
 import { arrivalClockGuard } from './arrival-clock.js'
 import { restockPointerGuard } from './restock-pointer.js'
 import { couponCodeGuard } from './coupon-code.js'
@@ -3853,15 +3853,15 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   }
 
   try {
-    const repaired = await repairEnglishReply({
+    const repaired = await repairReplyLanguage({
       anthropic, reply: aiReply, buyerText: mergedText,
       history: conversationHistory, preferredLanguage: preferredReplyLanguage,
     })
     costUsd += repaired.costUsd
     aiReply = repaired.reply
-    if (repaired.attempted) console.log(`[EnglishGate] ${whatsappNumber} — ${repaired.changed ? 'rewrite OK' : 'rewrite unavailable or rejected; kept original'}`)
+    if (repaired.attempted) console.log(`[LanguageGate] ${whatsappNumber} — ${repaired.target}: ${repaired.changed ? 'rewrite OK' : 'rewrite unavailable or rejected; kept original'}`)
   } catch {
-    console.warn(`[EnglishGate] ${whatsappNumber} — repair failed; kept original`)
+    console.warn(`[LanguageGate] ${whatsappNumber} — repair failed; kept original`)
   }
 
   // Day-granular dispatch only — strip any clock hour the model attached to a dispatch promise.
