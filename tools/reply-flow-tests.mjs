@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
+import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE } from '../server/stock-lookup.js'
 
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
@@ -44,7 +45,7 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     './transcribe.js': { transcribeAudio() {}, isTranscriptionConfigured: () => false, getTranscriptionProvider() {} },
     './ig-gate.js': { evaluateIgGate() {} },
     './order-lookup.js': { lookupOrdersByPhone: async () => [], formatOrderLookupBlock: () => '', getBuyerProfile: async () => null, formatBuyerProfileBlock: () => '' },
-    './stock-lookup.js': { getStockSnapshot: async () => ({}), formatStockBlock: () => '', resolveUnnamedProduct: () => '', unnamedProductCandidates: () => [], unnamedProductGuard() {} },
+    './stock-lookup.js': { getStockSnapshot: async () => ({}), formatStockBlock: () => '', resolveUnnamedProduct: () => '', unnamedProductCandidates: () => [], unnamedProductGuard() {}, resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE },
     './photo-links.js': { getPhotoIndex: async () => [], formatPhotoBlock: () => '', PHOTO_INTENT_RE: /a^/ },
     './openai-fallback.js': { openaiReply() { throw Error('unexpected fallback') }, isOpenAiFallbackConfigured: () => false },
   }
@@ -122,6 +123,42 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['repeated stock pointer becomes a tracked owner handoff', async () => {
+    const r = await runCase({ buyerText: 'Acid wash ka stock kab refill hoga, information nahi hai', reply: 'Coming Soon tab mein update aata rehta hai sir, wahin check karte rahiye', history: [{ buyerMessage: 'Black M acid wash kab aayega?', aiReply: 'Check Coming Soon sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.sent.length, 0)
+    const held = r.pending.get('buyer-test')?.messages[0]
+    assert.ok(held)
+    assert.equal(held.logData.deferReason, 'restock_pointer_handoff')
+    assert.deepEqual(Array.from(held.messageIds), ['inbound-test'])
+    assert.ok(held.logData.costUsd > 0)
+  }],
+  ['first stock pointer remains answerable', async () => {
+    const r = await runCase({ buyerText: 'Acid wash kab restock hoga?', reply: 'Check Coming Soon sir.' })
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.sent[0].message, 'Check Coming Soon sir.')
+  }],
+  ['matching new timing is not replaced by the restock guard', async () => {
+    const r = await runCase({ buyerText: 'Acid wash kab restock hoga?', reply: 'Black M acid wash 4 din mein aa jayega sir.', history: [{ buyerMessage: 'Black M acid wash kab aayega?', aiReply: 'Check Coming Soon sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.pending.size, 0)
+    assert.match(r.sent[0].message, /4 din/)
+  }],
+  ['new stock subject retains its first-pointer route', async () => {
+    const r = await runCase({ buyerText: 'Cotton Polo kab restock hoga?', reply: 'Check Coming Soon sir.', history: [{ buyerMessage: 'Black M acid wash kab aayega?', aiReply: 'Check Coming Soon sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.sent.length, 1)
+  }],
+  ['stock timing plus photo answer keeps partial handoff', async () => {
+    const r = await runCase({ buyerText: 'Acid wash kab restock hoga, hoodie photos bhi bhejo?', reply: 'Hoodie photos yahan dekh lijiye sir: https://sale91.com/catalog [DEFER]', history: [{ buyerMessage: 'Black M acid wash kab aayega?', aiReply: 'Check Coming Soon sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /Hoodie photos/)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'claude_partial_defer')
+  }],
+  ['manual cooldown remains ahead of stock-pointer review', async () => {
+    const r = await runCase({ cooldown: true, incomingText: 'Acid wash stock kab refill hoga?', reply: 'Check Coming Soon sir.', history: [{ buyerMessage: 'Black M acid wash kab aayega?', aiReply: 'Check Coming Soon sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.logs.at(-1).status, 'COOLDOWN')
+  }],
   ['known-quantity coupon refusal becomes a tracked owner handoff', async () => {
     const r = await runCase({ buyerText: 'Please give me a discount code', reply: 'Fixed price sir. We have a tight margin.', history: [{ buyerMessage: 'Black tees: 63 pcs', aiReply: 'Please order online.', status: 'REPLIED' }] })
     assert.equal(r.sent.length, 0)

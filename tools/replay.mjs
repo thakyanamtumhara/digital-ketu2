@@ -55,6 +55,7 @@ const { gsmAmbiguityHint } = await import('../server/gsm-hint.js')
 const { repairEnglishReply } = await import('../server/reply-language.js')
 const { arrivalClockGuard } = await import('../server/arrival-clock.js')
 const { couponCodeGuard } = await import('../server/coupon-code.js')
+const { restockPointerGuard } = await import('../server/restock-pointer.js')
 const rewriteClient = { messages: { create: async body => {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -137,6 +138,8 @@ for (const c of cases) {
     // Mirror the production post-model guards (2026-09-09) so a replay judges what the buyer would get.
     {
       txt = canonicalizeCatalogLinks(txt, catalogProducts)
+      const restockHandoff = restockPointerGuard({ buyerText: c.msg, reply: txt, now: c.at ? Date.parse(c.at) : Date.now(), history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) })
+      if (restockHandoff) { console.log('   Restock-pointer guard retained an owner handoff'); txt = restockHandoff }
       const couponHandoff = couponCodeGuard({ buyerText: c.msg, reply: txt, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, deferReason: h.manual ? 'manual_reply' : null })) })
       if (couponHandoff) { console.log('   Coupon-code guard retained an owner handoff'); txt = couponHandoff }
       const historyText = (c.history || []).map(h => `Buyer: ${h.buyer}\nAssistant: ${h.ai || ''}`).join('\n')

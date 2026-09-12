@@ -1,0 +1,181 @@
+[
+  {
+    "at": "2026-09-12T14:00:00Z",
+    "stock": true,
+    "stockSnapshot": {
+      "fetchedAt": "2026-09-12T14:00:00Z",
+      "inStock": {
+        "AcidWash OS": {
+          "Black": {
+            "M": 1
+          }
+        }
+      },
+      "oos": {
+        "AcidWash OS": {
+          "Black": "M"
+        }
+      },
+      "coming": {}
+    },
+    "timedFacts": [],
+    "id": "repeat-no-date",
+    "msg": "Acid wash ke restock ki information wahan nahi hai, kab aayega?",
+    "history": [
+      {
+        "buyer": "Black M acid wash kab restock hoga?",
+        "ai": "Coming Soon tab mein check kar lijiye sir.",
+        "at": "2026-09-12T13:55:00Z"
+      }
+    ],
+    "must": [
+      "^\\[DEFER\\]$"
+    ],
+    "why": "Synthetic: unresolved timing must not receive the same Coming Soon pointer twice."
+  },
+  {
+    "at": "2026-09-12T14:00:00Z",
+    "stock": true,
+    "stockSnapshot": {
+      "fetchedAt": "2026-09-12T14:00:00Z",
+      "inStock": {
+        "AcidWash OS": {
+          "Black": {
+            "M": 1
+          }
+        }
+      },
+      "oos": {
+        "AcidWash OS": {
+          "Black": "M"
+        }
+      },
+      "coming": {}
+    },
+    "timedFacts": [],
+    "id": "first-pointer",
+    "msg": "Black M acid wash kab restock hoga?",
+    "must": [
+      "Coming Soon"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]",
+      "\\d+\\s*(?:din|days)"
+    ],
+    "why": "Synthetic control: a first no-date restock question still gets the Coming Soon pointer."
+  },
+  {
+    "at": "2026-09-12T14:00:00Z",
+    "stock": true,
+    "stockSnapshot": {
+      "fetchedAt": "2026-09-12T14:00:00Z",
+      "inStock": {
+        "AcidWash OS": {
+          "Black": {
+            "M": 1
+          }
+        }
+      },
+      "oos": {
+        "AcidWash OS": {
+          "Black": "M"
+        }
+      },
+      "coming": {
+        "AcidWash OS|Black": {
+          "eta": 4,
+          "sizes": [
+            "M"
+          ]
+        }
+      }
+    },
+    "timedFacts": [],
+    "id": "fresh-matching-timing",
+    "msg": "Black M acid wash kab restock hoga?",
+    "history": [
+      {
+        "buyer": "Black M acid wash kab restock hoga?",
+        "ai": "Coming Soon tab mein check kar lijiye sir.",
+        "at": "2026-09-12T13:55:00Z"
+      }
+    ],
+    "must": [
+      "4\\s*(?:din|days)"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ],
+    "why": "Synthetic live-source fixture: a newly available exact-item estimate remains answerable; this value is not business policy."
+  },
+  {
+    "at": "2026-09-12T14:00:00Z",
+    "stock": true,
+    "stockSnapshot": {
+      "fetchedAt": "2026-09-12T14:00:00Z",
+      "inStock": {
+        "Cotton Polo": {
+          "Grey": {
+            "40": 1
+          }
+        }
+      },
+      "oos": {
+        "Cotton Polo": {
+          "Grey": "40"
+        }
+      },
+      "coming": {}
+    },
+    "timedFacts": [],
+    "id": "different-product",
+    "msg": "Cotton Polo ka stock kab refill hoga?",
+    "history": [
+      {
+        "buyer": "Black M acid wash kab restock hoga?",
+        "ai": "Coming Soon tab mein check kar lijiye sir.",
+        "at": "2026-09-12T13:55:00Z"
+      }
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ],
+    "why": "Synthetic control: a different product is a first question, not a repeated unresolved item."
+  },
+  {
+    "at": "2026-09-12T14:00:00Z",
+    "stock": true,
+    "stockSnapshot": {
+      "fetchedAt": "2026-09-12T14:00:00Z",
+      "inStock": {
+        "AcidWash OS": {
+          "Black": {
+            "M": 1
+          }
+        }
+      },
+      "oos": {
+        "AcidWash OS": {
+          "Black": "M"
+        }
+      },
+      "coming": {}
+    },
+    "timedFacts": [],
+    "id": "mixed-photo-timing",
+    "msg": "Acid wash ki timing Coming Soon mein nahi hai. Hoodie photos bhi bhejo.",
+    "history": [
+      {
+        "buyer": "Black M acid wash kab restock hoga?",
+        "ai": "Coming Soon tab mein check kar lijiye sir.",
+        "at": "2026-09-12T13:55:00Z"
+      }
+    ],
+    "must": [
+      "hoodie",
+      "https://",
+      "\\[DEFER\\]"
+    ],
+    "why": "Synthetic control: preserve a useful catalogue/photo answer alongside the unresolved timing handoff."
+  }
+]
