@@ -120,6 +120,28 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['English address repair preserves the warehouse name through transport', async () => {
+    const r = await runCase({ buyerText: 'Please give the warehouse address', reply: 'Location pe TSHIRT WALA GODAM poochh lena sir', rewriteReply: 'Ask for TSHIRT WALA GODAM when you arrive sir' })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, 'Ask for TSHIRT WALA GODAM when you arrive sir')
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+  }],
+  ['a translated warehouse name is rejected before transport', async () => {
+    const original = 'Location pe TSHIRT WALA GODAM poochh lena sir'
+    const r = await runCase({ buyerText: 'Please give the warehouse address', reply: original, rewriteReply: 'Ask for TSHIRT WAREHOUSE when you arrive sir' })
+    assert.equal(r.sent[0].message, original)
+    assert.equal(r.logs.at(-1).sentViaWwbun, true)
+  }],
+  ['one-word location request is repaired after an unknown greeting', async () => {
+    const r = await runCase({ buyerText: 'Location', history: [{ buyerMessage: 'Heyy', aiReply: 'Ask me sir' }], reply: 'Yahan pe aa jaiye sir', rewriteReply: 'Please come here sir' })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, 'Please come here sir')
+  }],
+  ['Hindi size range in an English reply is repaired before transport', async () => {
+    const r = await runCase({ buyerText: 'Please share hoodie details', reply: 'Sizes S se XXL sir', rewriteReply: 'Sizes S to XXL sir' })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, 'Sizes S to XXL sir')
+  }],
   ['short English contact request is repaired before actual transport', async () => {
     const r = await runCase({ buyerText: 'Could I get contact information?', reply: 'Call kar lijiye sir 👉 1234567890', rewriteReply: 'Please call sir 👉 1234567890' })
     assert.equal(r.rewriteRequests.length, 1)

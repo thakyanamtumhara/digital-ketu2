@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buyerUsesEnglish, repairEnglishReply } from '../server/reply-language.js'
+import { buyerUsesEnglish, repairEnglishReply, containsHindi } from '../server/reply-language.js'
 
 const englishHistory = [{ buyerMessage: 'We need some shirts', aiReply: 'Kaunsa product chahiye sir?' }]
 const cases = [
@@ -19,6 +19,12 @@ const cases = [
   ['Devanagari without preference', { buyerText: 'रेट क्या है', history: englishHistory }, false],
   ['other script is not English', { buyerText: 'விலை என்ன', history: englishHistory }, false],
   ['a URL is not language evidence', { buyerText: 'https://example.invalid/please/send/details' }, false],
+  ['first location request after an unclassified greeting', { buyerText: 'Location', history: [{ buyerMessage: 'Hlw' }] }, true],
+  ['one-word address request', { buyerText: 'Address please' }, true],
+  ['single request retains prior buyer Hindi', { buyerText: 'Location', history: [{ buyerMessage: 'Mujhe shirts chahiye' }] }, false],
+  ['single request retains explicit Hindi', { buyerText: 'Location', preferredLanguage: 'hindi' }, false],
+  ['non-English fragment is not a location request', { buyerText: 'Location batao' }, false],
+  ['arbitrary fragment remains unclassified', { buyerText: 'Navy' }, false],
 ]
 for (const [name, context, expected] of cases) assert.equal(buyerUsesEnglish(context), expected, name)
 
@@ -51,3 +57,26 @@ for (const [reply, buyerText] of [['[DEFER]', 'Please send details'], ['[SKIP]',
 }
 assert.equal(calls, before)
 console.log(`${cases.length} language decisions and 12 rewrite/control checks passed`)
+
+const namedHindi = "Location pe 'TSHIRT WALA GODAM' poochh lena sir 👉 https://example.invalid/location"
+const namedEnglish = "Ask for 'TSHIRT WALA GODAM' when you arrive sir 👉 https://example.invalid/location"
+assert.equal(containsHindi(namedEnglish), false)
+assert.equal(containsHindi(namedHindi), true)
+assert.equal(containsHindi('Yeh wala chahiye sir'), true)
+const namedFixed = await repairEnglishReply({ anthropic: client(namedEnglish), reply: namedHindi, buyerText: 'Please share your address' })
+assert.equal(namedFixed.reply, namedEnglish)
+assert.equal(namedFixed.changed, true)
+const translatedName = await repairEnglishReply({ anthropic: client(namedEnglish.replace('TSHIRT WALA GODAM', 'TSHIRT WAREHOUSE')), reply: namedHindi, buyerText: 'Please share your address' })
+assert.equal(translatedName.changed, false)
+assert.equal(translatedName.reply, namedHindi)
+const alreadyEnglish = await repairEnglishReply({ anthropic: client('must not run'), reply: namedEnglish, buyerText: 'Please share your address' })
+assert.equal(alreadyEnglish.attempted, false)
+console.log('6 proper-name boundary controls passed')
+
+assert.equal(containsHindi('Sizes S se XXL sir'), true)
+assert.equal(containsHindi('Sizes 36 se 46 sir'), true)
+assert.equal(containsHindi('We deliver to SE Delhi sir'), false)
+const sizeRange = await repairEnglishReply({ anthropic: client('Sizes S to XXL sir'), reply: 'Sizes S se XXL sir', buyerText: 'Please share hoodie details' })
+assert.equal(sizeRange.reply, 'Sizes S to XXL sir')
+assert.equal(sizeRange.changed, true)
+console.log('4 size-range language controls passed')

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "english-address-name",
+    "msg": "Please give the warehouse address",
+    "must": ["TSHIRT WALA GODAM", "maps\\.app\\.goo\\.gl"],
+    "mustNot": ["\\[DEFER\\]", "\\b(hai|pe|kar|baaki|poochh|kijiye)\\b", "TSHIRT WAREHOUSE"],
+    "why": "English prose retains the exact proper name and contact route."
+  },
+  {
+    "id": "short-location",
+    "msg": "Location",
+    "history": [{"buyer": "Heyy", "ai": "Ask me sir"}],
+    "must": ["TSHIRT WALA GODAM", "maps\\.app\\.goo\\.gl"],
+    "mustNot": ["\\[DEFER\\]", "\\b(hai|pe|kar|baaki|poochh|kijiye)\\b"],
+    "why": "An unclassified greeting must not prevent an English address response."
+  },
+  {
+    "id": "english-hoodie-details",
+    "msg": "Please share the sizes for your 430gsm hoodie",
+    "must": ["XXL"],
+    "mustNot": ["\\[DEFER\\]", "\\b(hai|se|mein|milega)\\b"],
+    "why": "Size ranges use English prose without changing product facts."
+  },
+  {
+    "id": "control-hinglish-address",
+    "msg": "Godam ka address bhej dijiye",
+    "must": ["TSHIRT WALA GODAM", "maps\\.app\\.goo\\.gl", "\\b(kar|pe|baaki|kijiye|lena|aaiye|poochh)\\b"],
+    "mustNot": ["\\[DEFER\\]", "TSHIRT WAREHOUSE"],
+    "why": "A current Hinglish request keeps the existing language and proper name."
+  },
+  {
+    "id": "control-complaint",
+    "msg": "My delivered parcel has missing shirts. Please refund those pieces.",
+    "must": ["\\[DEFER\\]"],
+    "mustNot": ["refund processed", "refund sent"],
+    "why": "Language repair cannot remove a human-only resolution handoff."
+  }
+]

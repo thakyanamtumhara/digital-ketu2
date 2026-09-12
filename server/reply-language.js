@@ -4,8 +4,9 @@ const withoutLinks = text => String(text || '').replace(/https?:\/\/\S+/gi, ' ')
 const nonLatinLetters = text => /\p{L}/u.test(text.replace(/\p{Script=Latin}/gu, ''))
 
 export function containsHindi(text) {
-  const words = withoutLinks(text)
+  const words = withoutLinks(text).replace(/\bTSHIRT WALA GODAM\b/gi, '')
   return HINDI_WORDS.test(words) || /[ऀ-ॿ]/.test(words)
+    || /\b(?:XXS|XS|S|M|L|XL|XXL|XXXL|\d{2})\s+se\s+(?:XXS|XS|S|M|L|XL|XXL|XXXL|\d{2})\b/i.test(words)
 }
 
 function explicitLanguage(text) {
@@ -32,14 +33,15 @@ export function buyerUsesEnglish({ buyerText, history = [], preferredLanguage = 
     const language = detectedLanguage(row.buyerMessage)
     if (language) return language === 'english'
   }
-  return false
+  return /^\s*(?:location|address|contact)(?:\s+(?:sir|please|pls|plz))?\s*[?.!]*\s*$/i.test(buyerText || '')
 }
 
 function protectedValues(text) {
   const links = (String(text).match(/https?:\/\/[^\s<>"']+/gi) || []).map(link => link.replace(/[),.!?;:]+$/, '')).sort()
   const numbers = (withoutLinks(text).match(/\d+(?:[.,]\d+)*/g) || []).sort()
   const actions = (String(text).match(/\[(?:DEFER|SKIP)\]/g) || []).sort()
-  return JSON.stringify({ links, numbers, actions })
+  const names = (String(text).match(/\bTSHIRT WALA GODAM\b/gi) || []).map(() => 'TSHIRT WALA GODAM')
+  return JSON.stringify({ links, numbers, actions, names })
 }
 
 export async function repairEnglishReply({ anthropic, reply, ...context }) {
@@ -49,7 +51,7 @@ export async function repairEnglishReply({ anthropic, reply, ...context }) {
   try {
     const response = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001', max_tokens: 300,
-      messages: [{ role: 'user', content: `Rewrite this WhatsApp reply in natural ENGLISH ONLY — no Hindi/Hinglish words (hai, nahi, kar lijiye, milega, etc.). Same meaning, same terse length. Keep "sir", links, emojis and ₹ prices unchanged. Output ONLY the rewritten message.\n\n${reply}` }],
+      messages: [{ role: 'user', content: `Rewrite this WhatsApp reply in natural ENGLISH ONLY — no Hindi/Hinglish words (hai, nahi, kar lijiye, milega, etc.). Same meaning, same terse length. Keep "sir", links, emojis and ₹ prices unchanged. Keep the business name TSHIRT WALA GODAM unchanged; it is a name, not Hindi prose. Output ONLY the rewritten message.\n\n${reply}` }],
     })
     result.costUsd = ((response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0) * 5) / 1_000_000
     const rewritten = (response.content || []).filter(part => part.type === 'text').map(part => part.text).join('').trim()
