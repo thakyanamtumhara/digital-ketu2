@@ -541,6 +541,14 @@ async function threadHasOpenMoneyMatter(db, conversationId) {
   return false
 }
 
+function billHasCompanionPhoto(messages, text, billIsImage = false) {
+  const imageCount = Math.max(
+    (messages || []).filter(message => message?.messageType === 'image').length,
+    (String(text || '').match(/\[Image\]/gi) || []).length,
+  )
+  return imageCount > (billIsImage ? 1 : 0) || /\[product photo\]/i.test(text || '')
+}
+
 function billImageHasRealText(text) {
   const stripped = String(text || '')
     .replace(/\[[^\]]*\]/g, ' ')
@@ -1376,7 +1384,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       // EVIDENCE of an issue (missing/wrong piece) or an add-item. Buyer 6353441274 sent bill+photo
       // at night for a delivered order (1 pc missing) and got "dispatching ASAP" twice (2026-07-05,
       // Ketu: "you should have understood the context and deferred"). Defer instead.
-      const hasPhotoInBurst = messages.some(m => m.messageType === 'image') || /\[(product photo|Image)\]/i.test(mergedText || '')
+      const hasPhotoInBurst = billHasCompanionPhoto(messages, mergedText)
       if (hasPhotoInBurst || (billImageHasRealText(mergedText) && !billTextConfirmsOrder(mergedText)) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || hasPaymentHoldText(mergedText) || await hasRecentDelayComplaint(db, conversation.id) || await threadHasOpenMoneyMatter(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
@@ -1429,7 +1437,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
     if (invoiceKind === 'FRESH') {
       // Same bill+photo evidence guard as the bill-doc path above (2026-07-05, buyer 6353441274).
-      const hasExtraPhotoInBurst = messages.filter(m => m.messageType === 'image').length > 1 || /\[product photo\]/i.test(mergedText || '')
+      const hasExtraPhotoInBurst = billHasCompanionPhoto(messages, mergedText, true)
       if (hasExtraPhotoInBurst || (billImageHasRealText(mergedText) && !billTextConfirmsOrder(mergedText)) || await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || hasNonDispatchRequestText(mergedText) || hasPaymentHoldText(mergedText) || await hasRecentDelayComplaint(db, conversation.id) || await threadHasOpenMoneyMatter(db, conversation.id)) {
         scheduleDeferReply({
           whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
@@ -1917,6 +1925,16 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // Match common bill/invoice document patterns (Bill, Invoice, Tax, Receipt, GST, etc.)
   const isBillDocument = mergedText.match(/\[Document:.*(?:bill|invoice|tax|receipt|gst|challan|voucher|order).*\.pdf\]/i)
   if (isBillDocument) {
+    if (billHasCompanionPhoto(messages, mergedText)) {
+      scheduleDeferReply({
+        whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+        mergedText, messageIds, logData: {
+          status: 'DEFERRED', deferReason: 'bill_with_companion_photo',
+          processingMs: Date.now() - startTime,
+        }, db,
+      })
+      return
+    }
     if (await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
@@ -1974,6 +1992,16 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       return
     }
     if (invoiceKind === 'FRESH') {
+    if (billHasCompanionPhoto(messages, mergedText, true)) {
+      scheduleDeferReply({
+        whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+        mergedText, messageIds, logData: {
+          status: 'DEFERRED', deferReason: 'bill_with_companion_photo',
+          processingMs: Date.now() - startTime,
+        }, db,
+      })
+      return
+    }
     if (await ownerIsHandlingThread(db, conversation.id) || hasNonDispatchIntentText(mergedText) || await hasRecentDelayComplaint(db, conversation.id)) {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,

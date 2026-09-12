@@ -5,7 +5,7 @@ import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], incomingText = null, catalogUnavailable = false, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null } = {}) {
+async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
   const timers = [], recoveryQueries = []
   let clock = recovery?.now ?? Date.now()
@@ -21,6 +21,7 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     setTimeout(fn, ms) { if (recovery) timers.push({ fn, ms }); else if (ms < 30000) queueMicrotask(fn); return { unref() {} } },
     clearTimeout() {},
     fetch: async (url, options) => {
+      if (String(url).startsWith('https://media.invalid/')) return { ok: true, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(4) }
       if (String(url).startsWith('https://www.bulkplaintshirt.com/catalog/products.json?')) {
         if (catalogUnavailable) throw Error('catalog unavailable')
         return { ok: true, json: async () => ({ categories: [{ products: [{
@@ -91,7 +92,8 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     $queryRaw: async () => timedFacts, $executeRaw: async () => 0,
   }
   const anthropic = { messages: { create: async body => {
-    if (body.messages?.[0]?.content?.startsWith('Rewrite this WhatsApp reply')) {
+    if (Array.isArray(body.messages?.[0]?.content) && body.max_tokens === 10) return { content: [{ type: 'text', text: invoiceKind }], usage: { input_tokens: 1, output_tokens: 1 } }
+    if (typeof body.messages?.[0]?.content === 'string' && body.messages[0].content.startsWith('Rewrite this WhatsApp reply')) {
       rewriteRequests.push(body)
       if (rewriteThrows) throw Error('rewrite unavailable')
       return { content: [{ type: 'text', text: rewriteReply || '' }], usage: { input_tokens: 4, output_tokens: 4 } }
@@ -111,8 +113,8 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
       clock += timers[0].ms
       await timers[0].fn()
     }
-  } else if (incomingText !== null) {
-    await module.namespace.processIncomingMessage({ whatsappNumber: 'buyer-test', messages: [{ messageId: 'inbound-test', messageType: 'text', messageText: incomingText }], db, anthropic, settings: { isActive: true, dailyBudgetInr: 1500, systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' } })
+  } else if (incomingText !== null || incomingMessages) {
+    await module.namespace.processIncomingMessage({ whatsappNumber: 'buyer-test', messages: incomingMessages || [{ messageId: 'inbound-test', messageType: 'text', messageText: incomingText }], db, anthropic, settings: { isActive: active, partialAiEnabled: !active, dailyBudgetInr: 1500, systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' } })
   } else {
     await module.namespace.runAiFlow({ whatsappNumber: 'buyer-test', mergedText: buyerText, normalizedText: buyerText, conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
   }
@@ -120,6 +122,96 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['bill PDF with a photo is held in full and partial AI', async () => {
+    for (const active of [true, false]) {
+      const r = await runCase({ active, incomingMessages: [
+        { messageId: 'bill-test', messageType: 'document', messageText: '[Document: Invoice_Example.pdf]' },
+        { messageId: 'photo-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/goods.jpg' },
+      ] })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.requests.length, 0)
+      const held = r.pending.get('buyer-test')?.messages[0]
+      assert.ok(held)
+      assert.deepEqual(Array.from(held.messageIds), ['bill-test', 'photo-test'])
+      assert.equal(held.logData.status, 'DEFERRED')
+    }
+  }],
+  ['bare bill PDF keeps the normal acknowledgement in both modes', async () => {
+    for (const active of [true, false]) {
+      const r = await runCase({ active, incomingMessages: [
+        { messageId: 'bill-test', messageType: 'document', messageText: '[Document: Invoice_Example.pdf]' },
+      ] })
+      assert.equal(r.pending.size, 0)
+      assert.equal(r.sent[0].message, 'Ok noted sir, dispatching ASAP 🚚')
+      assert.equal(r.logs.at(-1).deferReason, 'bill_document')
+    }
+  }],
+  ['companion photo placeholders remain evidence even without a second media URL', async () => {
+    for (const messageText of ['[Image] [Image]', '[Image] [product photo]']) {
+      const r = await runCase({ incomingMessages: [
+        { messageId: 'invoice-test', messageType: 'image', messageText, mediaUrl: 'https://media.invalid/invoice.jpg' },
+      ] })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'bill_with_companion_photo')
+    }
+  }],
+  ['partial AI retains the invoice companion-photo boundary', async () => {
+    const r = await runCase({ active: false, incomingMessages: [
+      { messageId: 'invoice-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/invoice.jpg' },
+      { messageId: 'goods-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/goods.jpg' },
+    ] })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'bill_with_nondispatch_text')
+  }],
+  ['an invoice with goods in the same frame retains its existing handoff', async () => {
+    const r = await runCase({ invoiceKind: 'STALE', incomingMessages: [
+      { messageId: 'invoice-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/invoice.jpg' },
+    ] })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'bill_photographed_with_goods')
+  }],
+  ['ordinary product photos still reach the reply model', async () => {
+    const r = await runCase({ invoiceKind: 'NO', reply: 'See these colours in the catalogue sir.', incomingMessages: [
+      { messageId: 'first-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/product-one.jpg' },
+      { messageId: 'second-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/product-two.jpg' },
+      { messageId: 'text-test', messageType: 'text', messageText: 'Please share these product colours' },
+    ] })
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent[0].message, 'See these colours in the catalogue sir.')
+  }],
+  ['manual cooldown stays ahead of the invoice companion-photo guard', async () => {
+    const r = await runCase({ cooldown: true, incomingMessages: [
+      { messageId: 'invoice-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/invoice.jpg' },
+      { messageId: 'goods-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/goods.jpg' },
+    ] })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.logs.at(-1).status, 'COOLDOWN')
+  }],
+  ['invoice screenshot with a companion goods photo cannot dispatch-ack', async () => {
+    const r = await runCase({ incomingMessages: [
+      { messageId: 'invoice-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/invoice.jpg' },
+      { messageId: 'text-test', messageType: 'text', messageText: 'Order kiya hai' },
+      { messageId: 'goods-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/goods.jpg' },
+    ] })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.requests.length, 0)
+    const held = r.pending.get('buyer-test')?.messages[0]
+    assert.ok(held)
+    assert.equal(held.logData.deferReason, 'bill_with_companion_photo')
+    assert.deepEqual(Array.from(held.messageIds), ['invoice-test', 'text-test', 'goods-test'])
+  }],
+  ['single fresh invoice keeps its immediate dispatch acknowledgement', async () => {
+    const r = await runCase({ incomingMessages: [
+      { messageId: 'invoice-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/invoice.jpg' },
+      { messageId: 'text-test', messageType: 'text', messageText: 'Order kiya hai' },
+    ] })
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.sent[0].message, 'Ok noted sir, dispatching ASAP 🚚')
+    assert.equal(r.logs.at(-1).deferReason, 'bill_document')
+    assert.equal(r.requests.length, 0)
+  }],
   ['arrival deadline is held with its inbound ID and cost', async () => {
     const r = await runCase({ buyerText: 'Order 4 baje tak deliver karva dena', reply: 'Ok sir, 4 baje tak deliver karva denge 🚚' })
     assert.equal(r.sent.length, 0)

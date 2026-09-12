@@ -1,0 +1,23 @@
+[
+  {
+    "id": "bill-with-received-goods",
+    "msg": "This is the invoice for my old order. I received the wrong size and sent photos of the garments. Please check.",
+    "why": "Received-goods evidence requires the existing owner handoff, without another dispatch acknowledgement.",
+    "must": ["\\[DEFER\\]"],
+    "mustNot": ["dispatching ASAP", "place.*order", "pay now"]
+  },
+  {
+    "id": "fresh-order-control",
+    "msg": "I have ordered a sample and completed payment.",
+    "why": "A fresh paid-order confirmation retains its normal acknowledgement.",
+    "must": ["dispatch|noted"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]", "place.*order", "pay now"]
+  },
+  {
+    "id": "product-enquiry-control",
+    "msg": "Please share the catalogue for plain oversized t-shirts.",
+    "why": "An ordinary product enquiry remains answerable with its catalogue resource.",
+    "must": ["https://(?:www\\.)?sale91.com/catalog"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]", "dispatching ASAP"]
+  }
+]
