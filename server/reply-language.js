@@ -33,7 +33,11 @@ export function buyerUsesEnglish({ buyerText, history = [], preferredLanguage = 
     const language = detectedLanguage(row.buyerMessage)
     if (language) return language === 'english'
   }
-  return /^\s*(?:location|address|contact)(?:\s+(?:sir|please|pls|plz))?\s*[?.!]*\s*$/i.test(buyerText || '')
+  const request = withoutLinks(buyerText).toLowerCase().replace(/\bad{1,2}res{1,3}\b/g, 'address')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+  const words = request.split(/\s+/)
+  return words.some(word => /^(?:location|address|contact|catalog(?:ue)?)$/.test(word))
+    && words.every(word => /^(?:hi+|hello|hey|hlw|hy|sir|please|pls|plz|shop|store|warehouse|your|the|send|share|location|address|contact|catalog(?:ue)?)$/.test(word))
 }
 
 function protectedValues(text) {

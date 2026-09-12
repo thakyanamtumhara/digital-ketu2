@@ -1,0 +1,99 @@
+[
+  {
+    "id": "custom-colour-large-quantity",
+    "msg": "Can you make a new copper colour hoodie if I buy 12000 pieces?",
+    "must": [
+      "not|don.t|only|no custom"
+    ],
+    "mustNot": [
+      "10,?000|10k",
+      "\\[DEFER\\]",
+      "7808284808"
+    ]
+  },
+  {
+    "id": "existing-colour-bulk-control",
+    "msg": "I want to buy your existing black hoodies in bulk. How do I place the order?",
+    "must": [
+      "sale91.com"
+    ],
+    "mustNot": [
+      "custom|made.to.order",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "custom-design-vendor-control",
+    "msg": "Can you make a new two-tone garment design with contrast piping for my brand?",
+    "must": [
+      "7808284808"
+    ],
+    "mustNot": [
+      "10,?000|10k",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "printing-vendor-control",
+    "msg": "Can you print my logo on your existing plain t-shirts?",
+    "must": [
+      "8810256726"
+    ],
+    "mustNot": [
+      "7808284808",
+      "10,?000|10k",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "custom-colour-and-refund-control",
+    "msg": "Can you make a new copper hoodie colour for 12000 pcs? Also my last order arrived damaged and I need a refund.",
+    "must": [
+      "\\[DEFER\\]"
+    ],
+    "mustNot": [
+      "10,?000|10k",
+      "7808284808"
+    ]
+  },
+  {
+    "id": "short-address-english",
+    "msg": "Hello store adresss please??",
+    "must": [
+      "TSHIRT WALA GODAM",
+      "maps.app.goo.gl"
+    ],
+    "mustNot": [
+      "\\b(pe|kijiye|lena|poochh|baaki|hai|mein)\\b",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "short-catalogue-english",
+    "msg": "Hey catalogue",
+    "must": [
+      "sale91.com"
+    ],
+    "mustNot": [
+      "\\b(hai|yahan|lijiye|dekh)\\b",
+      "\\[DEFER\\]"
+    ]
+  },
+  {
+    "id": "short-address-hindi-preference",
+    "msg": "Store address",
+    "preferredLanguage": "hindi",
+    "history": [
+      {
+        "buyer": "Hindi mein batao",
+        "ai": "Ji sir"
+      }
+    ],
+    "must": [
+      "\\b(pe|mein|hai|lijiye|kijiye|lena)\\b"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]"
+    ]
+  }
+]

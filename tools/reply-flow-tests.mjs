@@ -294,6 +294,22 @@ const tests = [
     assert.equal(r.sent.length, 1)
     assert.equal(r.logs.at(-1).status, 'REPLIED')
   }],
+  ['short address typo is repaired before transport', async () => {
+    const r = await runCase({ buyerText: 'Hello store adresss pls?', reply: 'Location pe TSHIRT WALA GODAM poochh lena sir', rewriteReply: 'Ask for TSHIRT WALA GODAM when you arrive sir' })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, 'Ask for TSHIRT WALA GODAM when you arrive sir')
+    assert.equal(r.logs.at(-1).sentViaWwbun, true)
+  }],
+  ['short catalogue request is repaired before transport', async () => {
+    const r = await runCase({ buyerText: 'Hello catalogue', reply: 'Catalog dekh lijiye sir 👉 https://sale91.com/catalog', rewriteReply: 'See the catalog sir 👉 https://sale91.com/catalog' })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, 'See the catalog sir 👉 https://sale91.com/catalog')
+  }],
+  ['short address keeps an explicit Hindi preference', async () => {
+    const r = await runCase({ buyerText: 'Hello store address', preferredLanguage: 'hindi', reply: 'Location pe TSHIRT WALA GODAM poochh lena sir' })
+    assert.equal(r.rewriteRequests.length, 0)
+    assert.match(r.sent[0].message, /poochh lena/)
+  }],
   ['normal reply reaches transport and records sent status', async () => {
     const r = await runCase()
     assert.equal(r.sent.length, 1)

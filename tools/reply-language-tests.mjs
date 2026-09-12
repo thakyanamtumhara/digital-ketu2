@@ -25,6 +25,14 @@ const cases = [
   ['single request retains explicit Hindi', { buyerText: 'Location', preferredLanguage: 'hindi' }, false],
   ['non-English fragment is not a location request', { buyerText: 'Location batao' }, false],
   ['arbitrary fragment remains unclassified', { buyerText: 'Navy' }, false],
+  ['greeting plus misspelled store address', { buyerText: 'Hello store adresss please??' }, true],
+  ['greeting plus catalogue request', { buyerText: 'Hey catalogue' }, true],
+  ['contact request with shop prefix', { buyerText: 'Hi shop contact pls' }, true],
+  ['correctly spelled shop address', { buyerText: 'Store address' }, true],
+  ['address typo retains recent Hindi', { buyerText: 'Hi shop adress', history: [{ buyerMessage: 'Mujhe shirts chahiye' }] }, false],
+  ['catalogue noun retains explicit Hindi', { buyerText: 'Hello catalogue', preferredLanguage: 'hindi' }, false],
+  ['unknown fragment beside location is not English proof', { buyerText: 'Location kudu' }, false],
+  ['standalone location after emoji greeting', { buyerText: 'Hi 🙏 shop address??' }, true],
 ]
 for (const [name, context, expected] of cases) assert.equal(buyerUsesEnglish(context), expected, name)
 
