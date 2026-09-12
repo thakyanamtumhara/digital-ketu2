@@ -120,6 +120,47 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['arrival deadline is held with its inbound ID and cost', async () => {
+    const r = await runCase({ buyerText: 'Order 4 baje tak deliver karva dena', reply: 'Ok sir, 4 baje tak deliver karva denge 🚚' })
+    assert.equal(r.sent.length, 0)
+    const held = r.pending.get('buyer-test')?.messages[0]
+    assert.ok(held)
+    assert.equal(held.logData.deferReason, 'arrival_clock_blocked')
+    assert.ok(held.logData.costUsd > 0)
+    assert.ok(held.messageIds.includes('inbound-test'))
+  }],
+  ['dispatch override cannot release a blocked arrival promise', async () => {
+    const r = await runCase({ buyerText: 'Aaj dispatch hoga? 4 baje tak deliver karna', reply: '4 baje tak deliver karva denge sir' })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 1)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'arrival_clock_blocked')
+  }],
+  ['arrival guard retains a separate answer alongside the handoff', async () => {
+    const r = await runCase({ buyerText: 'Catalogue bhejo aur parcel 4 baje tak deliver karna', reply: 'Catalogue yahan hai sir https://sale91.com/catalog. Parcel 4 baje tak pahunch jayega.' })
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.sent[0].message, 'Catalogue yahan hai sir https://sale91.com/catalog.')
+    assert.equal(r.pending.size, 1)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.costUsd, 0)
+    assert.ok(r.logs.at(-1).costUsd > 0)
+  }],
+  ['generic bike duration remains answerable', async () => {
+    const reply = 'Delhi bike delivery takes 1-2 hours sir.'
+    const r = await runCase({ buyerText: 'Delhi bike delivery how long?', reply })
+    assert.equal(r.sent[0].message, reply)
+    assert.equal(r.pending.size, 0)
+  }],
+  ['authorized dispatch status survives the arrival guard', async () => {
+    const reply = 'Aaj hi dispatch hua hai sir.'
+    const r = await runCase({ buyerText: 'Dispatch hua?', reply, history: [{ status: 'SKIPPED', deferReason: 'manual_reply', buyerMessage: 'old pairing', aiReply: 'Dispatched today', createdAt: new Date().toISOString() }] })
+    assert.equal(r.sent[0].message, reply)
+    assert.equal(r.pending.size, 0)
+  }],
+  ['store and call hours survive the arrival guard', async () => {
+    const reply = 'Shop opens at 10 am. Call after 10 am sir.'
+    const r = await runCase({ buyerText: 'When can I call or visit?', reply })
+    assert.equal(r.sent[0].message, reply)
+    assert.equal(r.pending.size, 0)
+  }],
   ['English address repair preserves the warehouse name through transport', async () => {
     const r = await runCase({ buyerText: 'Please give the warehouse address', reply: 'Location pe TSHIRT WALA GODAM poochh lena sir', rewriteReply: 'Ask for TSHIRT WALA GODAM when you arrive sir' })
     assert.equal(r.rewriteRequests.length, 1)

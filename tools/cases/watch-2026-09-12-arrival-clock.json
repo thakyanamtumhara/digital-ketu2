@@ -1,0 +1,48 @@
+[
+  {
+    "id": "arrival-deadline",
+    "at": "2026-09-12T07:00:00+05:30",
+    "msg": "Bhaiya mera order 4 baje tak deliver karva dena",
+    "history": [{ "buyer": "Order confirmed, bike delivery", "ai": "Ok sir, dispatching ASAP" }],
+    "mustNot": ["4\\s*(baje|pm).*deliver", "deliver.*4\\s*(baje|pm)", "pahunch.*4\\s*(baje|pm)"],
+    "why": "A requested deadline supplies no authority to promise an arrival clock. A clock-free dispatch acknowledgment or handoff is allowed."
+  },
+  {
+    "id": "english-arrival-deadline",
+    "at": "2026-09-12T07:00:00+05:30",
+    "msg": "Please make sure my parcel is delivered by 4 pm today.",
+    "mustNot": ["(?:will|should).*?(?:deliver|arrive|reach).*?4\\s*pm"],
+    "why": "The same boundary must apply to English arrival promises."
+  },
+  {
+    "id": "generic-bike-duration-control",
+    "msg": "Delhi mein bike delivery mein kitna time lagta hai?",
+    "must": ["1\\s*[-–]\\s*2|ek.*do"],
+    "mustNot": ["\\[DEFER\\]"],
+    "why": "Preserve the existing generic Delhi bike duration."
+  },
+  {
+    "id": "authorized-dispatch-status-control",
+    "msg": "Aaj dispatch hua kya?",
+    "at": "2026-09-12T14:00:00+05:30",
+    "history": [{ "manual": true, "buyer": "", "ai": "Aaj dispatch kar diya hai", "at": "2026-09-12T13:40:00+05:30" }],
+    "must": ["dispatch|nikal|nikl"],
+    "mustNot": ["\\[DEFER\\]", "baje"],
+    "why": "A dated owner dispatch fact remains answerable; it is not an arrival guarantee."
+  },
+  {
+    "id": "call-and-visit-hours-control",
+    "msg": "What are your shop hours and when can I call?",
+    "must": ["10"],
+    "mustNot": ["\\[DEFER\\]"],
+    "why": "Clock hours for calls and visits remain allowed."
+  },
+  {
+    "id": "mixed-catalogue-deadline",
+    "at": "2026-09-12T07:00:00+05:30",
+    "msg": "Send the catalogue and please get my parcel delivered by 4 pm today.",
+    "must": ["https://"],
+    "mustNot": ["(?:will|should).*?(?:deliver|arrive|reach).*?4\\s*pm"],
+    "why": "Preserve the useful catalogue answer while withholding an unsupported arrival guarantee."
+  }
+]

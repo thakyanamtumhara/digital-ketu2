@@ -53,6 +53,7 @@ const { getPhotoIndex, formatPhotoBlock } = await import('../server/photo-links.
 const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysGuard, bigBuyerDiscountGuard, formatConversationHistory } = await import('../server/process.js')
 const { gsmAmbiguityHint } = await import('../server/gsm-hint.js')
 const { repairEnglishReply } = await import('../server/reply-language.js')
+const { arrivalClockGuard } = await import('../server/arrival-clock.js')
 const rewriteClient = { messages: { create: async body => {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -140,6 +141,8 @@ for (const c of cases) {
       if (g1) { console.log(`   ⚙️ delivery-days guard replaced the model reply`); txt = g1 }
       const g2 = bigBuyerDiscountGuard({ buyerText: c.msg, historyText, reply: txt })
       if (g2) { console.log(`   ⚙️ discount guard replaced the model reply`); txt = g2 }
+      const g3 = arrivalClockGuard({ buyerText: c.msg, reply: txt })
+      if (g3) { console.log('   Arrival-clock guard retained a handoff'); txt = g3 }
     }
     if (!/^\s*\[(DEFER|SKIP)\]\s*$/.test(txt)) {
       const repaired = await repairEnglishReply({
