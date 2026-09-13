@@ -16,6 +16,7 @@ import { getStockSnapshot, formatStockBlock, resolveUnnamedProduct, unnamedProdu
 import { formatTimedFactsBlock } from './timed-facts.js'
 import { gsmAmbiguityHint, gsmPriceRangeGuard } from './gsm-hint.js'
 import { poloRateSummaryGuard } from './polo-price.js'
+import { pendingProductChoiceGuard } from './product-choice.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
 import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
 import { partialDeferSplit } from './reconcile.js'
@@ -3723,6 +3724,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     if (poloPriceReply) {
       aiReply = poloPriceReply
       console.log(`[PoloPriceRange] ${whatsappNumber} — current catalogue ranges applied`)
+    }
+    const pendingChoiceReply = pendingProductChoiceGuard({ buyerText: mergedText, history: conversationHistory, reply: aiReply })
+    if (pendingChoiceReply) {
+      aiReply = pendingChoiceReply
+      console.log(`[ProductChoiceGuard] ${whatsappNumber} — kept unanswered product choice before timing`)
     }
     const discontinuedReply = discontinuedSizeGuard({ buyerText: mergedText, reply: aiReply, snapshot: stockSnapshot })
     if (discontinuedReply) {

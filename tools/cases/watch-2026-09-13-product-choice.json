@@ -1,0 +1,29 @@
+[
+  {
+    "id": "unresolved-product-timing",
+    "why": "Synthetic unresolved product choice must not turn into a single-product arrival promise.",
+    "at": "2026-09-13T15:00:00Z",
+    "msg": "Stock kab aayega sir?",
+    "history": [{ "buyer": "Black tshirt", "ai": "Black 180gsm ya 260gsm sir?", "at": "2026-09-13T14:59:30Z" }],
+    "must": ["\\?|kaunsa|which"],
+    "mustNot": ["\\b\\d+\\s*(?:[-–]\\s*\\d+\\s*)?(?:din|days)\\b", "\\[DEFER\\]"]
+  },
+  {
+    "id": "selected-product-control",
+    "why": "An explicit product selection can be answered without reopening the choice.",
+    "at": "2026-09-13T15:00:00Z",
+    "msg": "260gsm chahiye. Catalog link bhej do",
+    "history": [{ "buyer": "Black tshirt", "ai": "Black 180gsm ya 260gsm sir?", "at": "2026-09-13T14:59:30Z" }],
+    "must": ["oversize-260gsm"],
+    "mustNot": ["180gsm ya 260gsm", "\\[DEFER\\]"]
+  },
+  {
+    "id": "refund-control",
+    "why": "An owner-only refund remains a handoff beside an unresolved product choice.",
+    "at": "2026-09-13T15:00:00Z",
+    "msg": "Mera pichla order refund karo, galat maal aaya tha",
+    "history": [{ "buyer": "Black tshirt", "ai": "Black 180gsm ya 260gsm sir?", "at": "2026-09-13T14:59:30Z" }],
+    "must": ["\\[DEFER\\]"],
+    "mustNot": ["180gsm ya 260gsm", "refund kar diya"]
+  }
+]

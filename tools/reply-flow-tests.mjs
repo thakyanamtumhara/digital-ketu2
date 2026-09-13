@@ -124,6 +124,24 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['unanswered product choice prevents a premature stock date in the sent reply', async () => {
+    const history = [{ status: 'REPLIED', createdAt: new Date(Date.now() - 30000).toISOString(), buyerMessage: 'Black tshirt', aiReply: 'Black 180gsm ya 260gsm sir?' }]
+    const r = await runCase({ buyerText: 'Stock kab aayega sir?', reply: '180gsm black 4-5 din mein aayega sir.', history })
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.sent[0].message, 'Black 180gsm ya 260gsm sir?')
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.equal(r.logs.at(-1).sentViaWwbun, true)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['explicit product selection and mixed owner handoff keep their existing paths', async () => {
+    const history = [{ status: 'REPLIED', createdAt: new Date(Date.now() - 30000).toISOString(), buyerMessage: 'Black tshirt', aiReply: 'Black 180gsm ya 260gsm sir?' }]
+    const reply = '260gsm black ke liye Coming Soon tab check kar lijiye sir.'
+    const selected = await runCase({ buyerText: '260gsm stock kab aayega?', reply, history })
+    assert.equal(selected.sent[0].message, reply)
+    const held = await runCase({ buyerText: 'Stock kab aayega aur mera refund?', reply: '[DEFER]', history })
+    assert.equal(held.sent.length, 0)
+    assert.equal(held.pending.size, 1)
+  }],
   ['generic polo quote keeps both current size ranges in the sent reply', async () => {
     const catalogData = { categories: [{ products: [
       { name: 'Cotton Polo', slug: 'cotton-polo', gsm: 220, colors: ['Black'], sizes: ['36', '46'], rates: [{ colors: ['Black'], pricePerSize: { '36': 211, '46': 223 }, samplePrice: 271 }] },
