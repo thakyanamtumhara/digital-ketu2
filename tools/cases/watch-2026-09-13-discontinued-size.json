@@ -1,0 +1,47 @@
+[
+  {
+    "id": "discontinued-xs-purchase",
+    "msg": "I need oversized 240 gsm off white XS S M sizes",
+    "must": ["XS.*(?:not|won't).*restock", "Black/White"],
+    "mustNot": ["\\b[0-9]+(?:-[0-9]+)? days\\b", "\\[DEFER\\]"],
+    "why": "Synthetic purchase request; discontinued XS cannot inherit another size's restock date. Other sizes use fresh stock."
+  },
+  {
+    "id": "black-xs-control",
+    "msg": "Is oversized 240gsm Black XS available?",
+    "stock": true,
+    "must": ["XS"],
+    "mustNot": ["discontinued|won't be restocked|not be restocked"],
+    "why": "Black XS retains current stock and timing policy."
+  },
+  {
+    "id": "white-xs-control",
+    "msg": "Is oversized 240gsm White XS available?",
+    "stock": true,
+    "must": ["XS"],
+    "mustNot": ["discontinued|won't be restocked|not be restocked"],
+    "why": "White XS retains current stock and timing policy."
+  },
+  {
+    "id": "same-colour-other-size-control",
+    "msg": "Is oversized 240gsm Off-white L available?",
+    "stock": true,
+    "must": ["available|stock"],
+    "mustNot": ["discontinued|won't be restocked|\\[DEFER\\]"],
+    "why": "A continuing size remains answerable from fresh data."
+  },
+  {
+    "id": "complaint-control",
+    "msg": "I ordered 240gsm Off-white XS but received a damaged piece. Please refund it.",
+    "must": ["\\[DEFER\\]"],
+    "mustNot": ["won't be restocked"],
+    "why": "An active complaint remains an owner decision."
+  },
+  {
+    "id": "mixed-task-control",
+    "msg": "Is 240gsm Off-white XS available, and please check my refund?",
+    "stock": true,
+    "must": ["\\[DEFER\\]"],
+    "why": "The size guard must retain a mixed answer and owner handoff."
+  }
+]

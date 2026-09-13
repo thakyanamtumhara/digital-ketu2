@@ -56,6 +56,7 @@ const { repairReplyLanguage } = await import('../server/reply-language.js')
 const { arrivalClockGuard } = await import('../server/arrival-clock.js')
 const { couponCodeGuard } = await import('../server/coupon-code.js')
 const { restockPointerGuard } = await import('../server/restock-pointer.js')
+const { discontinuedSizeRequest, discontinuedSizeGuard } = await import('../server/discontinued-size.js')
 const rewriteClient = { messages: { create: async body => {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -69,7 +70,7 @@ let stockBlock = null, photoBlock = null, stockSnapshot = null
 const cases = JSON.parse(readFileSync(file, 'utf8')).filter(c => !ONLY.length || ONLY.includes(c.id))
 const tfRes = await api('/api/knowledge/chunks?source=TIMED_FACT&pageSize=8').catch(() => null)
 const timedFacts = ((tfRes && (tfRes.chunks || tfRes.items)) || []).map(c => ({ content: c.content })) // mirrors fetchTimedFacts (2026-09-08)
-if (cases.some(c => c.stock && !c.stockSnapshot)) { stockSnapshot = await getStockSnapshot(); stockBlock = formatStockBlock(stockSnapshot, { timedFacts }) }
+if (cases.some(c => (c.stock || discontinuedSizeRequest(c.msg)) && !c.stockSnapshot)) { stockSnapshot = await getStockSnapshot(); stockBlock = formatStockBlock(stockSnapshot, { timedFacts }) }
 if (cases.some(c => c.photo)) photoBlock = formatPhotoBlock(await getPhotoIndex())
 
 function userPromptFor(c) {
@@ -85,7 +86,7 @@ function userPromptFor(c) {
   p = istTimeBlock(c.at ? Date.parse(c.at) : Date.now()) + p // mirrors buildUserPrompt; case.at = ISO with +05:30 to pin a moment
   if (c.winter) p = `❄️ WINTER STOCK LINE (the seasonal restock answer for hoodie / sweatshirt / zip-hoodie / any winter item, computed for today's date in Ketu's words — relay it for a winter restock-timing ask unless a ⏰ entry above or a 📦 LIVE STOCK DATA in-stock listing answers more specifically; never add a date of your own): "${winterStockLine()}"\n\n${p}`
   if (c.photo && photoBlock) p = photoBlock + '\n\n' + p
-  if (c.stock && caseStockBlock) {
+  if ((c.stock || discontinuedSizeRequest(c.msg)) && caseStockBlock) {
     const unnamed = resolveUnnamedProduct(caseSnapshot, c.msg) // mirrors runAiFlow (2026-09-05)
     p = caseStockBlock + (unnamed ? '\n' + unnamed : '') + '\n\n' + p
   }
@@ -138,6 +139,8 @@ for (const c of cases) {
     // Mirror the production post-model guards (2026-09-09) so a replay judges what the buyer would get.
     {
       txt = canonicalizeCatalogLinks(txt, catalogProducts)
+      const discontinuedReply = discontinuedSizeGuard({ buyerText: c.msg, reply: txt, snapshot: c.stockSnapshot || stockSnapshot, now: c.at ? Date.parse(c.at) : Date.now() })
+      if (discontinuedReply) { console.log('   Discontinued-size policy applied'); txt = discontinuedReply }
       const restockHandoff = restockPointerGuard({ buyerText: c.msg, reply: txt, now: c.at ? Date.parse(c.at) : Date.now(), history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) })
       if (restockHandoff) { console.log('   Restock-pointer guard retained an owner handoff'); txt = restockHandoff }
       const couponHandoff = couponCodeGuard({ buyerText: c.msg, reply: txt, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, deferReason: h.manual ? 'manual_reply' : null })) })

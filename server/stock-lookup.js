@@ -286,6 +286,10 @@ export function formatStockBlock(snapshot, opts = {}) {
         // for True Bio Navy 38 (2026-08-31, buyer 9764372985). Neither had a shipment at all.
         // Same medicine as the Maroon-46 fix above: never leave a join to the model.
         const verdict = (sizes) => {
+          if (product === 'Oversize 240gsm' && !['Black', 'White'].includes(colour) && sizes.includes('XS')) {
+            const continuingSizes = sizes.filter(size => size !== 'XS')
+            return `XS is discontinued for ${colour} — NO restock date or Coming Soon pointer for XS${continuingSizes.length ? `; ${continuingSizes.join(',')} only: ${verdict(continuingSizes)}` : ''}`
+          }
           const tf = currentTimedFact(timedFactFor(timedFacts, product, colour), opts.now ?? Date.now())
           if (tf) return `⏰ Ketu said on ${tf.date}; ${tf.adjusted ? `remaining estimate as of ${tf.asOf} IST (already adjusted; DO NOT subtract again)` : 'dated estimate'}: "${tf.timingEstimate || tf.answer}" — RELAY THIS TIMING in the buyer's language (it overrides the no-date rule for this colour)`
           const row = (snapshot.coming || {})[`${product}|${colour}`]

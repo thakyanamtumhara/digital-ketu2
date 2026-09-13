@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
-import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE } from '../server/stock-lookup.js'
+import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, formatStockBlock } from '../server/stock-lookup.js'
 
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null } = {}) {
+async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
   const timers = [], recoveryQueries = []
   let clock = recovery?.now ?? Date.now()
@@ -45,7 +45,7 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     './transcribe.js': { transcribeAudio() {}, isTranscriptionConfigured: () => false, getTranscriptionProvider() {} },
     './ig-gate.js': { evaluateIgGate() {} },
     './order-lookup.js': { lookupOrdersByPhone: async () => [], formatOrderLookupBlock: () => '', getBuyerProfile: async () => null, formatBuyerProfileBlock: () => '' },
-    './stock-lookup.js': { getStockSnapshot: async () => ({}), formatStockBlock: () => '', resolveUnnamedProduct: () => '', unnamedProductCandidates: () => [], unnamedProductGuard() {}, resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE },
+    './stock-lookup.js': { getStockSnapshot: async () => { if (stockThrows) throw Error('stock unavailable'); return stockSnapshot || {} }, formatStockBlock: snapshot => stockSnapshot ? formatStockBlock(snapshot, { timedFacts }) : '', resolveUnnamedProduct: () => '', unnamedProductCandidates: () => [], unnamedProductGuard() {}, resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE },
     './photo-links.js': { getPhotoIndex: async () => [], formatPhotoBlock: () => '', PHOTO_INTENT_RE: /a^/ },
     './openai-fallback.js': { openaiReply() { throw Error('unexpected fallback') }, isOpenAiFallbackConfigured: () => false },
   }
@@ -123,6 +123,36 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['discontinued-size purchase intent gets live stock and a safe sent answer', async () => {
+    const stockSnapshot = { fetchedAt: Date.now(), inStock: { 'Oversize 240gsm': { 'Off-white': { XS: 1, S: 1, M: 1, L: 1 } } }, oos: { 'Oversize 240gsm': { 'Off-white': 'XS,S,M' } }, coming: {} }
+    const r = await runCase({ stockSnapshot, buyerText: 'I need oversized 240 gsm off white XS S M sizes', reply: 'Off-white XS/S will arrive in 4 days.' })
+    assert.match(r.requests[0].messages[0].content, /LIVE STOCK DATA/)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /XS won't be restocked/)
+    assert.match(r.sent[0].message, /S\/M are out of stock now/)
+    assert.doesNotMatch(r.sent[0].message, /4 days/)
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+  }],
+  ['stock outage keeps the size policy and queues unresolved availability', async () => {
+    const r = await runCase({ stockThrows: true, buyerText: '240gsm Off-white XS M available?', reply: 'XS and M available.' })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /XS won't be restocked/)
+    assert.doesNotMatch(r.sent[0].message, /are available/)
+    assert.equal(r.pending.size, 1)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'claude_partial_defer')
+  }],
+  ['Black XS and owner complaint boundaries stay unchanged', async () => {
+    for (const buyerText of ['240gsm Black XS available?', '240gsm Off-white XS refund update?']) {
+      const r = await runCase({ buyerText, reply: '[DEFER]' })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 1)
+    }
+  }],
+  ['manual cooldown precedes discontinued-size policy', async () => {
+    const r = await runCase({ cooldown: true, incomingText: 'I need 240gsm Off-white XS S' })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.requests.length, 0)
+  }],
   ['Hindi invoice answer is repaired before transport and recorded once', async () => {
     const original = 'Your bills sync once you log in sir 👉 https://example.invalid/login'
     const fixed = 'Login karte hi aapke bills sync ho jayenge sir 👉 https://example.invalid/login'

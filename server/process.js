@@ -22,6 +22,7 @@ import { repairReplyLanguage } from './reply-language.js'
 import { arrivalClockGuard } from './arrival-clock.js'
 import { restockPointerGuard } from './restock-pointer.js'
 import { couponCodeGuard } from './coupon-code.js'
+import { discontinuedSizeRequest, discontinuedSizeGuard } from './discontinued-size.js'
 import { openaiReply, isOpenAiFallbackConfigured } from './openai-fallback.js'
 
 // ===========================================
@@ -3349,16 +3350,18 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     + '|\\b(hai|hain)\\b[^]{0,30}(' + PRODUCT_WORD + ')'          // "hai kya acid wash"
   , 'i')
   let unnamedCandidates = []
+  let stockSnapshot = null
   const timingNow = Date.now()
-  if (STOCK_INTENT_RE.test(mergedText || '')) {
+  if (STOCK_INTENT_RE.test(mergedText || '') || discontinuedSizeRequest(mergedText)) {
     try {
-      const stockBlock = formatStockBlock(await getStockSnapshot(), { timedFacts: await fetchTimedFacts(db), now: timingNow })
+      stockSnapshot = await getStockSnapshot()
+      const stockBlock = formatStockBlock(stockSnapshot, { timedFacts: await fetchTimedFacts(db), now: timingNow })
       if (stockBlock) {
         // 2026-09-05: colour/size named but no product → the per-product verdicts, resolved in code
         // (buyer 8595383520 "White and nevy 38 kab tak restock hoga?" was deferred with the block
         // present — Navy 38 is in stock in Bio and out in True Bio, and the model would not choose).
-        const unnamed = resolveUnnamedProduct(await getStockSnapshot(), mergedText || '')
-        unnamedCandidates = unnamedProductCandidates(await getStockSnapshot(), mergedText || '')
+        const unnamed = resolveUnnamedProduct(stockSnapshot, mergedText || '')
+        unnamedCandidates = unnamedProductCandidates(stockSnapshot, mergedText || '')
         userPrompt = stockBlock + (unnamed ? '\n' + unnamed : '') + '\n\n' + userPrompt
         console.log(`[StockLookup] ${whatsappNumber} — injected live stock block for stock intent${unnamed ? ' + product-not-named resolver' : ''}`)
       }
@@ -3710,6 +3713,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   let restockPointerHeld = false
   try {
     aiReply = canonicalizeCatalogLinks(aiReply, catalogProducts)
+    const discontinuedReply = discontinuedSizeGuard({ buyerText: mergedText, reply: aiReply, snapshot: stockSnapshot })
+    if (discontinuedReply) {
+      aiReply = discontinuedReply
+      console.log(`[DiscontinuedSizeGuard] ${whatsappNumber} — applied size policy with current stock`)
+    }
     const restockHandoff = restockPointerGuard({ buyerText: mergedText, history: conversationHistory, reply: aiReply })
     if (restockHandoff) {
       aiReply = restockHandoff
