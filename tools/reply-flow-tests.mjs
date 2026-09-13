@@ -6,7 +6,7 @@ import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, forma
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null } = {}) {
+async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
   const timers = [], recoveryQueries = []
   let clock = recovery?.now ?? Date.now()
@@ -25,6 +25,7 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
       if (String(url).startsWith('https://media.invalid/')) return { ok: true, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(4) }
       if (String(url).startsWith('https://www.bulkplaintshirt.com/catalog/products.json?')) {
         if (catalogUnavailable) throw Error('catalog unavailable')
+        if (catalogData) return { ok: true, json: async () => catalogData }
         return { ok: true, json: async () => ({ categories: [{ products: [{
           name: 'Example Hoodie', slug: 'hoodie-320gsm', gsm: 320,
           colors: ['Black', 'White'], sizes: ['M', 'XXL'],
@@ -595,6 +596,27 @@ const tests = [
     assert.doesNotMatch(r.requests[0].messages[0].content, /₹199|Retired Hoodie/)
     assert.equal(r.sent.length, 1)
     assert.equal(r.logs.at(-1).sentViaWwbun, true)
+  }],
+  ['GSM hint preserves catalogue price ranges in the actual provider request', async () => {
+    const catalogData = { categories: [{ products: [
+      { name: 'Example Round Neck', slug: 'example-round-neck', gsm: 180, colors: ['Black', 'White'], sizes: ['M', 'XXL'], rates: [
+        { colors: ['Black'], pricePerSize: { M: 211, XXL: 223 }, samplePrice: 277 },
+        { colors: ['White'], pricePerSize: { M: 239, XXL: 251 }, samplePrice: 299 },
+      ] },
+      { name: 'Oversize 180gsm', slug: 'oversize-180gsm', gsm: 180, colors: ['Black'], sizes: ['M'], rates: [
+        { colors: ['Black'], pricePerSize: { M: 313 }, samplePrice: 379 },
+      ] },
+    ] }] }
+    const r = await runCase({ catalogData, buyerText: '180gsm tshirt catalogue with prices please', reply: 'Bulk ranges from ₹211–₹251 for regular and ₹313 for oversize sir. Which fit?' })
+    assert.match(r.requests[0].messages[0].content, /bulk \(10\+ total pcs\) ₹211–₹251 per piece/)
+    assert.match(r.requests[0].messages[0].content, /sample \(under 10 total pcs\) ₹277–₹299 per piece/)
+    assert.doesNotMatch(r.requests[0].messages[0].content, /₹150\b|₹142\b|₹177\b/)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /Example Round Neck: ₹211–₹251/)
+    assert.match(r.sent[0].message, /ranges by colour\/size/)
+    const control = await runCase({ catalogData, buyerText: 'Black XXL round neck 180gsm price for 2 pcs', reply: 'The sample price is ₹277 per piece sir.' })
+    assert.doesNotMatch(control.requests[0].messages[0].content, /GSM ALONE IS NOT A PRODUCT/)
+    assert.equal(control.sent[0].message, 'The sample price is ₹277 per piece sir.')
   }],
 
   ['cart share with a discount question reaches the reply model', async () => {

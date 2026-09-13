@@ -16,6 +16,8 @@ assert.match(facts.block, /Black: bulk M ₹211; XXL ₹223; sample ₹277/)
 assert.match(facts.block, /White: bulk M ₹239; XXL ₹251; sample ₹299/)
 assert.doesNotMatch(facts.block, /₹99\b|₹101\b/)
 assert.equal(facts.products[0].bulk, 211)
+assert.deepEqual(facts.products[0].bulkRange, [211, 251])
+assert.deepEqual(facts.products[0].sampleRange, [277, 299])
 assert.equal(facts.products[0].slug, 'example-hoodie')
 
 for (const mutate of [

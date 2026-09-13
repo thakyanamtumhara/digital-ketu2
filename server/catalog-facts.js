@@ -47,7 +47,7 @@ export function buildCatalogFacts(data) {
     if (seenColors.size !== p.colors.length) throw Error('Incomplete live catalog colour rates')
     parts.push(`→ /catalog/p/${p.slug}`)
     lines.push(parts.join(' | '))
-    products.push({ title: p.name, gsm: Number(p.gsm) || null, bulk: Math.min(...bulk), sample: Math.min(...sample), slug: p.slug })
+    products.push({ title: p.name, gsm: Number(p.gsm) || null, bulk: Math.min(...bulk), sample: Math.min(...sample), bulkRange: [Math.min(...bulk), Math.max(...bulk)], sampleRange: [Math.min(...sample), Math.max(...sample)], slug: p.slug })
   }
   return { block: HEADER + '\n' + lines.sort().join('\n'), products }
 }

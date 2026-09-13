@@ -1,0 +1,23 @@
+[
+  {
+    "id": "bare-gsm-scoped-prices",
+    "why": "A GSM shared by several products needs scoped catalogue ranges and a fit choice, never a frozen minimum quote.",
+    "msg": "180gsm tshirt catalogue with bulk prices please",
+    "must": ["round neck|regular|bio", "oversize", "bulk|10", "from|start|range|[–-]"],
+    "mustNot": ["\\[DEFER\\]", "fixed price"]
+  },
+  {
+    "id": "explicit-sample-size-control",
+    "why": "A named product, size and sample quantity still uses the exact current sample rate.",
+    "msg": "True Bio round neck 180gsm Black size 44, total 2 pcs. Sample price?",
+    "must": ["sample"],
+    "mustNot": ["\\[DEFER\\]", "which fit|regular or oversize"]
+  },
+  {
+    "id": "explicit-extended-bulk-size-control",
+    "why": "Extended sizes retain their exact current bulk rate; no generic GSM minimum may override the selection.",
+    "msg": "True Bio round neck 180gsm Black size 46, 20 pcs. Price per piece?",
+    "must": ["₹|Rs"],
+    "mustNot": ["\\[DEFER\\]", "which fit|regular or oversize"]
+  }
+]
