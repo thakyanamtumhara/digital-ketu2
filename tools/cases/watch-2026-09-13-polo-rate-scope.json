@@ -1,0 +1,30 @@
+[
+  {
+    "id": "polo-summary",
+    "msg": "polo",
+    "history": [{ "buyer": "College event ke liye 1200pcs chahiye, rate kya hai?", "ai": "Kaunsa product chahiye sir?" }],
+    "must": ["polo", "bulk|10", "range|starts?|from|₹\\d+\\s*[–-]\\s*₹?\\d+|46"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]"],
+    "why": "An unspecified polo variant needs complete current ranges or an explicit qualifying scope. Prices are read fresh."
+  },
+  {
+    "id": "polo-selected-large-size",
+    "msg": "Cotton polo size 46, 25pcs ka rate?",
+    "must": ["₹\\d+|Rs", "cotton|polo"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]"],
+    "why": "A selected product and size retains its exact current bulk quote."
+  },
+  {
+    "id": "polo-two-samples",
+    "msg": "Cotton polo ke 2 sample ka per piece rate kya hai?",
+    "must": ["₹\\d+|Rs", "sample"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]"],
+    "why": "A small total sample order must not become a bulk-range reply."
+  },
+  {
+    "id": "polo-refund",
+    "msg": "Cotton polo ke galat size aaye hain, refund kar do",
+    "must": ["\\[DEFER\\]"],
+    "why": "A received-item complaint and refund retain the owner handoff."
+  }
+]

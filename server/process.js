@@ -15,6 +15,7 @@ import { getCatalogFacts, CATALOG_UNAVAILABLE, canonicalizeCatalogLinks } from '
 import { getStockSnapshot, formatStockBlock, resolveUnnamedProduct, unnamedProductCandidates, unnamedProductGuard } from './stock-lookup.js'
 import { formatTimedFactsBlock } from './timed-facts.js'
 import { gsmAmbiguityHint, gsmPriceRangeGuard } from './gsm-hint.js'
+import { poloRateSummaryGuard } from './polo-price.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
 import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
 import { partialDeferSplit } from './reconcile.js'
@@ -3717,6 +3718,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     if (gsmPriceReply) {
       aiReply = gsmPriceReply
       console.log(`[GsmPriceRange] ${whatsappNumber} — current catalogue ranges applied`)
+    }
+    const poloPriceReply = poloRateSummaryGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
+    if (poloPriceReply) {
+      aiReply = poloPriceReply
+      console.log(`[PoloPriceRange] ${whatsappNumber} — current catalogue ranges applied`)
     }
     const discontinuedReply = discontinuedSizeGuard({ buyerText: mergedText, reply: aiReply, snapshot: stockSnapshot })
     if (discontinuedReply) {

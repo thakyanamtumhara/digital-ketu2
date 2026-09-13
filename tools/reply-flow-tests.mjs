@@ -124,6 +124,30 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['generic polo quote keeps both current size ranges in the sent reply', async () => {
+    const catalogData = { categories: [{ products: [
+      { name: 'Cotton Polo', slug: 'cotton-polo', gsm: 220, colors: ['Black'], sizes: ['36', '46'], rates: [{ colors: ['Black'], pricePerSize: { '36': 211, '46': 223 }, samplePrice: 271 }] },
+      { name: 'Premium Polo', slug: 'premium-polo', gsm: 220, colors: ['Black'], sizes: ['36', '46'], rates: [{ colors: ['Black'], pricePerSize: { '36': 267, '46': 279 }, samplePrice: 327 }] },
+    ] }] }
+    const r = await runCase({ buyerText: 'polo', reply: 'Polo mein Cotton Polo ₹211 aur Premium Polo ₹267 hai sir (220gsm) 👉 https://sale91.com/catalog', history: [{ buyerMessage: '1200pcs chahiye, rate kya hai?', aiReply: 'Kaunsa product sir?' }], catalogData })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /Cotton Polo ₹211–₹223; Premium Polo ₹267–₹279/)
+    assert.match(r.sent[0].message, /10\+ total pcs/)
+    assert.equal(r.logs.at(-1).sentViaWwbun, true)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['specific polo sample quote and owner handoff preserve their paths', async () => {
+    const catalogData = { categories: [{ products: [
+      { name: 'Cotton Polo', slug: 'cotton-polo', gsm: 220, colors: ['Black'], sizes: ['36', '46'], rates: [{ colors: ['Black'], pricePerSize: { '36': 211, '46': 223 }, samplePrice: 271 }] },
+      { name: 'Premium Polo', slug: 'premium-polo', gsm: 220, colors: ['Black'], sizes: ['36', '46'], rates: [{ colors: ['Black'], pricePerSize: { '36': 267, '46': 279 }, samplePrice: 327 }] },
+    ] }] }
+    const reply = 'Cotton Polo sample ₹271; Premium Polo sample ₹327 sir.'
+    const sample = await runCase({ buyerText: '2 polo samples price', reply, catalogData })
+    assert.equal(sample.sent[0].message, reply)
+    const held = await runCase({ buyerText: 'polo refund', reply: '[DEFER]', catalogData })
+    assert.equal(held.sent.length, 0)
+    assert.equal(held.pending.size, 1)
+  }],
   ['coupon typo after an owner promise queues a tracked handoff', async () => {
     const r = await runCase({ buyerText: 'Kindly send discount ode for hoodie I have to place order', reply: 'Fixed price sir.', history: [{ deferReason: 'manual_reply', aiReply: 'Ok. 2 pcs will add' }] })
     assert.equal(r.sent.length, 0)
