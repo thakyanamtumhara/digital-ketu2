@@ -255,8 +255,10 @@ For pairs where aiWouldFail=true, you MUST also determine if Ketu's reply is con
   (Ketu knew they were waiting for beige medium specifically — but a different buyer saying the same
   thing could be waiting for something completely different. This reply should NOT be reused.)
 - contextDependent=false: Ketu's reply is a universal answer that works for anyone asking this question.
-  Example: Buyer "Rate batao 240 GSM round neck" → Ketu "205 per piece sir"
-  (This answer is always correct regardless of context.)
+  Example: Buyer "Where can I check current prices?" → Ketu "Check the current website catalogue."
+  (The instruction remains useful without freezing a product price.)
+- Numeric product prices and dated price increases/decreases are ALWAYS contextDependent=true.
+  A price comparison that was correct on its source date is not a permanent pricing rule.
 - STOCK / AVAILABILITY / RESTOCK-TIMING is ALWAYS contextDependent=true (point-in-time). If the buyer asks
   whether something is in stock / available, which colours are available, or WHEN it will come / restock
   ("red hai kya", "240 gsm red kab aayega", "pink available?", "acid wash colours kab aayenge", "kab tak aayega"),
@@ -278,7 +280,7 @@ CATEGORIZE each pair into one of these categories:
 RESPOND WITH ONLY VALID JSON — no markdown, no explanation:
 [
   { "id": "PAIR_ID", "aiWouldFail": true, "contextDependent": true, "category": "delivery", "reason": "Buyer waiting — but reply is specific to their order context" },
-  { "id": "PAIR_ID", "aiWouldFail": true, "contextDependent": false, "category": "product_inquiry", "reason": "Women's t-shirt inquiry — AI doesn't know this product is coming soon" },
+  { "id": "PAIR_ID", "aiWouldFail": true, "contextDependent": true, "category": "product_inquiry", "reason": "Women's launch timing is a dated fact" },
   { "id": "PAIR_ID", "aiWouldFail": false, "contextDependent": false, "category": "product_inquiry", "reason": "Simple rate inquiry — AI has this in knowledge base" }
 ]`
 

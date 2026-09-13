@@ -105,6 +105,36 @@ await test('named stock and launch subjects retain validated temporary learning'
     assert.equal(result.verdict, 'accepted', buyerQuestion)
   }
 })
+await test('dated price changes never reach the validator or permanent promotion', async () => {
+  let calls = 0
+  const model = { messages: { create: async () => { calls++; throw Error('unexpected paid validation') } } }
+  for (const fields of [
+    { buyerQuestion: 'Why did the tshirt price rise?', correctReply: 'The price increased by ₹9 this week.' },
+    { buyerQuestion: 'Rate itna kyun badha?', correctReply: 'Sir 6-9 rupaye ka fark aaya hai.' },
+    { buyerQuestion: 'कीमत क्यों बढ़ी है?', correctReply: '११ रुपये का फ़रक आया है, पहले कम था।' },
+    { buyerQuestion: 'How much did prices increase?', correctReply: 'Only 6-9 rupees sir' },
+    { buyerQuestion: 'What changed in the catalogue?', correctReply: 'The price went from 121 to 129.' },
+    { buyerQuestion: 'Polo restock kab hoga?', correctReply: 'Price increased by ₹9, stock in 8 days.', timed: true },
+  ]) {
+    const db = fakeDb()
+    const result = await validateLearningCandidate(db, model, { ...input, ...fields })
+    assert.equal(result.verdict, 'rejected', fields.correctReply)
+    assert.equal(result.reason, 'perishable_price_answer')
+    assert.equal(db.rows.get(result.id).payload.correctReply, fields.correctReply)
+  }
+  assert.equal(calls, 0)
+})
+await test('durable pricing instructions and non-price numbers keep their boundary', async () => {
+  for (const fields of [
+    { buyerQuestion: 'Why do prices change?', correctReply: 'Supplier costs can change; check current rates on the website.' },
+    { buyerQuestion: 'How can I get the volume offer?', correctReply: '1000+ pcs in one order get ₹4/pc discount.' },
+    { buyerQuestion: 'Why did the prices increase?', correctReply: '1000+ pcs in one order get ₹4/pc discount.' },
+    { buyerQuestion: 'Explain the bulk discount policy', correctReply: 'For 1000+ pieces, the discount reduces the price by ₹4 per piece.' },
+    { buyerQuestion: 'How much did prices increase?', correctReply: 'Check 240gsm samples on the website.' },
+    { buyerQuestion: 'What is the difference in these shirts?', correctReply: 'One is 180gsm and the other is 240gsm.' },
+    { buyerQuestion: 'Why are these rates different?', correctReply: 'The website explains the difference: https://example.invalid/rates/9' },
+  ]) assert.equal(learningEligibility(fields), null, fields.correctReply)
+})
 await test('subject only in an answer requires review before compact timing reuse', async () => {
   assert.equal(learningEligibility({ buyerQuestion: 'When will it be available?', correctReply: 'Cotton Polo Grey in 11-13 days', timed: true }), 'missing_timing_subject')
 })

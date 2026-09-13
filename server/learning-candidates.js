@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { isPerishablePriceChange } from './price-learning.js'
 import { assessReplyPair, hasGarbledTranscript, hasNamedTimingSubject, isDeferLine, isMediaPlaceholder, isStockAvailabilityQuestion, isTransactionalReply, looksLikeTimingAnswer } from './stock-question.js'
 
 const readyByDb = new WeakMap()
@@ -24,6 +25,7 @@ export function learningEligibility({ buyerQuestion, correctReply, timed = false
   if (isMediaPlaceholder(buyerQuestion) || isMediaPlaceholder(correctReply)) return 'missing_media_context'
   if (hasGarbledTranscript(buyerQuestion) || hasGarbledTranscript(correctReply)) return 'garbled_transcript'
   if (isDeferLine(correctReply)) return 'holding_line'
+  if (isPerishablePriceChange({ buyerQuestion, correctReply })) return 'perishable_price_answer'
   if (isTransactionalReply(correctReply, { forTiming: timed })) return 'transactional_reply'
   if (timed && (!isStockAvailabilityQuestion(buyerQuestion) || !looksLikeTimingAnswer(correctReply))) return 'not_stock_timing'
   if (timed && !hasNamedTimingSubject(buyerQuestion)) return 'missing_timing_subject'
