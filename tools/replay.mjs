@@ -143,7 +143,7 @@ for (const c of cases) {
       if (discontinuedReply) { console.log('   Discontinued-size policy applied'); txt = discontinuedReply }
       const restockHandoff = restockPointerGuard({ buyerText: c.msg, reply: txt, now: c.at ? Date.parse(c.at) : Date.now(), history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) })
       if (restockHandoff) { console.log('   Restock-pointer guard retained an owner handoff'); txt = restockHandoff }
-      const couponHandoff = couponCodeGuard({ buyerText: c.msg, reply: txt, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, deferReason: h.manual ? 'manual_reply' : null })) })
+      const couponHandoff = couponCodeGuard({ buyerText: c.msg, reply: txt, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, deferReason: h.manual ? 'manual_reply' : null })) })
       if (couponHandoff) { console.log('   Coupon-code guard retained an owner handoff'); txt = couponHandoff }
       const historyText = (c.history || []).map(h => `Buyer: ${h.buyer}\nAssistant: ${h.ai || ''}`).join('\n')
       const g1 = deliveryDaysGuard({ buyerText: c.msg, reply: txt })

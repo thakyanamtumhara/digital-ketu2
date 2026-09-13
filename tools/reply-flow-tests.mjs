@@ -123,6 +123,35 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['coupon typo after an owner promise queues a tracked handoff', async () => {
+    const r = await runCase({ buyerText: 'Kindly send discount ode for hoodie I have to place order', reply: 'Fixed price sir.', history: [{ deferReason: 'manual_reply', aiReply: 'Ok. 2 pcs will add' }] })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 1)
+    const held = r.pending.get('buyer-test').messages[0]
+    assert.equal(held.logData.deferReason, 'coupon_code_handoff')
+    assert.deepEqual(Array.from(held.messageIds), ['inbound-test'])
+    assert.ok(held.logData.costUsd > 0)
+  }],
+  ['conflicting coupon examples are removed before the prompt while bargaining remains', async () => {
+    const knowledge = [
+      { source: 'CORRECTION', title: 'Code request', similarity: 0.8, content: 'Buyer: Please provide a coupon code\nCorrect reply: Fixed price sir. We work with tight margin' },
+      { source: 'CORRECTION', title: 'Ordinary bargain', similarity: 0.8, content: 'Buyer: Give me a lower price\nCorrect reply: Fixed price sir.' },
+    ]
+    const r = await runCase({ buyerText: 'Could I have a coupon?', reply: 'How many pieces in total sir?', knowledge })
+    const prompt = r.requests[0].messages[0].content
+    assert.doesNotMatch(prompt, /Please provide a coupon code|tight margin/)
+    assert.match(prompt, /Give me a lower price/)
+    assert.equal(r.sent[0].message, 'How many pieces in total sir?')
+  }],
+  ['coupon extension preserves owner cooldown and existing code help', async () => {
+    const history = [{ deferReason: 'manual_reply', aiReply: 'Ok. 2 pcs will add' }]
+    const held = await runCase({ cooldown: true, incomingText: 'Kindly send discount ode for hoodie', history })
+    assert.equal(held.requests.length, 0)
+    assert.equal(held.sent.length, 0)
+    const help = await runCase({ buyerText: 'Where do I enter my coupon code?', reply: 'Paste it at checkout sir.', history })
+    assert.equal(help.pending.size, 0)
+    assert.equal(help.sent[0].message, 'Paste it at checkout sir.')
+  }],
   ['discontinued-size purchase intent gets live stock and a safe sent answer', async () => {
     const stockSnapshot = { fetchedAt: Date.now(), inStock: { 'Oversize 240gsm': { 'Off-white': { XS: 1, S: 1, M: 1, L: 1 } } }, oos: { 'Oversize 240gsm': { 'Off-white': 'XS,S,M' } }, coming: {} }
     const r = await runCase({ stockSnapshot, buyerText: 'I need oversized 240 gsm off white XS S M sizes', reply: 'Off-white XS/S will arrive in 4 days.' })

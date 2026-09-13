@@ -1,0 +1,49 @@
+[
+  {
+    "id": "owner-piece-promise-code-typo",
+    "msg": "Kindly send discount ode for hoodie I have to place order",
+    "history": [
+      { "buyer": "The hoodie has a hole", "deferred": true },
+      { "manual": true, "ai": "Ok. 2 pcs will add" }
+    ],
+    "must": ["^\\[DEFER\\]$"],
+    "why": "Synthetic: a clear code request follows an owner piece promise. The owner completes the remedy."
+  },
+  {
+    "id": "product-qualified-known-quantity",
+    "msg": "Kindly give discount code for hoodies I have to place order",
+    "history": [{ "buyer": "I want 42 pieces", "ai": "Please order online." }],
+    "must": ["^\\[DEFER\\]$"],
+    "why": "Synthetic: product and ordering words do not change the known-quantity coupon handoff."
+  },
+  {
+    "id": "unknown-count-control",
+    "msg": "Kindly send discount code for hoodie I want to place an order",
+    "must": ["how many|kitne", "pieces|pcs"],
+    "mustNot": ["\\[DEFER\\]", "fixed price", "no coupon"],
+    "why": "Synthetic: a new request with no count or owner promise asks for the quantity once."
+  },
+  {
+    "id": "plain-bargain-control",
+    "msg": "I want 42 hoodies, give me a discount please",
+    "must": ["fixed price"],
+    "mustNot": ["\\[DEFER\\]", "coupon", "1000"],
+    "why": "Synthetic: ordinary bargaining retains the existing fixed-price policy."
+  },
+  {
+    "id": "existing-code-control",
+    "msg": "Where do I enter my coupon code?",
+    "history": [{ "manual": true, "ai": "Ok. 2 pcs will add" }],
+    "must": ["pay now|checkout"],
+    "mustNot": ["\\[DEFER\\]"],
+    "why": "Synthetic: an earlier remedy does not block self-service application instructions."
+  },
+  {
+    "id": "mixed-task-control",
+    "msg": "Please send hoodie photos and a coupon code",
+    "history": [{ "buyer": "I need 42 pieces", "ai": "Please order online." }],
+    "must": ["https?://", "\\[DEFER\\]"],
+    "mustNot": ["fixed price"],
+    "why": "Synthetic: answer the independent photo request and retain the owner handoff."
+  }
+]

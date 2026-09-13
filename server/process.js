@@ -21,7 +21,7 @@ import { partialDeferSplit } from './reconcile.js'
 import { repairReplyLanguage } from './reply-language.js'
 import { arrivalClockGuard } from './arrival-clock.js'
 import { restockPointerGuard } from './restock-pointer.js'
-import { couponCodeGuard } from './coupon-code.js'
+import { couponCodeGuard, isConflictingCouponCorrection } from './coupon-code.js'
 import { discontinuedSizeRequest, discontinuedSizeGuard } from './discontinued-size.js'
 import { openaiReply, isOpenAiFallbackConfigured } from './openai-fallback.js'
 
@@ -3195,7 +3195,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   // would be boosted and replayed to a buyer as Ketu's own words, i.e. gibberish.
   const vectorResults = allVectorResults.filter(r => {
     const answer = correctionAnswer(r)
-    return !isDeferLine(answer) && !hasGarbledTranscript(answer)
+    return !isDeferLine(answer) && !hasGarbledTranscript(answer) && !isConflictingCouponCorrection(r)
   })
 
   const bestSimilarity = vectorResults.length > 0
@@ -3728,7 +3728,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     if (couponHandoff) {
       aiReply = couponHandoff
       couponCodeHeld = true
-      console.log(`[CouponCodeGuard] ${whatsappNumber} — known-quantity code request held for owner`)
+      console.log(`[CouponCodeGuard] ${whatsappNumber} — code request held for owner`)
     }
   // --- PAYMENT-FIX FABRICATION GUARD (2026-09-04) ---
   // The prompt has banned invented payment troubleshooting since 2026-08-13 ("NEVER invent retry
