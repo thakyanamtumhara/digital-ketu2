@@ -1,0 +1,25 @@
+[
+  {
+    "id": "first-time-code-known-count",
+    "msg": "Can you send a promo code? I'm joining as first time.",
+    "history": [{ "buyer": "I will order 63 pieces", "ai": "Please order from the website sir." }],
+    "must": ["\\[DEFER\\]"],
+    "mustNot": ["[Ff]ixed price", "[Nn]o.*code"],
+    "why": "A first-time qualifier keeps the established quantity-then-owner coupon path. Synthetic regression."
+  },
+  {
+    "id": "first-time-code-unknown-count",
+    "msg": "Could I get a coupon? I am a new customer.",
+    "must": ["[Hh]ow many|[Tt]otal.*pieces|[Pp]iece.*count"],
+    "mustNot": ["[Ff]ixed price", "\\[DEFER\\]"],
+    "why": "CONTROL: unknown quantity keeps the existing one-time quantity question."
+  },
+  {
+    "id": "first-time-code-help",
+    "msg": "Where do I enter my coupon code? I'm a first-time buyer.",
+    "history": [{ "buyer": "I will order 63 pieces", "ai": "Please order from the website sir." }],
+    "must": ["[Cc]heckout|[Pp]ay [Nn]ow|[Pp]aste|[Ee]nter|[Cc]ode.*box"],
+    "mustNot": ["\\[DEFER\\]", "[Ff]ixed price"],
+    "why": "CONTROL: applying an existing code remains self-serve even for a new buyer."
+  }
+]

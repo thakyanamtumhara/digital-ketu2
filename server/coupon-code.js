@@ -1,4 +1,5 @@
 const CODE_TOPIC = /\b(?:(?:discount|promo|coupon)\s+codes?|discount\s+ode|coupons?)\b/i
+const FIRST_ORDER_CONTEXT = /\b(?:i(?:['’]m|\s+am)|we\s+are)\s+(?:joining\s+as\s+(?:a\s+)?first[ -]time(?:\s+(?:customers?|buyers?))?|(?:a\s+)?(?:first[ -]time|new)\s+(?:customers?|buyers?))\b/gi
 const PIECE_COUNT = /\b[1-9]\d{0,4}\s*(?:pcs?|pieces?|peices?|pices?|units?|t[ -]?shirts?|shirts?|hoodies?|sweatshirts?|polos?)\b/i
 const REQUEST_WORDS = new Set('yes yeah i we my our want need would like to know have has is are there a an any some please kindly pls plz sir bhai bhaiya for the this order place hoodie hoodies sweatshirt sweatshirts tshirt tshirts shirt shirts total of can could you give send share get me us koi kya hai hain mujhe hame chahiye milega milegi de do dedo dijiye dena batao bataiye ka ki ke mein me'.split(' '))
 const REFUSAL_WORDS = new Set('fixed price prices sir we work working are on with a very tight margin margins no coupon coupons discount promo code codes available'.split(' '))
@@ -18,7 +19,8 @@ export function couponCodeGuard({ buyerText, history = [], reply }) {
   if (!reply || /\[(?:DEFER|SKIP)\]/.test(reply)) return null
   const text = plainText(buyerText)
   if (!CODE_TOPIC.test(text)) return null
-  const remaining = text.replace(new RegExp(CODE_TOPIC.source, 'gi'), ' ')
+  const remaining = text.replace(FIRST_ORDER_CONTEXT, ' ')
+    .replace(new RegExp(CODE_TOPIC.source, 'gi'), ' ')
     .replace(new RegExp(PIECE_COUNT.source, 'gi'), ' ')
     .replace(/[^\p{L}\p{N}]+/gu, ' ').trim().toLowerCase().split(/\s+/).filter(Boolean)
   if (remaining.some(word => !REQUEST_WORDS.has(word))) return null

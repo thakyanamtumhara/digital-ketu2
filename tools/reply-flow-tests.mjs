@@ -124,6 +124,27 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['first-time code request with known quantity queues the existing handoff', async () => {
+    const r = await runCase({ buyerText: "Can you send a promo code? I'm joining as first time.", reply: 'Fixed price sir.', history: [{ buyerMessage: 'Black tees: 63 pcs', aiReply: 'Please order online.', status: 'REPLIED' }] })
+    assert.equal(r.sent.length, 0)
+    const held = r.pending.get('buyer-test')?.messages[0]
+    assert.equal(held?.logData.deferReason, 'coupon_code_handoff')
+    assert.deepEqual(Array.from(held.messageIds), ['inbound-test'])
+    assert.ok(held.logData.costUsd > 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['first-time coupon context preserves quantity questions, code help and cooldown', async () => {
+    const ask = await runCase({ buyerText: "Any coupon? I'm a first-time customer", reply: 'How many pieces in total sir?' })
+    assert.equal(ask.sent[0].message, 'How many pieces in total sir?')
+    assert.equal(ask.pending.size, 0)
+    const help = await runCase({ buyerText: "Where do I enter my coupon code? I'm a new buyer", reply: 'Paste the full code at checkout sir.', history: [{ buyerMessage: '63 pcs', status: 'REPLIED' }] })
+    assert.equal(help.sent[0].message, 'Paste the full code at checkout sir.')
+    assert.equal(help.pending.size, 0)
+    const cooldown = await runCase({ cooldown: true, incomingText: "Coupon for 63 pcs please. I'm joining as first time", reply: 'Fixed price sir.' })
+    assert.equal(cooldown.sent.length, 0)
+    assert.equal(cooldown.pending.size, 0)
+    assert.equal(cooldown.logs.at(-1).status, 'COOLDOWN')
+  }],
   ['unanswered product choice prevents a premature stock date in the sent reply', async () => {
     const history = [{ status: 'REPLIED', createdAt: new Date(Date.now() - 30000).toISOString(), buyerMessage: 'Black tshirt', aiReply: 'Black 180gsm ya 260gsm sir?' }]
     const r = await runCase({ buyerText: 'Stock kab aayega sir?', reply: '180gsm black 4-5 din mein aayega sir.', history })

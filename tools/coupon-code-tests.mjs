@@ -4,6 +4,18 @@ import { couponCodeGuard, isConflictingCouponCorrection } from '../server/coupon
 const history = [{ buyerMessage: 'I need Black tees, 63 pcs', aiReply: 'Please order online.' }]
 const guard = (buyerText, extra = {}) => couponCodeGuard({ buyerText, history, reply: 'Fixed price sir.', ...extra })
 const cases = [
+  ['first-time context preserves a known-quantity code request', () => assert.equal(guard("Can you send a promo code? I'm joining as first time."), '[DEFER]')],
+  ['first-time customer wording preserves the code request', () => assert.equal(guard('Any coupon please, I am a first-time customer'), '[DEFER]')],
+  ['new buyer wording preserves the code request', () => assert.equal(guard('We are new buyers, can you send a coupon?'), '[DEFER]')],
+  ['singular new buyer wording preserves the code request', () => assert.equal(guard('I’m a new buyer. Any promo code?'), '[DEFER]')],
+  ['first-time context without quantity still allows the question', () => assert.equal(guard("Any coupon? I'm joining as first time", { history: [] }), null)],
+  ['first-time ordinary bargaining keeps its own path', () => assert.equal(guard("Any discount? I'm joining as first time"), null)],
+  ['first-time existing-code help remains answerable', () => assert.equal(guard("Where do I enter my coupon code? I'm a new customer"), null)],
+  ['first-time failed-code report remains troubleshooting', () => assert.equal(guard("My discount code is not working. I'm a first-time buyer"), null)],
+  ['first-time mixed photo request is not reduced to code issuance', () => assert.equal(guard("Send hoodie photos and a coupon. I'm joining as first time"), null)],
+  ['first-time phrase does not erase a current quantity uncertainty', () => assert.equal(guard("I'm a new customer, not sure how many pieces. Any coupon?"), null)],
+  ['first-time phrase does not erase a conditional request', () => assert.equal(guard("I'm joining as first time if you give me a coupon"), null)],
+  ['first-time context preserves an existing partial handoff', () => assert.equal(guard("Any coupon? I'm joining as first time", { reply: 'The photos are here. [DEFER]' }), null)],
   ['missing-c code request keeps the latest owner piece promise', () => assert.equal(guard('Kindly send discount ode for hoodie I have to place order', { history: [{ deferReason: 'manual_reply', aiReply: 'Ok. 2 pcs will add' }] }), '[DEFER]')],
   ['owner promise in ordinary English remains an owner task', () => assert.equal(guard('Please give coupon for hoodie', { history: [{ deferReason: 'manual_reply', aiReply: 'I will add 2 pieces.' }] }), '[DEFER]')],
   ['product and ordering words preserve a known-quantity code ask', () => assert.equal(guard('Kindly give discount code for hoodies I have to place order'), '[DEFER]')],
