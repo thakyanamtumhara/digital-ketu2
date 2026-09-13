@@ -21,6 +21,7 @@ function explicitLanguage(text) {
 function detectedLanguage(text) {
   const words = withoutLinks(text)
   if (containsHindi(words) || nonLatinLetters(words)) return 'other'
+  if (/^\s*(?:(?:hi|hello|hey|sir)[\s,!:.]+)*looking\s+for\s+\p{L}/iu.test(words)) return 'english'
   return (words.match(ENGLISH_WORDS) || []).length >= 2 ? 'english' : null
 }
 

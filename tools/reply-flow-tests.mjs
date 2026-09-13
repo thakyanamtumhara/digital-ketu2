@@ -477,6 +477,32 @@ const tests = [
     const r = await runCase({ buyerText: 'Could I get contact information?', preferredLanguage: 'hindi', reply: 'Call kar lijiye sir' })
     assert.equal(r.rewriteRequests.length, 0)
   }],
+  ['short English buying fragment repairs the sent answer', async () => {
+    const original = 'Cotton hoodie hai sir, sizes S se XXL 👉 https://example.invalid/hoodie'
+    const english = 'Cotton hoodie sir, sizes S to XXL 👉 https://example.invalid/hoodie'
+    const r = await runCase({ buyerText: 'Looking for navy cotton hoodies', reply: original, rewriteReply: english })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.sent[0].message, english)
+    assert.ok(r.logs.some(row => row.status === 'REPLIED' && row.sentViaWwbun))
+  }],
+  ['Hindi buying fragment does not trigger English repair', async () => {
+    const original = 'Hoodie hai sir'
+    const r = await runCase({ buyerText: 'Looking for hoodies, navy mein milega kya?', reply: original })
+    assert.equal(r.rewriteRequests.length, 0)
+    assert.equal(r.sent[0].message, original)
+  }],
+  ['buying fragment preserves explicit Hindi preference', async () => {
+    const r = await runCase({ buyerText: 'Looking for cotton hoodies', reply: 'Hoodie hai sir', preferredLanguage: 'hindi' })
+    assert.equal(r.rewriteRequests.length, 0)
+    assert.equal(r.sent[0].message, 'Hoodie hai sir')
+  }],
+  ['English buying reply avoids a redundant rewrite', async () => {
+    const reply = 'Please check the hoodie description sir 👉 https://example.invalid/hoodie'
+    const r = await runCase({ buyerText: 'Looking for cotton hoodies', reply })
+    assert.equal(r.rewriteRequests.length, 0)
+    assert.equal(r.sent[0].message, reply)
+  }],
   ['rewrite failure preserves the original answer and delivery', async () => {
     const r = await runCase({ buyerText: 'Could I get contact information?', reply: 'Call kar lijiye sir', rewriteThrows: true })
     assert.equal(r.rewriteRequests.length, 1)

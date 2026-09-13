@@ -33,6 +33,15 @@ const cases = [
   ['catalogue noun retains explicit Hindi', { buyerText: 'Hello catalogue', preferredLanguage: 'hindi' }, false],
   ['unknown fragment beside location is not English proof', { buyerText: 'Location kudu' }, false],
   ['standalone location after emoji greeting', { buyerText: 'Hi 🙏 shop address??' }, true],
+  ['short English buying fragment', { buyerText: 'Looking for navy cotton shirts' }, true],
+  ['greeted English buying fragment', { buyerText: 'Hello sir, looking for cotton hoodies' }, true],
+  ['current English buying fragment after Hindi', { buyerText: 'Looking for cotton hoodies', history: [{ buyerMessage: 'Mujhe shirts chahiye' }] }, true],
+  ['Hindi buying question retains Hindi', { buyerText: 'Looking for hoodies, navy mein milega kya?' }, false],
+  ['buying fragment retains explicit Hindi', { buyerText: 'Looking for cotton hoodies', preferredLanguage: 'hindi' }, false],
+  ['buying fragment retains earlier explicit Hindi', { buyerText: 'Looking for cotton hoodies', history: [{ buyerMessage: 'Hindi mein batao' }] }, false],
+  ['product-only fragment stays unclassified', { buyerText: 'Navy cotton hoodies' }, false],
+  ['URL cannot supply requested words', { buyerText: 'Looking for https://example.invalid/cotton/hoodies' }, false],
+  ['another script remains outside English detection', { buyerText: 'Looking for பருத்தி சட்டைகள்' }, false],
 ]
 for (const [name, context, expected] of cases) assert.equal(buyerUsesEnglish(context), expected, name)
 

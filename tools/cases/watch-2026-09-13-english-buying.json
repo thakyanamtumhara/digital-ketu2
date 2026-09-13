@@ -1,0 +1,31 @@
+[
+  {
+    "id": "english-buying-fragment",
+    "msg": "Looking for navy cotton hoodies",
+    "must": ["hoodie", "catalog"],
+    "mustNot": ["\\b(hai|nahi|kijiye|lijiye|milega|mein)\\b", "\\[DEFER\\]"],
+    "why": "A clear English buying phrase needs an English product answer."
+  },
+  {
+    "id": "hindi-neighbour",
+    "msg": "Looking for hoodies, navy mein milega kya?",
+    "must": ["\\b(hai|hain|nahi|milega|mil|dekhiye|lijiye)\\b"],
+    "mustNot": ["\\[DEFER\\]"],
+    "why": "Hindi wording in the current request retains the existing Hindi boundary."
+  },
+  {
+    "id": "explicit-hindi-neighbour",
+    "msg": "Looking for cotton hoodies",
+    "history": [{ "buyer": "Hindi mein batao", "ai": "Ji sir" }],
+    "must": ["\\b(hai|hain|nahi|dekhiye|lijiye)\\b"],
+    "mustNot": ["\\[DEFER\\]"],
+    "why": "An explicit earlier language request retains priority."
+  },
+  {
+    "id": "english-complete-request",
+    "msg": "Please share cotton hoodie details",
+    "must": ["hoodie", "catalog"],
+    "mustNot": ["\\b(hai|nahi|kijiye|lijiye|milega|mein)\\b", "\\[DEFER\\]"],
+    "why": "The established full English request still receives a useful English answer."
+  }
+]
