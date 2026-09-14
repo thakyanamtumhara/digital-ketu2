@@ -18,6 +18,7 @@ import { gsmAmbiguityHint, gsmPriceRangeGuard } from './gsm-hint.js'
 import { poloRateSummaryGuard } from './polo-price.js'
 import { hoodieRateSummaryGuard } from './hoodie-price.js'
 import { pendingProductChoiceGuard } from './product-choice.js'
+import { isAppStoreLookupProblem, appDiscoveryReplyGuard } from './app-discovery.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
 import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
 import { partialDeferSplit } from './reconcile.js'
@@ -2980,7 +2981,7 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
   const FORCE_REPLY_RE = /\breturn\b|\brefund\b|\bexchange\b|wapas|वापस|\bdispatch|porter|pickup|\btrack|deliver|पहुंच|pahu?nch(a|e|eg)?|\b(shop|store|duk[a]?an|godam|warehouse|office)\b[^]{0,25}\b(clos|band|khul|open|tim|kab)|\b(kab|kitne)\b[^]{0,15}\b(khul|band|close|open)|\baddress\b|\blocation\b|\blocated\b|\bkaha[ni]?\b|\bkahan\b|\bkidhar\b|\bkidar\b|kha\s*se\b|कहाँ|कहां|किधर|\bvisit\b|\bpata\b|\bketu\b|\bowner\b|\bmalik\b|baat\s*kar(a|wa)?\s*(o|do|ne|na)|\bcall\s*(kar|kr)|^\s*[?!.]{1,4}\s*$|\br[ew]?ply\b|\b(aa?na|aa?ne|aa\s*raha|aa\s*rha|aa\s*rahe|nikal\s*raha)\b[^]{0,20}\b(hu|hun|h|hai|hain|tha|ho)\b|\b(aa?na|aa?ne)\s*(h|hai|hoga|padega)\b|\b(in\s+)?(english|hindi|hinglish)\s*(pls|plz|please|me(?:in)?|mein\s*bolo|only)\b|\b(please|pls|plz)\s*(in\s+)?(english|hindi)\b|\bacid\s*wash\b[^]{0,80}\b(fade|faded|fading|light|halka|halki|colou?r\s*(ja|nikal|ud|gaya|chala)|dhul|dho(ne|ya)|wash\s*m[ae]|black\s*ho\s*gay[ia]|complain)/i
   // (last alternation, 2026-09-03: a language-switch request — "English pls", "hindi me bolo" — is a
   // request, never chatter; the gate silenced one and Ketu had to redo the clone's question in English.)
-  let forcedReply = !!imageBlock || FORCE_REPLY_RE.test(mergedText || '')
+  let forcedReply = !!imageBlock || FORCE_REPLY_RE.test(mergedText || '') || isAppStoreLookupProblem(mergedText)
   if (forcedReply) console.log(`[Restraint] ${whatsappNumber} — force-reply intent, gate bypassed`)
   // ANSWERING OUR OWN QUESTION (2026-09-09 18:51, buyer 3084): the clone asked "Which product sir?",
   // the buyer answered "The bio r neck this one…" and the Haiku gate called it chatter — total silence,
@@ -3724,6 +3725,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   let restockPointerHeld = false
   try {
     aiReply = canonicalizeCatalogLinks(aiReply, catalogProducts)
+    aiReply = appDiscoveryReplyGuard({ buyerText: mergedText, reply: aiReply })
     const gsmPriceReply = gsmPriceRangeGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
     if (gsmPriceReply) {
       aiReply = gsmPriceReply

@@ -131,6 +131,45 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['app discovery wording distinguishes store listing before send', async () => {
+    const r = await runCase({ buyerText: 'App Store mein aapka app nahi mil raha', reply: 'App nahi hai sir — website ko install kar lijiye https://sale91.com', gateVerdict: 'SILENT' })
+    assert.equal(r.sent[0].message, 'Store par listing nahi hai sir — website ko install kar lijiye https://sale91.com')
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['store lookup trouble reaches the reply policy despite a silent gate', async () => {
+    const reply = 'Website hi app ki tarah install ho jaati hai sir 👉 https://sale91.com'
+    const r = await runCase({ incomingText: 'App Store mein aapka app nahi mil raha', gateVerdict: 'SILENT', reply })
+    assert.equal(r.restraintRequests.length, 0)
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent[0].message, reply)
+    assert.equal(r.logs.at(-1).status, 'REPLIED')
+    assert.deepEqual(r.errors, [])
+  }],
+  ['successful app discovery acknowledgement can stay silent', async () => {
+    const r = await runCase({ buyerText: 'Found the app in the App Store, thanks', gateVerdict: 'SILENT' })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.logs.at(-1).deferReason, 'ai_chose_silence')
+  }],
+  ['store lookup trouble keeps mixed payment issues under owner triage', async () => {
+    const r = await runCase({ incomingText: "Cannot find the app on Play Store and my payment is missing", gateVerdict: 'SILENT', reply: '[DEFER]' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.pending.size, 1)
+    assert.equal(r.sent.length, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['store lookup trouble preserves owner cooldown and daily cap', async () => {
+    const text = 'App Store mein aapka app nahi mil raha'
+    const cooldown = await runCase({ incomingText: text, cooldown: true, gateVerdict: 'SILENT' })
+    assert.equal(cooldown.requests.length, 0)
+    assert.equal(cooldown.sent.length, 0)
+    assert.equal(cooldown.logs.at(-1).deferReason, 'cooldown')
+    const capped = await runCase({ buyerText: text, repliesToday: 25, gateVerdict: 'SILENT' })
+    assert.equal(capped.requests.length, 0)
+    assert.equal(capped.sent.length, 0)
+    assert.equal(capped.logs.at(-1).deferReason, 'daily_reply_cap')
+  }],
   ['bulk discount keeps a mixed product answer through send and logging', async () => {
     const reply = 'Kids sizes are in the catalog. We sell blanks; ask the printer about the front print.'
     const r = await runCase({ buyerText: 'Need 600 pcs kids and 1200 pcs adult with front print. Please quote the best price.', reply })
