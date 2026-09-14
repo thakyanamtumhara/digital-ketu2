@@ -53,6 +53,7 @@ const { getPhotoIndex, formatPhotoBlock } = await import('../server/photo-links.
 const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysGuard, bigBuyerDiscountGuard, formatConversationHistory } = await import('../server/process.js')
 const { gsmAmbiguityHint, gsmPriceRangeGuard } = await import('../server/gsm-hint.js')
 const { poloRateSummaryGuard } = await import('../server/polo-price.js')
+const { hoodieRateSummaryGuard } = await import('../server/hoodie-price.js')
 const { pendingProductChoiceGuard } = await import('../server/product-choice.js')
 const { repairReplyLanguage, buyerUsesEnglish } = await import('../server/reply-language.js')
 const { arrivalClockGuard } = await import('../server/arrival-clock.js')
@@ -144,6 +145,7 @@ for (const c of cases) {
       const gsmHistory = (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, deferReason: h.manual ? 'manual_reply' : null }))
       txt = gsmPriceRangeGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
       txt = poloRateSummaryGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
+      txt = hoodieRateSummaryGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
       txt = pendingProductChoiceGuard({ buyerText: c.msg, reply: txt, now: c.at ? Date.parse(c.at) : Date.now(), history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) }) || txt
       const discontinuedReply = discontinuedSizeGuard({ buyerText: c.msg, reply: txt, snapshot: c.stockSnapshot || stockSnapshot, now: c.at ? Date.parse(c.at) : Date.now() })
       if (discontinuedReply) { console.log('   Discontinued-size policy applied'); txt = discontinuedReply }

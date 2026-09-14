@@ -1,0 +1,29 @@
+[
+  {
+    "id": "hoodie-general",
+    "msg": "Hoodie 320gsm price",
+    "must": ["hoodie", "range|starts?|from|₹\\d+\\s*[–-]\\s*₹?\\d+|XXL|colou?r"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]"],
+    "why": "A general hoodie quote preserves current size/colour scope. All prices come from the live catalogue."
+  },
+  {
+    "id": "hoodie-selected-size",
+    "msg": "Black 320gsm hoodie XXL, 20pcs ka per piece rate?",
+    "must": ["₹\\d+|Rs", "XXL"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]"],
+    "why": "A chosen large size keeps its exact live bulk rate."
+  },
+  {
+    "id": "hoodie-sample",
+    "msg": "Black hoodie 320gsm ke 2 sample ka per piece rate?",
+    "must": ["₹\\d+|Rs", "sample"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]"],
+    "why": "A small sample order keeps sample pricing."
+  },
+  {
+    "id": "hoodie-refund",
+    "msg": "Hoodie mein hole hai, refund kar do",
+    "must": ["\\[DEFER\\]"],
+    "why": "A delivered-item complaint keeps its human handoff."
+  }
+]

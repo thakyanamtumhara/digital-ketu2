@@ -124,6 +124,33 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['generic hoodie summary sends the complete current size and colour range', async () => {
+    const r = await runCase({ buyerText: 'Hello Hoodie price', reply: 'Hoodie 320gsm ₹211 (Black), baaki colours ₹239 sir.' })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /Hoodie 320gsm ₹211–₹251 bulk \(10\+ total pcs/)
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.equal(r.logs.at(-1).sentViaWwbun, true)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['hoodie selected size, samples and owner cooldown keep their paths', async () => {
+    for (const [buyerText, reply] of [['Black hoodie XXL price for 20 pcs', 'Black XXL ₹223 sir.'], ['Hoodie 2 samples price', 'Hoodie sample ₹277 sir.']]) {
+      const r = await runCase({ buyerText, reply })
+      assert.equal(r.sent[0].message, reply)
+    }
+    const held = await runCase({ cooldown: true, incomingText: 'Hoodie price' })
+    assert.equal(held.requests.length, 0)
+    assert.equal(held.sent.length, 0)
+    assert.equal(held.logs.at(-1).status, 'COOLDOWN')
+    const refund = await runCase({ buyerText: 'Hoodie refund', reply: '[DEFER]' })
+    assert.equal(refund.sent.length, 0)
+    assert.equal(refund.pending.size, 1)
+  }],
+  ['a hoodie colour clarification with no quoted rate stays intact', async () => {
+    const reply = 'Hoodie catalog 👉 https://sale91.com/catalog/p/hoodie-320gsm Colour bataiye sir?'
+    const r = await runCase({ buyerText: 'Hello Hoodie price', reply })
+    assert.equal(r.sent[0].message, reply)
+    assert.equal(r.pending.size, 0)
+  }],
   ['first-time code request with known quantity queues the existing handoff', async () => {
     const r = await runCase({ buyerText: "Can you send a promo code? I'm joining as first time.", reply: 'Fixed price sir.', history: [{ buyerMessage: 'Black tees: 63 pcs', aiReply: 'Please order online.', status: 'REPLIED' }] })
     assert.equal(r.sent.length, 0)
