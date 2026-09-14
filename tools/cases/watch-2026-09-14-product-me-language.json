@@ -1,0 +1,47 @@
+[
+  {
+    "id": "english-price-confirmation",
+    "msg": "12 tshirts at that rate, right?",
+    "history": [
+      {
+        "buyer": "Can you tell me the price of 180gsm oversized tees?",
+        "ai": "Current rates are in the catalogue sir."
+      }
+    ],
+    "mustNot": [
+      "\\b(hai|nahi|kijiye|lijiye|milega|mein)\\b",
+      "\\b(?:oversize|gsm)\\s+me\\b",
+      "\\[(DEFER|SKIP)\\]"
+    ],
+    "why": "A terse numeric confirmation in an English buying thread keeps English wording."
+  },
+  {
+    "id": "english-pronoun-control",
+    "msg": "Can you show me the 260gsm fabric details?",
+    "must": [
+      "cotton"
+    ],
+    "mustNot": [
+      "\\b(hai|nahi|kijiye|lijiye|milega|mein)\\b",
+      "\\[(DEFER|SKIP)\\]"
+    ],
+    "why": "English pronoun me does not count as a Hindi postposition."
+  },
+  {
+    "id": "explicit-hindi-control",
+    "msg": "180gsm oversize price please",
+    "history": [
+      {
+        "buyer": "Hindi mein batao",
+        "ai": "Ji sir"
+      }
+    ],
+    "must": [
+      "\\b(hai|hain|mein|me|sirf|ka|ke|pe)\\b"
+    ],
+    "mustNot": [
+      "\\[(DEFER|SKIP)\\]"
+    ],
+    "why": "An explicit Hindi preference keeps its priority."
+  }
+]

@@ -559,6 +559,33 @@ const tests = [
     assert.equal(r.rewriteRequests.length, 1)
     assert.equal(r.sent[0].message, 'Oversize is available sir')
   }],
+  ['numeric English follow-up repairs product-scoped me before transport', async () => {
+    const reply = '180gsm oversize me yes sir, ₹213 per pc 👉 https://example.invalid/oversize'
+    const fixed = 'Yes sir, 180gsm oversize is ₹213 per pc 👉 https://example.invalid/oversize'
+    const r = await runCase({ buyerText: '12 tshirts = 213 right', reply, rewriteReply: fixed, history: [{ buyerMessage: 'Can you tell me the price of oversized shirts?', aiReply: 'Check the catalogue sir', status: 'REPLIED' }] })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.sent[0].message, fixed)
+    assert.equal(r.logs.at(-1).aiReply, fixed)
+  }],
+  ['English pronoun me does not cause a paid rewrite', async () => {
+    const reply = 'Tell me which 180gsm oversize you need sir 👉 https://example.invalid/oversize'
+    const r = await runCase({ buyerText: 'Please share the sizes', reply })
+    assert.equal(r.rewriteRequests.length, 0)
+    assert.equal(r.sent[0].message, reply)
+  }],
+  ['product-scoped me preserves explicit Hindi preference', async () => {
+    const reply = '180gsm oversize me yes sir, ₹213 per pc'
+    const r = await runCase({ buyerText: '12 tshirts = 213 right', reply, preferredLanguage: 'hindi' })
+    assert.equal(r.rewriteRequests.length, 0)
+    assert.equal(r.sent[0].message, reply)
+  }],
+  ['product-scoped me rejects a rewrite with a changed price', async () => {
+    const reply = '180gsm oversize me yes sir, ₹213 per pc'
+    const r = await runCase({ buyerText: 'Please confirm the price', reply, rewriteReply: 'Yes sir, 180gsm oversize is ₹214 per pc' })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, reply)
+  }],
   ['current Hinglish answer is not rewritten because an earlier turn was English', async () => {
     const r = await runCase({ buyerText: 'Mujhe heavyweight chahiye', reply: 'Oversize hai sir', history: [{ buyerMessage: 'We need some shirts', status: 'REPLIED' }] })
     assert.equal(r.rewriteRequests.length, 0)

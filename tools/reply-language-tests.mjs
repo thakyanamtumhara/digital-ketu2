@@ -2,6 +2,13 @@ import assert from 'node:assert/strict'
 import { buyerUsesEnglish, buyerUsesRomanHindi, repairReplyLanguage, containsHindi } from '../server/reply-language.js'
 
 const englishHistory = [{ buyerMessage: 'We need some shirts', aiReply: 'Kaunsa product chahiye sir?' }]
+
+for (const reply of ['180gsm oversize me yes sir, ₹213 per pc', '240 gsm me ₹215 per pc', 'Hoodie me ₹310 sir', 'Polo me M to XL sir']) {
+  assert.equal(containsHindi(reply), true, reply)
+}
+for (const reply of ['Tell me which 180gsm oversize you need sir', 'Please show me the hoodie', 'This polo fits me', 'Send me the 240gsm details', 'Please contact me 👉 https://example.invalid/hoodie/me']) {
+  assert.equal(containsHindi(reply), false, reply)
+}
 const cases = [
   ['short contact request', { buyerText: 'Could I get contact information?' }, true],
   ['two-word request', { buyerText: 'Share contact' }, true],

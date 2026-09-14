@@ -2,12 +2,13 @@ const HINDI_WORDS = /\b(hai|hain|nahi|nhi|karo|kariye|karke|lijiye|dijiye|kijiye
 const ENGLISH_WORDS = /\b(i|we|my|our|us|the|is|are|do|does|can|could|will|would|please|want|need|have|has|you|your|what|when|where|how|much|many|price|order|delivery|available|stock|send|share|tell|get|contact|details|number|about|this|that|with|and|for|from|there|any)\b/gi
 const ROMAN_HINDI_SIGNAL = /\b(hai|hain|nahi|nhi|karo|kariye|lijiye|dijiye|bhejo|batao|bataiye|aap|aapka|aapke|apka|apne|apnay|kya|kyu|kyon|mein|milega|milegi|chahiye|chaihay|bhaiya|bhai|abhi|hoga|hogi|karna|karni|krna|kitna|kitne|kitni|kaise|kaha|kahan|mujhe|mujha|mujay|mera|meri|mere)\b/i
 const ENGLISH_PROSE = /\b(is|are|not|we|your|you|can|could|will|would|please|want|need|have|has|what|when|where|how|which|once|with|from)\b/i
+const PRODUCT_ME = /\b(?:oversiz(?:e|ed)|hoodies?|polos?|\d{2,3}\s*gsm)\s+me\b/i
 const withoutLinks = text => String(text || '').replace(/https?:\/\/\S+/gi, ' ')
 const nonLatinLetters = text => /\p{L}/u.test(text.replace(/\p{Script=Latin}/gu, ''))
 
 export function containsHindi(text) {
   const words = withoutLinks(text).replace(/\bTSHIRT WALA GODAM\b/gi, '')
-  return HINDI_WORDS.test(words) || ROMAN_HINDI_SIGNAL.test(words) || /[ऀ-ॿ]/.test(words)
+  return HINDI_WORDS.test(words) || ROMAN_HINDI_SIGNAL.test(words) || PRODUCT_ME.test(words) || /[ऀ-ॿ]/.test(words)
     || /\b(?:XXS|XS|S|M|L|XL|XXL|XXXL|\d{2})\s+se\s+(?:XXS|XS|S|M|L|XL|XXL|XXXL|\d{2})\b/i.test(words)
 }
 
