@@ -6,9 +6,9 @@ import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, forma
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0 } = {}) {
+async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [] } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
-  const restraintRequests = []
+  const restraintRequests = [], handled = []
   const timers = [], recoveryQueries = []
   let clock = recovery?.now ?? Date.now()
   class TestDate extends Date {
@@ -23,6 +23,7 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     setTimeout(fn, ms) { if (recovery) timers.push({ fn, ms }); else if (ms < 30000) queueMicrotask(fn); return { unref() {} } },
     clearTimeout() {},
     fetch: async (url, options) => {
+      if (String(url) === 'https://transport.invalid/api/conversations/mark-handled') { handled.push(JSON.parse(options.body)); return { ok: true } }
       if (String(url).startsWith('https://media.invalid/')) return { ok: mediaAvailable, status: mediaAvailable ? 200 : 404, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(4) }
       if (String(url).startsWith('https://www.bulkplaintshirt.com/catalog/products.json?')) {
         if (catalogUnavailable) throw Error('catalog unavailable')
@@ -86,6 +87,7 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
       return history.slice().reverse()
     }, findFirst: async () => recovery?.laterLog || null, create: async ({ data }) => { logs.push(data); return { id: 'log-test', ...data } } },
     settings: { update: async () => ({}), findUnique: async () => ({ isActive: recovery?.active !== false, replyModel: 'claude-opus-5', systemPrompt: 'test rules' }) },
+    preAIFilter: { findMany: async () => keywordFilters },
     knowledgeChunk: { findFirst: async () => null, findMany: async () => [] },
     buyerMemory: { findUnique: async () => preferredLanguage ? { language: preferredLanguage } : null, upsert: async () => ({}) },
     buyerConversation: {
@@ -125,10 +127,44 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
   } else {
     await module.namespace.runAiFlow({ whatsappNumber: 'buyer-test', mergedText: buyerText, normalizedText: buyerText, imageUrl, conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
   }
-  return { sent, logs, errors, requests, rewriteRequests, restraintRequests, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
+  return { sent, logs, errors, requests, rewriteRequests, restraintRequests, handled, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
 }
 
 const tests = [
+  ['question-marked completion checks reach triage without clearing Waiting', async () => {
+    for (const incomingText of ['Done?', 'done ???', 'done？', 'done؟']) {
+      const r = await runCase({ incomingText, gateVerdict: 'SILENT', reply: '[DEFER]', history: [{ buyerMessage: 'I will arrange collection when it is packed', aiReply: 'We will pack it and let you know', status: 'REPLIED', createdAt: new Date(Date.now() - 45 * 60000).toISOString() }] })
+      assert.equal(r.requests.length, 1)
+      assert.equal(r.pending.size, 1)
+      assert.equal(r.handled.length, 0)
+      assert.equal(r.sent.length, 0)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['stored acknowledgement keywords cannot silence a completion question', async () => {
+    const r = await runCase({ incomingText: 'Done?', keywordFilters: [{ name: 'acknowledgment', action: 'skip', matchType: 'exact', keywords: 'done,okay' }], gateVerdict: 'SILENT', reply: '[DEFER]' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.pending.size, 1)
+    assert.equal(r.handled.length, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['plain completion acknowledgements still close without a model call', async () => {
+    for (const incomingText of ['done', 'Okay done 👍', 'theek hai']) {
+      const r = await runCase({ incomingText })
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.handled.length, 1)
+      assert.equal(r.pending.size, 0)
+      assert.equal(r.logs[0].deferReason, 'conversation_ender_deterministic')
+    }
+  }],
+  ['completion questions during owner cooldown remain visible and silent', async () => {
+    const r = await runCase({ incomingText: 'Done?', cooldown: true })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.handled.length, 0)
+    assert.equal(r.logs[0].status, 'COOLDOWN')
+    assert.equal(r.logs[0].deferReason, 'cooldown')
+  }],
   ['timing context excludes another colour and unresolved product scopes', async () => {
     const date = new Date(Date.now() + 19800000).toISOString().slice(0, 10)
     const timedFacts = [{ content: `[stated ${date}] Buyer asked: "Oversize 240gsm Red and Off-white restock?" — Ketu's answer: "8-9 days"` }]

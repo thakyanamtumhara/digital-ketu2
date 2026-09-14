@@ -679,7 +679,7 @@ export async function ketuManualReplyAgeMs(db, conversationId) {
   } catch { return Infinity }
 }
 export function isPureEnder(text) {
-  if (!text || !text.trim()) return false
+  if (!text || !text.trim() || /[?？؟]/u.test(text)) return false
   const stripped = text.toLowerCase().replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
   if (!stripped) return false
   return stripped.split(' ').every(t => ENDER_TOKENS.has(t))
@@ -750,7 +750,7 @@ const ACK_TOKENS = new Set([
   'hu', 'hun', 'hoon', 'h', 'hai', 'hain', 'he',
 ])
 function isBareAck(text) {
-  if (!text || !text.trim()) return false
+  if (!text || !text.trim() || /[?？؟]/u.test(text)) return false
   const stripped = text.toLowerCase().replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
   if (!stripped) return false
   return stripped.split(' ').every(t => ACK_TOKENS.has(t))
@@ -2312,6 +2312,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   if (dynamicFilters) {
     // === DYNAMIC PATH: filters from database ===
     for (const filter of dynamicFilters) {
+      if (filter.name === 'acknowledgment' && /[?？؟]/u.test(mergedText)) continue
       // For exact match filters, use normalizedText (honorifics stripped)
       // For greeting, use normalizedForGreeting (emojis also stripped)
       const textForMatch = filter.name === 'greeting' ? normalizedForGreeting : normalizedText
@@ -2378,7 +2379,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       'theek', 'thik', 'achchha', 'hmm', 'hm', 'k', 'kk',
       'done', 'bilkul', 'zaroor', 'thx', 'ty',
     ]
-    if (ackPatterns.includes(normalizedText)) {
+    if (!/[?？؟]/u.test(mergedText) && ackPatterns.includes(normalizedText)) {
       await createLog(db, conversation.id, mergedText, messageIds, {
         status: 'SKIPPED',
         deferReason: 'acknowledgment',
@@ -3030,7 +3031,7 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     // ender/ack has already returned long before this point, so overriding here cannot cause
     // reply-storms on closings.
     if (verdict.startsWith('SILENT') && !isPureEnder(mergedText) && !isBareAck(mergedText)
-        && /\?|₹|\b(price|rate|cost|kitna|kitne)\b|\br[ew]?ply\b/i.test(mergedText || '')) {
+        && /[?？؟]|₹|\b(price|rate|cost|kitna|kitne)\b|\br[ew]?ply\b/i.test(mergedText || '')) {
       console.log(`[Restraint] ${whatsappNumber} — gate said SILENT but message has a question/price marker — overriding to REPLY`)
       verdict = 'REPLY'
     }
