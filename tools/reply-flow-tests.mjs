@@ -129,6 +129,25 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['timing context excludes another colour and unresolved product scopes', async () => {
+    const date = new Date(Date.now() + 19800000).toISOString().slice(0, 10)
+    const timedFacts = [{ content: `[stated ${date}] Buyer asked: "Oversize 240gsm Red and Off-white restock?" — Ketu's answer: "8-9 days"` }]
+    for (const [buyerText, prior] of [['Beige me bhi S size nahi he', 'Oversize 240gsm colours'], ['Off-white coming soon mein nahi hai', 'Oversize 210 and 240gsm Off-white S M stock nahi hai']]) {
+      const r = await runCase({ buyerText, timedFacts, reply: '[DEFER]', history: [{ buyerMessage: prior, status: 'REPLIED', createdAt: new Date(Date.now() - 3600000).toISOString() }] })
+      assert.equal(r.requests.length, 1)
+      assert.match(r.requests[0].messages[0].content, /TIMING SCOPE/)
+      assert.doesNotMatch(r.requests[0].messages[0].content, /Current timing estimate|8-9 days/)
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 1)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['an unrelated address question receives no stock timing context', async () => {
+    const date = new Date(Date.now() + 19800000).toISOString().slice(0, 10)
+    const r = await runCase({ timedFacts: [{ content: `[stated ${date}] Buyer asked: "Oversize 240gsm Red restock?" — Ketu's answer: "8-9 days"` }] })
+    assert.doesNotMatch(r.requests[0].messages[0].content, /Current timing estimate|8-9 days|TIMING SCOPE/)
+    assert.equal(r.sent.length, 1)
+  }],
   ['a readable order-details image reaches vision despite a silent text gate', async () => {
     const r = await runCase({ incomingMessages: [{ messageId: 'order-panel-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/order-panel.jpg' }], invoiceKind: 'NO', gateVerdict: 'SILENT', reply: 'Noted sir 🙏' })
     assert.equal(r.requests.length, 1)
@@ -725,7 +744,7 @@ const tests = [
   }],
   ['runtime omits an unnamed timing fact and preserves a named launch estimate', async () => {
     const date = new Date(Date.now() + 19800000).toISOString().slice(0, 10)
-    const r = await runCase({ timedFacts: [
+    const r = await runCase({ buyerText: 'When will the women range launch?', timedFacts: [
       { content: `[stated ${date}] Buyer asked: "Kab tak out of stock hai?" — Ketu's answer: "11-13 दिन में आ जाना चाहिए"` },
       { content: `[stated ${date}] Buyer asked: "Women range launch estimated time?" — Ketu's answer: "30 to 45 days max"` },
     ] })
@@ -809,7 +828,7 @@ const tests = [
   }],
   ['runtime timing injection removes elapsed days before the model sees it', async () => {
     const date = new Date(Date.now() + 19800000 - 4 * 86400000).toISOString().slice(0, 10)
-    const r = await runCase({ timedFacts: [{ content: `[stated ${date}] Buyer asked: "Oversize 240gsm Red restock?" — Ketu's answer: "8-9 din mein aayega"` }] })
+    const r = await runCase({ buyerText: 'Oversize 240gsm Red restock?', timedFacts: [{ content: `[stated ${date}] Buyer asked: "Oversize 240gsm Red restock?" — Ketu's answer: "8-9 din mein aayega"` }] })
     const prompt = r.requests[0].messages[0].content
     assert.match(prompt, /4-5 days/)
     assert.doesNotMatch(prompt, /8-9 din/)

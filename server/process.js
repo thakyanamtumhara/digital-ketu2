@@ -13,7 +13,7 @@ import { evaluateIgGate } from './ig-gate.js'
 import { lookupOrdersByPhone, formatOrderLookupBlock, getBuyerProfile, formatBuyerProfileBlock } from './order-lookup.js'
 import { getCatalogFacts, CATALOG_UNAVAILABLE, canonicalizeCatalogLinks } from './catalog-facts.js'
 import { getStockSnapshot, formatStockBlock, resolveUnnamedProduct, unnamedProductCandidates, unnamedProductGuard } from './stock-lookup.js'
-import { formatTimedFactsBlock } from './timed-facts.js'
+import { scopedTimingBlock } from './timing-scope.js'
 import { gsmAmbiguityHint, gsmPriceRangeGuard } from './gsm-hint.js'
 import { poloRateSummaryGuard } from './polo-price.js'
 import { hoodieRateSummaryGuard } from './hoodie-price.js'
@@ -3436,10 +3436,10 @@ Reply with exactly one word: KETU or ASSISTANT.`,
         AND (metadata->>'expiresAt')::timestamptz > NOW()
       ORDER BY "createdAt" DESC LIMIT 8
     `
-    const timedBlock = formatTimedFactsBlock(timedFacts, timingNow, mergedText || '')
+    const timedBlock = scopedTimingBlock(timedFacts, timingNow, mergedText || '', conversationHistory)
     if (timedBlock) {
       userPrompt = timedBlock + '\n\n' + userPrompt
-      console.log(`[TimedFacts] injected ${timedFacts.length} fresh timing fact(s)`)
+      console.log('[TimedFacts] scoped timing context applied')
     }
     db.$executeRaw`DELETE FROM "KnowledgeChunk" WHERE source = 'TIMED_FACT'::"ChunkSource" AND (metadata->>'expiresAt')::timestamptz <= NOW()`.catch(() => {})
   } catch (tfErr) {

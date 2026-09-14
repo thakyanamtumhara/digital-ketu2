@@ -1,0 +1,54 @@
+[
+  {
+    "id": "exact-colour-timing-control",
+    "msg": "When will Red Oversize 240gsm restock?",
+    "at": "2026-09-14T15:00:00+05:30",
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-07] Buyer asked: \"Oversize 240gsm Red restock?\" \u2014 Ketu's answer: \"8-9 days\""
+      }
+    ],
+    "must": [
+      "1.{0,3}2"
+    ],
+    "mustNot": [
+      "DEFER",
+      "8.{0,3}9"
+    ],
+    "why": "Synthetic control: an exact dated colour source keeps the remaining estimate."
+  },
+  {
+    "id": "named-launch-timing-control",
+    "msg": "When will the women range launch?",
+    "at": "2026-09-14T15:00:00+05:30",
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-07] Buyer asked: \"Women range launch?\" \u2014 Ketu's answer: \"30 to 45 days max\""
+      }
+    ],
+    "must": [
+      "(?:23.{0,3}38\\s*days|about 3.{0,3}5\\s*weeks)"
+    ],
+    "mustNot": [
+      "DEFER",
+      "30.{0,3}45",
+      "240gsm",
+      "1.{0,3}2 days"
+    ],
+    "why": "Synthetic scope control: the matching launch range remains answerable. Accept explicitly approximate weeks; exact day wording is outside this scope filter."
+  },
+  {
+    "id": "different-size-timing",
+    "msg": "When will Off-white Oversize 240gsm M restock?",
+    "at": "2026-09-14T15:00:00+05:30",
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-07] Buyer asked: \"Oversize 240gsm Off-white S size restock?\" \u2014 Ketu's answer: \"8-9 days\""
+      }
+    ],
+    "mustNot": [
+      "\\b\\d+\\s*(?:-|to)?\\s*\\d*\\s*(?:days?|din)\\b"
+    ],
+    "why": "Synthetic scope boundary: a size-specific source cannot supply another size's date."
+  }
+]

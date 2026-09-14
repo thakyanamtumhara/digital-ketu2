@@ -48,7 +48,7 @@ const { block: catalogBlock, products: catalogProducts } = await getCatalogFacts
 
 // ---- optional per-case blocks ----
 const { getStockSnapshot, formatStockBlock, resolveUnnamedProduct } = await import('../server/stock-lookup.js')
-const { formatTimedFactsBlock } = await import('../server/timed-facts.js')
+const { scopedTimingBlock } = await import('../server/timing-scope.js')
 const { getPhotoIndex, formatPhotoBlock } = await import('../server/photo-links.js')
 const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysGuard, bigBuyerDiscountGuard, formatConversationHistory } = await import('../server/process.js')
 const { gsmAmbiguityHint, gsmPriceRangeGuard } = await import('../server/gsm-hint.js')
@@ -93,7 +93,7 @@ function userPromptFor(c) {
     const unnamed = resolveUnnamedProduct(caseSnapshot, c.msg) // mirrors runAiFlow (2026-09-05)
     p = caseStockBlock + (unnamed ? '\n' + unnamed : '') + '\n\n' + p
   }
-  const timedBlock = formatTimedFactsBlock(caseTimedFacts, now, c.msg)
+  const timedBlock = scopedTimingBlock(caseTimedFacts, now, c.msg, (c.history || []).map(h => ({ buyerMessage: h.buyer, deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })))
   if (timedBlock) p = timedBlock + '\n\n' + p
   if (EXPORT_ASK_RE.test(c.msg)) p = EXPORT_HINT + '\n\n' + p // mirrors runAiFlow (2026-09-05)
   const gsmHint = gsmAmbiguityHint(catalogProducts, c.msg) // mirrors runAiFlow (2026-09-06)
