@@ -1,0 +1,22 @@
+[
+  {
+    "id": "biowash-general-price",
+    "msg": "Bhai biowash ka price kya hai?",
+    "must": ["Bio", "range|from|₹\\d+\\s*[–-]\\s*₹?\\d+|44|46", "10"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]"],
+    "why": "A general Biowash quotation preserves current catalogue size and order bands. No fixed prices belong in the case."
+  },
+  {
+    "id": "biowash-selected-size",
+    "msg": "Biowash size 46, 20 pieces ka rate?",
+    "must": ["46", "₹\\d+|Rs"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]"],
+    "why": "A selected size retains its exact live bulk price."
+  },
+  {
+    "id": "biowash-refund",
+    "msg": "Biowash tshirt mein hole hai, refund chahiye",
+    "must": ["\\[DEFER\\]"],
+    "why": "A delivered-item complaint remains an owner handoff."
+  }
+]

@@ -131,6 +131,26 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['generic biowash quote keeps live size bands through send and logging', async () => {
+    const catalogData = { categories: [{ products: [{ name: 'Biowash Round Neck', slug: 'biowash-round-neck', gsm: 180, colors: ['Black'], sizes: ['38', '46'], rates: [{ colors: ['Black'], pricePerSize: { 38: 111, 46: 121 }, samplePrice: 151 }] }] }] }
+    const r = await runCase({ buyerText: 'Bhai biowash ka price kya hai?', reply: 'Bio Rneck ₹111 hai bhai (10+ pcs pe)', catalogData })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /₹111–₹121 bulk \(10\+ total pcs/)
+    assert.match(r.sent[0].message, /colour\/size ke hisaab se/)
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['selected biowash size and owner handoff keep their scope', async () => {
+    const catalogData = { categories: [{ products: [{ name: 'Biowash Round Neck', slug: 'biowash-round-neck', gsm: 180, colors: ['Black'], sizes: ['38', '46'], rates: [{ colors: ['Black'], pricePerSize: { 38: 111, 46: 121 }, samplePrice: 151 }] }] }] }
+    const reply = 'Bio Rneck size 46 ₹121 bulk sir'
+    const r = await runCase({ buyerText: 'Bio wash 46 rate?', reply, catalogData })
+    assert.equal(r.sent[0].message, reply)
+    assert.deepEqual(r.errors, [])
+    const deferred = await runCase({ buyerText: 'Biowash price and refund problem', reply: '[DEFER]', catalogData })
+    assert.equal(deferred.sent.length, 0)
+    assert.equal(deferred.pending.size, 1)
+    assert.deepEqual(deferred.errors, [])
+  }],
   ['app discovery wording distinguishes store listing before send', async () => {
     const r = await runCase({ buyerText: 'App Store mein aapka app nahi mil raha', reply: 'App nahi hai sir — website ko install kar lijiye https://sale91.com', gateVerdict: 'SILENT' })
     assert.equal(r.sent[0].message, 'Store par listing nahi hai sir — website ko install kar lijiye https://sale91.com')

@@ -17,6 +17,7 @@ import { scopedTimingBlock } from './timing-scope.js'
 import { gsmAmbiguityHint, gsmPriceRangeGuard } from './gsm-hint.js'
 import { poloRateSummaryGuard } from './polo-price.js'
 import { hoodieRateSummaryGuard } from './hoodie-price.js'
+import { biowashRateSummaryGuard } from './biowash-price.js'
 import { pendingProductChoiceGuard } from './product-choice.js'
 import { isAppStoreLookupProblem, appDiscoveryReplyGuard } from './app-discovery.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
@@ -3740,6 +3741,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     if (hoodiePriceReply) {
       aiReply = hoodiePriceReply
       console.log(`[HoodiePriceRange] ${whatsappNumber} — current catalogue ranges applied`)
+    }
+    const biowashPriceReply = biowashRateSummaryGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
+    if (biowashPriceReply) {
+      aiReply = biowashPriceReply
+      console.log(`[BiowashPriceRange] ${whatsappNumber} — current catalogue ranges applied`)
     }
     const pendingChoiceReply = pendingProductChoiceGuard({ buyerText: mergedText, history: conversationHistory, reply: aiReply })
     if (pendingChoiceReply) {
