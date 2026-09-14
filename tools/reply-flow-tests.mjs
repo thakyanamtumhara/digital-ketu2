@@ -6,8 +6,9 @@ import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, forma
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null } = {}) {
+async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0 } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
+  const restraintRequests = []
   const timers = [], recoveryQueries = []
   let clock = recovery?.now ?? Date.now()
   class TestDate extends Date {
@@ -22,7 +23,7 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     setTimeout(fn, ms) { if (recovery) timers.push({ fn, ms }); else if (ms < 30000) queueMicrotask(fn); return { unref() {} } },
     clearTimeout() {},
     fetch: async (url, options) => {
-      if (String(url).startsWith('https://media.invalid/')) return { ok: true, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(4) }
+      if (String(url).startsWith('https://media.invalid/')) return { ok: mediaAvailable, status: mediaAvailable ? 200 : 404, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(4) }
       if (String(url).startsWith('https://www.bulkplaintshirt.com/catalog/products.json?')) {
         if (catalogUnavailable) throw Error('catalog unavailable')
         if (catalogData) return { ok: true, json: async () => catalogData }
@@ -73,7 +74,7 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
   await module.link(link)
   await module.evaluate()
   const db = {
-    messageLog: { count: async () => 0, findMany: async query => {
+    messageLog: { count: async () => repliesToday, findMany: async query => {
       if (recovery && query.where.deferReason === 'welcome_followup_scheduled') {
         recoveryQueries.push(query)
         const range = query.where.createdAt
@@ -94,6 +95,10 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     $queryRaw: async () => timedFacts, $executeRaw: async () => 0,
   }
   const anthropic = { messages: { create: async body => {
+    if (typeof body.messages?.[0]?.content === 'string' && body.messages[0].content.startsWith('You decide whether Om')) {
+      restraintRequests.push(body)
+      return { content: [{ type: 'text', text: gateVerdict }], usage: { input_tokens: 1, output_tokens: 1 } }
+    }
     if (Array.isArray(body.messages?.[0]?.content) && body.max_tokens === 10) return { content: [{ type: 'text', text: invoiceKind }], usage: { input_tokens: 1, output_tokens: 1 } }
     if (typeof body.messages?.[0]?.content === 'string' && body.messages[0].content.startsWith('Rewrite this WhatsApp reply')) {
       rewriteRequests.push(body)
@@ -118,12 +123,50 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
   } else if (incomingText !== null || incomingMessages) {
     await module.namespace.processIncomingMessage({ whatsappNumber: 'buyer-test', messages: incomingMessages || [{ messageId: 'inbound-test', messageType: 'text', messageText: incomingText }], db, anthropic, settings: { isActive: active, partialAiEnabled: !active, dailyBudgetInr: 1500, systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' } })
   } else {
-    await module.namespace.runAiFlow({ whatsappNumber: 'buyer-test', mergedText: buyerText, normalizedText: buyerText, conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
+    await module.namespace.runAiFlow({ whatsappNumber: 'buyer-test', mergedText: buyerText, normalizedText: buyerText, imageUrl, conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
   }
-  return { sent, logs, errors, requests, rewriteRequests, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
+  return { sent, logs, errors, requests, rewriteRequests, restraintRequests, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
 }
 
 const tests = [
+  ['a readable order-details image reaches vision despite a silent text gate', async () => {
+    const r = await runCase({ incomingMessages: [{ messageId: 'order-panel-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/order-panel.jpg' }], invoiceKind: 'NO', gateVerdict: 'SILENT', reply: 'Noted sir 🙏' })
+    assert.equal(r.requests.length, 1)
+    assert.ok(r.requests[0].messages[0].content.some(part => part.type === 'image'))
+    assert.equal(r.restraintRequests.length, 0)
+    assert.equal(r.sent[0].message, 'Noted sir 🙏')
+    assert.equal(r.logs.at(-1).sentViaWwbun, true)
+    assert.deepEqual(Array.from(r.logs.at(-1).messageIds), ['order-panel-test'])
+    assert.deepEqual(r.errors, [])
+  }],
+  ['cart and complaint images retain the vision answer or owner handoff', async () => {
+    const reply = 'Complete checkout on the website sir 👉 https://sale91.com'
+    const cart = await runCase({ incomingMessages: [{ messageId: 'cart-image-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/cart.jpg' }], invoiceKind: 'NO', gateVerdict: 'SILENT', reply })
+    assert.equal(cart.sent[0].message, reply)
+    assert.doesNotMatch(cart.sent[0].message, /dispatch|paid/i)
+    const complaint = await runCase({ incomingMessages: [{ messageId: 'defect-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/defect.jpg' }], invoiceKind: 'NO', gateVerdict: 'SILENT', reply: '[DEFER]' })
+    assert.equal(complaint.sent.length, 0)
+    assert.equal(complaint.pending.size, 1)
+    assert.equal(complaint.logs.some(row => row.deferReason === 'ai_chose_silence'), false)
+  }],
+  ['image processing keeps manual cooldown and the daily reply cap', async () => {
+    const held = await runCase({ cooldown: true, incomingMessages: [{ messageId: 'cooldown-image-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/order-panel.jpg' }], invoiceKind: 'NO' })
+    assert.equal(held.sent.length, 0)
+    assert.equal(held.requests.length, 0)
+    assert.equal(held.logs.at(-1).status, 'COOLDOWN')
+    const capped = await runCase({ imageUrl: 'https://media.invalid/order-panel.jpg', buyerText: '[Image]', repliesToday: 25 })
+    assert.equal(capped.requests.length, 0)
+    assert.equal(capped.logs.at(-1).deferReason, 'daily_reply_cap')
+  }],
+  ['missing image and text-only acknowledgement preserve their earlier paths', async () => {
+    const missing = await runCase({ imageUrl: 'https://media.invalid/missing.jpg', mediaAvailable: false, buyerText: '', gateVerdict: 'SILENT' })
+    assert.equal(missing.requests.length, 0)
+    assert.equal(missing.pending.get('buyer-test').messages[0].logData.deferReason, 'media_deferred')
+    const ack = await runCase({ buyerText: 'Ok thank you', gateVerdict: 'SILENT' })
+    assert.equal(ack.sent.length, 0)
+    assert.equal(ack.requests.length, 0)
+    assert.equal(ack.logs.at(-1).deferReason, 'ai_chose_silence')
+  }],
   ['generic hoodie summary sends the complete current size and colour range', async () => {
     const r = await runCase({ buyerText: 'Hello Hoodie price', reply: 'Hoodie 320gsm ₹211 (Black), baaki colours ₹239 sir.' })
     assert.equal(r.sent.length, 1)
