@@ -131,6 +131,16 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
 }
 
 const tests = [
+  ['bulk discount keeps a mixed product answer through send and logging', async () => {
+    const reply = 'Kids sizes are in the catalog. We sell blanks; ask the printer about the front print.'
+    const r = await runCase({ buyerText: 'Need 600 pcs kids and 1200 pcs adult with front print. Please quote the best price.', reply })
+    assert.equal(r.sent.length, 1)
+    assert.ok(r.sent[0].message.startsWith(reply))
+    assert.match(r.sent[0].message, /1000\+ pcs in one order/)
+    assert.match(r.sent[0].message, /₹4\/pc/)
+    assert.equal(r.logs.find(row => row.status === 'REPLIED').aiReply, r.sent[0].message)
+    assert.deepEqual(r.errors, [])
+  }],
   ['question-marked completion checks reach triage without clearing Waiting', async () => {
     for (const incomingText of ['Done?', 'done ???', 'done？', 'done؟']) {
       const r = await runCase({ incomingText, gateVerdict: 'SILENT', reply: '[DEFER]', history: [{ buyerMessage: 'I will arrange collection when it is packed', aiReply: 'We will pack it and let you know', status: 'REPLIED', createdAt: new Date(Date.now() - 45 * 60000).toISOString() }] })

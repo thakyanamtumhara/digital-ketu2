@@ -30,5 +30,10 @@ t('BIG_QTY_RE: bare 600 with no context → false', BIG_QTY_RE.test('600 ka rate
 t('delivery guard skips stock ETA wording', deliveryDaysGuard({ buyerText: 'black M stock kab aayega?', reply: '8-10 din mein aa jayega sir' }), null)
 t('BIG_QTY_RE: 1000 pieces', BIG_QTY_RE.test('1000 pieces chahiye'), true)
 t('BIG_QTY_RE: 100 pcs → false', BIG_QTY_RE.test('100 pcs'), false)
+const detailedQuote = 'Kids sizes are listed in the catalog. We sell blanks; ask the printer about the front print.'
+t('mixed quote keeps product and printing details', bigBuyerDiscountGuard({ buyerText: 'Need 600 pcs kids and 1200 pcs adult, front print. Best price?', reply: detailedQuote, english: true }), detailedQuote + '\n\n1000+ pcs in one order (any mix) gets ₹4/pc discount 👉 https://youtube.com/shorts/dnFWXQW5yqk')
+t('size clarification survives the discount guard', bigBuyerDiscountGuard({ buyerText: 'Best price for 800 pcs? Which sizes?', reply: 'Kaunsa size chahiye sir?' }), 'Kaunsa size chahiye sir?\n\n1000+ pcs ek order mein (kuch bhi mix karke) lene pe ₹4/pc discount ho jaata hai 👉 https://youtube.com/shorts/dnFWXQW5yqk')
+t('discount-only counteroffer remains replaced', bigBuyerDiscountGuard({ buyerText: '800 pcs best price?', reply: '₹190/pc kar denge sir' }), DISCOUNT_LINE)
+t('mixed owner handoff stays intact', bigBuyerDiscountGuard({ buyerText: '800 pcs best price and print?', reply: 'Print printer se karwa lijiye. [DEFER]' }), null)
 console.log(`\n${pass}/${total} passed`)
 process.exit(pass === total ? 0 : 1)

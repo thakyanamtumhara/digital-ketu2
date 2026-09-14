@@ -2863,12 +2863,19 @@ export const DISCOUNT_ASK_RE = /\bdiscount|\bkam\s*(karo|kar\s*do|kar\s*dijiye|h
 export const BIG_QTY_RE = /\b(?:[5-9]\d{2}|[1-9]\d{3,})\s*(?:\+\s*)?(?:pcs|pieces?|pc|peices?|nos|units?|tshirts?|t-shirts?|shirts?|hoodies?|sweatshirts?|polos?)\b|\b(?:[5-9]\d{2}|[1-9]\d{3,})\s*(?:ka|ki|ke)\s*(?:order|lot|quantity)|\b(?:[5-9]\d{2}|[1-9]\d{3,})\b(?=[^.\n]{0,25}\b(?:krke|karke|kar\s*ke|har\s*(?:hafte|week|mahine|month|mahina)|monthly|weekly|per\s*(?:month|week)|\bbulk|\bbalk))|\b(?:paanch|panch|chhe|saat|aath|nau)\s*sau\b|\bhazaar|\bhazar\b|\b1k\b|\b[1-9]k\s*(?:pcs|pieces?)/i
 export const DISCOUNT_LINE = 'Fixed price hai sir 🙏 1000+ pcs ek order mein (kuch bhi mix karke) lene pe ₹4/pc discount ho jaata hai 👉 https://youtube.com/shorts/dnFWXQW5yqk'
 export const MENTIONS_DEAL_RE = /1000|hazaar|hazar|₹\s*4\b|\b4\s*(?:rs|rupaye|rupee|\/pc|per\s*pc)|dnFWXQW5yqk/i
-export function bigBuyerDiscountGuard({ buyerText, historyText, reply }) {
+export function bigBuyerDiscountGuard({ buyerText, historyText, reply, english = false }) {
   if (!reply || /\[DEFER\]/.test(reply)) return null
   const b = String(buyerText || '')
   if (!DISCOUNT_ASK_RE.test(b)) return null
   if (!BIG_QTY_RE.test(b + '\n' + String(historyText || ''))) return null
   if (MENTIONS_DEAL_RE.test(reply)) return null
+  const detail = /\b(?:\d+\s*gsm|gsm|sizes?|fabric|fit|print\w*|embroider\w*|colou?rs?|samples?)\b/i
+  if (detail.test(b) && detail.test(reply)) {
+    const terms = english
+      ? '1000+ pcs in one order (any mix) gets ₹4/pc discount 👉 https://youtube.com/shorts/dnFWXQW5yqk'
+      : DISCOUNT_LINE.replace('Fixed price hai sir 🙏 ', '')
+    return `${reply.trim()}\n\n${terms}`
+  }
   return DISCOUNT_LINE
 }
 
@@ -3788,7 +3795,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     // historyText above is block-scoped to the MANY-CANDIDATE guard — rebuild it here. (Missing this
     // threw "historyText is not defined" on EVERY reply for 1h48m on 2026-09-09 13:51-15:39 IST.)
     const guardHistory = (conversationHistory || []).map(m => `${m.buyerMessage || ''} ${m.aiReply || ''}`).join(' ')
-    const fixed = bigBuyerDiscountGuard({ buyerText: mergedText, historyText: guardHistory, reply: aiReply })
+    const fixed = bigBuyerDiscountGuard({ buyerText: mergedText, historyText: guardHistory, reply: aiReply, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
     if (fixed) {
       console.log(`[DiscountGuard] ${whatsappNumber} — 500+ pcs discount ask answered without Ketu's 1000+ line, replaced: "${String(aiReply).slice(0, 80)}"`)
       aiReply = fixed

@@ -156,7 +156,7 @@ for (const c of cases) {
       const historyText = (c.history || []).map(h => `Buyer: ${h.buyer}\nAssistant: ${h.ai || ''}`).join('\n')
       const g1 = deliveryDaysGuard({ buyerText: c.msg, reply: txt })
       if (g1) { console.log(`   ⚙️ delivery-days guard replaced the model reply`); txt = g1 }
-      const g2 = bigBuyerDiscountGuard({ buyerText: c.msg, historyText, reply: txt })
+      const g2 = bigBuyerDiscountGuard({ buyerText: c.msg, historyText, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, deferReason: h.manual ? 'manual_reply' : null })) }) })
       if (g2) { console.log(`   ⚙️ discount guard replaced the model reply`); txt = g2 }
       const g3 = arrivalClockGuard({ buyerText: c.msg, reply: txt })
       if (g3) { console.log('   Arrival-clock guard retained a handoff'); txt = g3 }
