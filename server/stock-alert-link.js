@@ -19,14 +19,17 @@ export function stockAlertUrl(whatsappNumber, selectors = null) {
 export function canonicalizeStockAlertLinks(reply, whatsappNumber) {
   const text = String(reply || '')
   let previousLinkEnd = 0
-  return text.replace(/https?:\/\/[^\s<>"']+/gi, (match, offset) => {
+  return text.replace(/https?:\/\/[^\s<>"']+|(?<!\S)(?:www\.)?(?:sale91\.com|bulkplaintshirt\.com)(?:\/|\?)[^\s<>"']*/gi, (match, offset) => {
     const lead = text.slice(previousLinkEnd, offset).trim().split(/[.!?\n]/).filter(part => part.trim()).at(-1) || ''
     const alertOffer = ALERT_OFFER.test(lead)
     previousLinkEnd = offset + match.length
+    const before = text.slice(0, offset)
+    const tokenPrefix = before.match(/\S*$/)?.[0] || ''
+    if (tokenPrefix && !/^[([<"'`*]+$/.test(tokenPrefix) && !/(?:^|\s)\[[^\]\r\n]*\]\($/.test(before)) return match
     const suffix = match.match(/[),.!;:\]]+$/)?.[0] || ''
     const raw = suffix ? match.slice(0, -suffix.length) : match
     let url
-    try { url = new URL(raw.replace(/&amp;/gi, '&')) } catch { return match }
+    try { url = new URL((/^https?:\/\//i.test(raw) ? raw : 'https://' + raw).replace(/&amp;/gi, '&')) } catch { return match }
     if (!HOSTS.has(url.hostname.toLowerCase())) return match
     const stockPage = url.pathname.toLowerCase() === '/delhi-stock.html'
     const legacy = url.searchParams.get('stockalert') === '1'

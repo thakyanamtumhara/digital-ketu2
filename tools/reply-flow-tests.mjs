@@ -131,6 +131,12 @@ async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Kh
 }
 
 const tests = [
+  ['old Notification shortcut without a protocol is repaired before send', async () => {
+    const r = await runCase({ whatsappNumber: '919999999999', buyerText: 'Stock aane par notify karna', reply: 'Stock Alert ko enable kar lo - sale91.com/?stockalert=1' })
+    assert.equal(r.sent[0].message, 'Stock Alert ko enable kar lo - https://www.bulkplaintshirt.com/delhi-stock.html?alert=1&ph=9999999999')
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.deepEqual(r.errors, [])
+  }],
   ['stock alert removes a different buyer phone carried by the model', async () => {
     const r = await runCase({ whatsappNumber: '919999999999', buyerText: 'Stock alert please', reply: 'Set a stock alert https://www.bulkplaintshirt.com/delhi-stock.html?alert=1&ph=8888888888' })
     assert.match(r.sent[0].message, /[&]ph=9999999999$/)
