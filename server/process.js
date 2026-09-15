@@ -29,6 +29,7 @@ import { arrivalClockGuard } from './arrival-clock.js'
 import { restockPointerGuard } from './restock-pointer.js'
 import { stockAlertOfferGuard } from './stock-alert-offer.js'
 import { isSupersededLaunchCorrection } from './launch-knowledge.js'
+import { INVOICE_IMAGE_PROMPT, invoiceImageKind } from './invoice-image.js'
 import { canonicalizeStockAlertLinks } from './stock-alert-link.js'
 import { couponCodeGuard, isConflictingCouponCorrection } from './coupon-code.js'
 import { discontinuedSizeRequest, discontinuedSizeGuard } from './discontinued-size.js'
@@ -430,7 +431,7 @@ async function isInvoiceImage(anthropic, mediaUrl, db = null) {
           mediaContent,
           {
             type: 'text',
-            text: 'Is this a FINALIZED purchase BILL / tax INVOICE / payment RECEIPT — a generated document with a bill/invoice number, or a completed-payment confirmation (e.g. a UPI/bank "payment successful" screen)? A screenshot of a WEBSITE, shopping CART, CHECKOUT page, an "Order Now" / "Add to cart" / "Place order" button, or a product listing is NOT a bill (the buyer hasn\'t paid yet) — reply NO for those.\nIf it IS a bill, say WHICH kind:\n- Reply FRESH if the bill/receipt is essentially ALONE in the frame — a clean screenshot, scan or photo of just the document.\n- Reply STALE if the bill is photographed TOGETHER WITH physical goods or their context: garments, fabric, a parcel or opened package, packing bags, a shipping/courier label, a weighing scale, a measuring tape, or any visible defect/stain/damage. Also reply STALE if the document is clearly an OLD bill being re-sent as evidence.\nA buyer complaining about a wrong or damaged item almost always photographs the invoice lying ON TOP OF the goods — that is STALE, not FRESH.\nReply with exactly one word: FRESH, STALE, or NO.',
+            text: INVOICE_IMAGE_PROMPT,
           },
         ],
       }],
@@ -440,15 +441,7 @@ async function isInvoiceImage(anthropic, mediaUrl, db = null) {
     const _u = result.usage || {}
     await chargeSpend(db, ((_u.input_tokens || 0) * 1e-6) + ((_u.output_tokens || 0) * 5e-6), 'job')
     console.log(`[InvoiceDetect] Vision result: ${answer}`)
-    // 3-WAY (2026-09-02, buyer 9146636503): the old YES/NO could not tell a fresh bill from a bill
-    // photographed ON TOP of the wrong goods — so a wrong-item complaint got "dispatching ASAP" and
-    // Ketu had to apologise, reship free and eat the freight. Every text guard is blind here: the
-    // message was a bare [Image] with no words to match. Vision is the only thing that can see it,
-    // and it costs nothing extra — same call, richer question.
-    // 'FRESH' → canned dispatch ack allowed. 'STALE' → bill is evidence, hand it to Ketu. false → not a bill.
-    if (answer.startsWith('STALE')) return 'STALE'
-    if (answer.startsWith('FRESH') || answer.startsWith('YES')) return 'FRESH'
-    return false
+    return invoiceImageKind(answer)
   } catch (err) {
     console.error('[InvoiceDetect] Detection error:', err.message)
     return false
@@ -1436,6 +1429,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       }
     }
     const invoiceKind = invoiceMediaUrl ? await isInvoiceImage(anthropic, invoiceMediaUrl, db) : false
+    if (invoiceKind === 'TRACKING') {
+      scheduleDeferReply({
+        whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+        mergedText, messageIds, logData: {
+          status: 'DEFERRED', deferReason: 'tracking_image',
+          processingMs: Date.now() - startTime,
+          isMedia: true,
+        }, db,
+      })
+      return
+    }
     if (invoiceKind === 'STALE') {
       // The bill is EVIDENCE, not an order: Ketu inspects defect/wrong-item photos personally.
       scheduleDeferReply({
@@ -1992,6 +1996,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
   }
   const invoiceKind = invoiceMediaUrl ? await isInvoiceImage(anthropic, invoiceMediaUrl, db) : false
+    if (invoiceKind === 'TRACKING') {
+      scheduleDeferReply({
+        whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+        mergedText, messageIds, logData: {
+          status: 'DEFERRED', deferReason: 'tracking_image',
+          processingMs: Date.now() - startTime,
+          isMedia: true,
+        }, db,
+      })
+      return
+    }
     if (invoiceKind === 'STALE') {
       // The bill is EVIDENCE, not an order: Ketu inspects defect/wrong-item photos personally.
       scheduleDeferReply({

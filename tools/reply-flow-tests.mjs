@@ -133,6 +133,46 @@ async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Kh
 }
 
 const tests = [
+  ['tracking images hand off before dispatch and model output in both modes', async () => {
+    for (const active of [true, false]) {
+      for (const messageText of ['[Image]', 'Order placed, dispatch please']) {
+        const r = await runCase({ active, invoiceKind: 'TRACKING', incomingMessages: [
+          { messageId: 'tracking-test', messageType: 'image', messageText, mediaUrl: 'https://media.invalid/tracking.jpg' },
+        ] })
+        assert.equal(r.sent.length, 0)
+        assert.equal(r.requests.length, 0)
+        assert.equal(r.handled.length, 0)
+        const pending = r.pending.get('buyer-test')
+        assert.equal(pending.messages[0].logData.deferReason, 'tracking_image')
+        assert.equal(pending.messages[0].logData.status, 'DEFERRED')
+        assert.ok(pending.messages[0].messageIds.includes('tracking-test'))
+        assert.deepEqual(r.errors, [])
+      }
+    }
+  }],
+  ['fresh payment receipts still dispatch in both modes', async () => {
+    for (const active of [true, false]) {
+      const r = await runCase({ active, invoiceKind: 'FRESH', incomingMessages: [
+        { messageId: 'receipt-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/receipt.jpg' },
+      ] })
+      assert.equal(r.sent.length, 1)
+      assert.match(r.sent[0].message, /dispatching ASAP/)
+      assert.equal(r.logs.at(-1).deferReason, 'bill_document')
+      assert.equal(r.pending.size, 0)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['tracking image routing preserves manual cooldown in both modes', async () => {
+    for (const active of [true, false]) {
+      const r = await runCase({ active, cooldown: true, invoiceKind: 'TRACKING', incomingMessages: [
+        { messageId: 'tracking-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/tracking.jpg' },
+      ] })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 0)
+      assert.equal(r.logs.at(-1).status, 'COOLDOWN')
+      assert.deepEqual(r.errors, [])
+    }
+  }],
   ['obsolete imported launch denial is removed before the paid prompt', async () => {
     const obsolete = { source: 'CORRECTION', similarity: 0.9, title: 'Old launch answer', content: 'Buyer: When is the ladies tee launch?\nCorrect reply: Ladies tees will not launch.', metadata: { backfilled: true } }
     const useful = { source: 'CORRECTION', similarity: 0.8, title: 'Care advice', content: 'Buyer: How to wash this tee?\nCorrect reply: Hand wash gently.', metadata: { backfilled: true } }
