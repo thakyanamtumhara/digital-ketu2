@@ -6,7 +6,7 @@ import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, forma
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [] } = {}) {
+async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [] } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
   const restraintRequests = [], handled = []
   const timers = [], recoveryQueries = []
@@ -81,6 +81,8 @@ async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Kh
         const range = query.where.createdAt
         return recovery.rows.filter(row => +row.createdAt >= +range.gte && +row.createdAt <= +range.lte && (!range.lt || +row.createdAt < +range.lt))
       }
+      if (query.select?.status && query.select.createdAt && !query.where.OR) return outboundHistory
+      if (query.where.status?.in) return history.filter(row => query.where.status.in.includes(row.status)).slice().reverse().slice(0, query.take)
       if (!query.where.OR) return []
       assert.ok(query.where.OR.some(clause => clause.deferReason?.in.includes('manual_reply')))
       assert.ok(query.select.deferReason)
@@ -131,6 +133,44 @@ async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Kh
 }
 
 const tests = [
+  ['game earning clarification reaches the answer despite a silent gate', async () => {
+    const r = await runCase({ buyerText: 'Could I make money from this game', reply: 'No sir, just for play purpose.', gateVerdict: 'SILENT', history: [{ buyerMessage: 'What is the website game for?', aiReply: 'Just for play purpose sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent[0]?.message, 'No sir, just for play purpose.')
+    assert.equal(r.handled.length, 0)
+    assert.equal(r.logs.at(-1).status, 'REPLIED')
+    assert.deepEqual(r.errors, [])
+  }],
+  ['game follow-up does not override an owner handling the thread', async () => {
+    const r = await runCase({ buyerText: 'Could I make money from this game', gateVerdict: 'SILENT', history: [{ buyerMessage: 'What is the website game for?', aiReply: 'Just for play purpose sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 900000) }], outboundHistory: [{ status: 'SKIPPED', deferReason: 'manual_reply', createdAt: new Date(Date.now() - 700000) }] })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['game follow-up preserves the per-buyer daily limit', async () => {
+    const r = await runCase({ buyerText: 'Could I make money from this game', repliesToday: 25, gateVerdict: 'SILENT', history: [{ buyerMessage: 'What is the website game for?', aiReply: 'Just for play purpose sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['game acknowledgement retains silence', async () => {
+    const r = await runCase({ buyerText: 'Okay sir', gateVerdict: 'SILENT', history: [{ buyerMessage: 'What is the website game for?', aiReply: 'Just for play purpose sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['unrelated earnings topic is left to existing triage', async () => {
+    const r = await runCase({ buyerText: 'Could I make money through referrals', gateVerdict: 'SILENT', history: [{ buyerMessage: 'What is the website game for?', aiReply: 'Just for play purpose sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['game follow-up preserves manual cooldown', async () => {
+    const r = await runCase({ incomingText: 'Could I make money from this game?', cooldown: true, history: [{ buyerMessage: 'What is the website game for?', aiReply: 'Just for play purpose sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.deepEqual(r.errors, [])
+  }],
   ['no-date stock repetition stays visible as an owner handoff', async () => {
     const r = await runCase({ buyerText: 'Isme toh acid wash nahi hai', reply: 'Acid wash uss page pe abhi list nahi hai sir, Black M ka koi shipment nahi hai, jo available hai wo le lijiye.', history: [{ buyerMessage: 'Restock kab hoga?', aiReply: 'Acid wash Black M ka koi shipment nahi hai, Coming Soon check kar lijiye.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
     assert.equal(r.sent.length, 0)

@@ -20,6 +20,7 @@ import { hoodieRateSummaryGuard } from './hoodie-price.js'
 import { biowashRateSummaryGuard } from './biowash-price.js'
 import { pendingProductChoiceGuard } from './product-choice.js'
 import { isAppStoreLookupProblem, appDiscoveryReplyGuard } from './app-discovery.js'
+import { isGameEarningsFollowup } from './game-followup.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
 import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
 import { partialDeferSplit } from './reconcile.js'
@@ -3010,7 +3011,7 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
     const recentForGate = await db.messageLog.findMany({
       where: { conversationId, status: { in: ['REPLIED', 'DEFERRED'] } },
       orderBy: { createdAt: 'desc' }, take: 4,
-      select: { buyerMessage: true, aiReply: true },
+      select: { buyerMessage: true, aiReply: true, createdAt: true },
     })
     const histText = recentForGate.slice().reverse()
       .map(h => `Buyer: ${h.buyerMessage}\nOm: ${h.aiReply || '(no reply)'}`).join('\n')
@@ -3036,6 +3037,11 @@ Answer with ONLY one word: REPLY or SILENT.` }],
     let verdict = (gate.content?.[0]?.text || '').trim().toUpperCase()
     const gateCost = ((gate.usage?.input_tokens || 0) * PRICE_PER_INPUT_TOKEN) + ((gate.usage?.output_tokens || 0) * PRICE_PER_OUTPUT_TOKEN)
     await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: gateCost } } }).catch(() => {})
+    if (verdict.startsWith('SILENT') && isGameEarningsFollowup(mergedText, recentForGate)
+        && !(await ketuRepliedLast(db, conversationId))) {
+      verdict = 'REPLY'
+      console.log(`[Restraint] ${whatsappNumber} — game earnings follow-up remains answerable`)
+    }
     // DETERMINISTIC BACKSTOP (audit 2026-08-07): the gate is a judgment call and it silenced 45
     // answerable messages in 6 days — questions ("Kya price hoga?"), price echoes ("50 - 90 rs"),
     // chases. A '?' or a price mention is never chatter, whatever the gate thinks; a pure
