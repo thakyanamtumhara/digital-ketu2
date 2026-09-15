@@ -133,6 +133,38 @@ async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Kh
 }
 
 const tests = [
+  ['recipient receipt question remains actionable after an older manual answer', async () => {
+    const owner = { status: 'SKIPPED', deferReason: 'manual_reply', buyerMessage: 'mispaired text', aiReply: 'Okay', createdAt: new Date(Date.now() - 8 * 3600000).toISOString() }
+    const r = await runCase({ buyerText: 'Bhai parcel mila aapko', history: [owner], outboundHistory: [owner], gateVerdict: 'SILENT', reply: '[DEFER]' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.handled.length, 0)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'claude_deferred')
+    assert.deepEqual(r.errors, [])
+  }],
+  ['recipient receipt question preserves cooldown and daily reply cap', async () => {
+    const cooling = await runCase({ incomingText: 'Bhai parcel mila aapko', cooldown: true, gateVerdict: 'SILENT' })
+    assert.equal(cooling.requests.length, 0)
+    assert.equal(cooling.logs.at(-1).status, 'COOLDOWN')
+    assert.equal(cooling.sent.length, 0)
+    assert.equal(cooling.pending.size, 0)
+    const capped = await runCase({ buyerText: 'Bhai parcel mila aapko', repliesToday: 40, gateVerdict: 'SILENT' })
+    assert.equal(capped.requests.length, 0)
+    assert.equal(capped.logs.at(-1).deferReason, 'daily_reply_cap')
+    assert.equal(capped.sent.length, 0)
+    assert.equal(capped.pending.size, 0)
+    assert.deepEqual([...cooling.errors, ...capped.errors], [])
+  }],
+  ['buyer receipt acknowledgements retain silence in owner-handled threads', async () => {
+    const owner = { status: 'SKIPPED', deferReason: 'manual_reply', aiReply: 'Okay', createdAt: new Date(Date.now() - 3600000).toISOString() }
+    for (const buyerText of ['Mujhe tshirt mil gayi sir', 'I received my parcel thanks']) {
+      const r = await runCase({ buyerText, history: [owner], outboundHistory: [owner], gateVerdict: 'SILENT' })
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 0)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
   ['tracking images hand off before dispatch and model output in both modes', async () => {
     for (const active of [true, false]) {
       for (const messageText of ['[Image]', 'Order placed, dispatch please']) {
