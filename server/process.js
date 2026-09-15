@@ -2870,13 +2870,24 @@ export const SANCTIONED_DAYS = '2-3 din'
 export const OTHER_DAYS_RE = /\b\d{1,2}\s*(?:-|–|se|to)\s*\d{1,2}\s*(?:din|days?|dino)\b|\b\d{1,2}\s*(?:din|days?|dino)\b|\b(?:ek|do|teen|char|paanch|panch|chhe|saat|aath)\s*(?:-\s*\w+\s*)?(?:din|dino)\b|\bnext\s+day\b|\bsame\s+day\b/i
 export const DELIVERY_CANONICAL = 'Usually 2-3 din mein mil jaata hai sir 👍 Order karte waqt website pe har courier ke saath exact delivery date (ETD) dikh jaata hai 👉 https://sale91.com'
 export function hasInventedDays(reply) {
-  const t = String(reply || '').replace(/\b2\s*(?:-|–|se|to)\s*3\s*(?:din|days?|dino)\b/gi, ' ')
+  const t = String(reply || '')
+    .replace(/[०-९]/g, digit => String(digit.charCodeAt(0) - 0x966))
+    .replace(/(?<![\p{L}\p{M}])दिन(?:ों)?(?![\p{L}\p{M}])/gu, 'din')
+    .replace(/(\d)\s*से\s*(?=\d)/g, '$1 se ')
+    .replace(/\b2\s*(?:-|–|se|to)\s*3\s*(?:din|days?|dino)\b/gi, ' ')
   return OTHER_DAYS_RE.test(t)
 }
 export function deliveryDaysGuard({ buyerText, reply }) {
   if (!reply || /\[DEFER\]/.test(reply)) return null
   const b = String(buyerText || '')
-  if (!DELIVERY_ASK_RE.test(b) || STOCK_CTX_RE.test(b) || TRANSPORT_MODE_RE.test(b) || TRANSPORT_MODE_RE.test(reply)) return null
+  if (!DELIVERY_ASK_RE.test(b)) {
+    const hindiDelivery = /ड[िे]ल[िी]वर|कूरियर|कुरियर|कोरियर|\b(?:courier|deliver\w*|shipping)\b/i.test(b)
+    const hindiDuration = /कितन[ाेी]|कब\s*तक|समय|टाइम|टाम/.test(b)
+    if (!hindiDelivery || !hindiDuration) return null
+    const exceptions = /स्ट[ॉा]क|रिस्ट[ॉा]क|लॉन्च|ट्र[ेै]न|ट्रां[सज]पोर्ट|ट्रांस्पोर्ट|कार्गो|ट्रक|लॉरी|रोडवेज|(?:^|\s)बस(?:\s|$)|बाइक|पोर्टर|हवाई|एयर|\b(?:bike|porter|air)\b|रिफंड|शिकायत|कीमत|प्रिंट|जीएसटी|डिस्काउंट|\b(?:refund|complaint|price|print\w*|gst|discount)\b/i
+    if (exceptions.test(b + '\n' + reply)) return null
+  }
+  if (STOCK_CTX_RE.test(b) || TRANSPORT_MODE_RE.test(b) || TRANSPORT_MODE_RE.test(reply)) return null
   return hasInventedDays(reply) ? DELIVERY_CANONICAL : null
 }
 

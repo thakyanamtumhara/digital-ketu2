@@ -133,6 +133,24 @@ async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Kh
 }
 
 const tests = [
+  ['Hindi courier duration repairs unsupported days through the send path', async () => {
+    const r = await runCase({ buyerText: 'मैं जयपुर से हूँ। डिलिवर में मैक्सिमम टाम कितना लगाओगे?', reply: '4-5 din mein mil jaata hai sir' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /2-3 din/)
+    assert.match(r.sent[0].message, /ETD/)
+    assert.doesNotMatch(r.sent[0].message, /4-5/)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['Hindi courier guard preserves air sample and owner handoff paths', async () => {
+    const r = await runCase({ buyerText: 'एयर से सैंपल की डिलीवरी में कितना समय लगता है?', reply: 'AIR sample 1-2 din mein sir' })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /1-2 din/)
+    const deferred = await runCase({ buyerText: 'डिलीवरी में कितना समय और मेरा रिफंड कब?', reply: '[DEFER]' })
+    assert.equal(deferred.sent.length, 0)
+    assert.equal(deferred.pending.size, 1)
+    assert.deepEqual([...r.errors, ...deferred.errors], [])
+  }],
   ['recipient receipt question remains actionable after an older manual answer', async () => {
     const owner = { status: 'SKIPPED', deferReason: 'manual_reply', buyerMessage: 'mispaired text', aiReply: 'Okay', createdAt: new Date(Date.now() - 8 * 3600000).toISOString() }
     const r = await runCase({ buyerText: 'Bhai parcel mila aapko', history: [owner], outboundHistory: [owner], gateVerdict: 'SILENT', reply: '[DEFER]' })

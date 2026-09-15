@@ -3,6 +3,18 @@ import { deliveryDaysGuard, hasInventedDays, DELIVERY_CANONICAL, bigBuyerDiscoun
 let pass = 0, total = 0
 const t = (name, got, want) => { total++; const ok = got === want; if (ok) pass++; console.log(`${ok ? '✅' : '❌'} ${name.padEnd(64)} got=${JSON.stringify(got).slice(0, 40)} want=${JSON.stringify(want).slice(0, 40)}`) }
 // delivery
+t('Hindi courier duration cannot borrow another city estimate', deliveryDaysGuard({ buyerText: 'मैं जयपुर से हूँ। आप डिलिवर में मैक्सिमम टाम कितना लगाओगे?', reply: '4-5 din mein mil jaata hai sir' }), DELIVERY_CANONICAL)
+t('Hindi delivery spelling and Hindi numeric days', deliveryDaysGuard({ buyerText: 'डिलीवरी में कितना समय लगता है?', reply: '४ से ५ दिन में मिल जाएगा' }), DELIVERY_CANONICAL)
+t('Hindi sanctioned numeric estimate remains', deliveryDaysGuard({ buyerText: 'कोरियर में कितने दिन लगते हैं?', reply: '२-३ दिन में मिल जाता है, सही तारीख checkout पर है' }), null)
+t('Hindi day units with Latin digits', hasInventedDays('4–5 दिनों में'), true)
+t('Hindi stock timing stays outside courier guard', deliveryDaysGuard({ buyerText: 'स्टॉक कब तक आएगा और डिलीवरी में कितना समय लगेगा?', reply: 'स्टॉक 4-5 दिन में आएगा' }), null)
+t('Hindi train duration stays outside courier guard', deliveryDaysGuard({ buyerText: 'ट्रेन से डिलीवरी में कितना समय लगता है?', reply: '4-5 din lagte hain' }), null)
+t('Hindi bus duration stays outside courier guard', deliveryDaysGuard({ buyerText: 'बस से डिलीवरी में कितना समय लगेगा?', reply: '4-5 din lagte hain' }), null)
+t('Hindi air sample keeps sanctioned exception', deliveryDaysGuard({ buyerText: 'एयर से सैंपल की डिलीवरी में कितना समय लगेगा?', reply: '1-2 din lagte hain' }), null)
+t('Hindi bike delivery keeps local exception', deliveryDaysGuard({ buyerText: 'बाइक से डिलीवरी में कितना समय लगता है?', reply: '1-2 ghante sir' }), null)
+t('Hindi mixed refund handoff remains', deliveryDaysGuard({ buyerText: 'डिलीवरी में कितना समय लगता है और मेरा रिफंड?', reply: 'Ketu will reply shortly sir [DEFER]' }), null)
+t('Hindi mixed quote is not replaced by a courier-only line', deliveryDaysGuard({ buyerText: 'कीमत और डिलीवरी में कितना समय लगता है?', reply: 'Catalog mein price hai, 4-5 din lagte hain' }), null)
+t('Hindi general feedback does not become a timing ask', deliveryDaysGuard({ buyerText: 'डिलीवरी अच्छी लगी सर', reply: '4-5 din sir' }), null)
 t('MISS 13:22 Assam 5-6 din → canonical', deliveryDaysGuard({ buyerText: 'Okay Jorhat, Assam mein kab tak deliver hoga? Kitna din lagega', reply: '5-6 din lag jaate hain sir Assam tak — website pe order karte waqt exact delivery date dikh jaata hai 👉 https://sale91.com' }), DELIVERY_CANONICAL)
 t('MISS 12:47 WB "Kitna din lag ge na firbi" 5 se 6', deliveryDaysGuard({ buyerText: 'Kitna din lag ge na firbi', reply: '5 se 6 din lag jaate hain sir usually' }), DELIVERY_CANONICAL)
 t('sanctioned 2-3 din untouched', deliveryDaysGuard({ buyerText: 'kitne din lagega delivery?', reply: 'Usually 2-3 din mein mil jaata hai sir 👍 Order karte waqt website pe exact delivery date dikh jaata hai 👉 https://sale91.com' }), null)
