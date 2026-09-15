@@ -61,6 +61,7 @@ const { repairReplyLanguage, buyerUsesEnglish } = await import('../server/reply-
 const { arrivalClockGuard } = await import('../server/arrival-clock.js')
 const { couponCodeGuard } = await import('../server/coupon-code.js')
 const { restockPointerGuard } = await import('../server/restock-pointer.js')
+const { stockAlertOfferGuard } = await import('../server/stock-alert-offer.js')
 const { discontinuedSizeRequest, discontinuedSizeGuard } = await import('../server/discontinued-size.js')
 const rewriteClient = { messages: { create: async body => {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -152,6 +153,7 @@ for (const c of cases) {
       txt = pendingProductChoiceGuard({ buyerText: c.msg, reply: txt, now: c.at ? Date.parse(c.at) : Date.now(), history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) }) || txt
       const discontinuedReply = discontinuedSizeGuard({ buyerText: c.msg, reply: txt, snapshot: c.stockSnapshot || stockSnapshot, now: c.at ? Date.parse(c.at) : Date.now() })
       if (discontinuedReply) { console.log('   Discontinued-size policy applied'); txt = discontinuedReply }
+      txt = stockAlertOfferGuard({ buyerText: c.msg, reply: txt, whatsappNumber: c.whatsappNumber, now: c.at ? Date.parse(c.at) : Date.now(), english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }), history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) }) || txt
       const restockHandoff = restockPointerGuard({ buyerText: c.msg, reply: txt, now: c.at ? Date.parse(c.at) : Date.now(), history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) })
       if (restockHandoff) { console.log('   Restock-pointer guard retained an owner handoff'); txt = restockHandoff }
       const couponHandoff = couponCodeGuard({ buyerText: c.msg, reply: txt, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, deferReason: h.manual ? 'manual_reply' : null })) })

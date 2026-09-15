@@ -133,6 +133,42 @@ async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Kh
 }
 
 const tests = [
+  ['stock-alert repeat handling preserves an independent fabric answer', async () => {
+    const reply = 'Navy S is out of stock. It is 100% cotton sir.'
+    const r = await runCase({ buyerText: '240 navy S restock kab hoga, cotton hai?', reply, history: [{ buyerMessage: '240 navy S kab milega?', aiReply: 'Alert laga lijiye sir, stock aane par WhatsApp aa jayega https://www.bulkplaintshirt.com/delhi-stock.html?alert=1', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.sent[0].message, reply)
+    assert.equal(r.logs.at(-1).aiReply, reply)
+    assert.deepEqual(r.errors, [])
+  }],
+
+  ['out-of-stock timing includes a compact WhatsApp alert offer', async () => {
+    const r = await runCase({ whatsappNumber: '919999999999', buyerText: '240 navy S,M kabtak milega?', reply: 'Navy S aur M abhi out of stock hai sir, koi shipment nahi hai filhaal — Coming Soon tab check karte rahiye 👉 https://www.bulkplaintshirt.com/delhi-stock.html' })
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /alert/i)
+    assert.match(r.sent[0].message, /WhatsApp/i)
+    assert.match(r.sent[0].message, /alert=1&ph=9999999999/)
+    assert.doesNotMatch(r.sent[0].message, /Coming Soon/i)
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['week follow-up after old pointer gets first alert without an invented ETA', async () => {
+    const r = await runCase({ whatsappNumber: '919999999999', buyerText: '1 week ke andar milega?', reply: 'Navy S,M ka koi shipment nahi hai abhi sir, date nahi de sakta — Coming Soon tab check karte rahiye 🙏', history: [{ buyerMessage: '240 navy S,M kabtak milega?', aiReply: 'Navy S aur M abhi out of stock hai sir, koi shipment nahi hai filhaal — Coming Soon tab check karte rahiye 👉 https://www.bulkplaintshirt.com/delhi-stock.html', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /alert=1&ph=9999999999/)
+    assert.match(r.sent[0].message, /WhatsApp/i)
+    assert.doesNotMatch(r.sent[0].message, /1 week|7 din|Coming Soon/i)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['repeated unknown timing after an alert remains an owner handoff', async () => {
+    const r = await runCase({ buyerText: '240 navy S,M kab tak aa jayega?', reply: 'Navy S,M ka koi shipment nahi hai sir, Coming Soon tab check karte rahiye.', history: [{ buyerMessage: '240 navy S,M kabtak milega?', aiReply: 'Navy S,M ki date nahi hai sir, alert laga lijiye — stock aane par WhatsApp aa jayega https://www.bulkplaintshirt.com/delhi-stock.html?alert=1', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.get('buyer-test')?.messages[0].logData.deferReason, 'restock_pointer_handoff')
+    assert.deepEqual(r.errors, [])
+  }],
+
   ['game earning clarification reaches the answer despite a silent gate', async () => {
     const r = await runCase({ buyerText: 'Could I make money from this game', reply: 'No sir, just for play purpose.', gateVerdict: 'SILENT', history: [{ buyerMessage: 'What is the website game for?', aiReply: 'Just for play purpose sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
     assert.equal(r.requests.length, 1)
@@ -172,7 +208,7 @@ const tests = [
     assert.deepEqual(r.errors, [])
   }],
   ['no-date stock repetition stays visible as an owner handoff', async () => {
-    const r = await runCase({ buyerText: 'Isme toh acid wash nahi hai', reply: 'Acid wash uss page pe abhi list nahi hai sir, Black M ka koi shipment nahi hai, jo available hai wo le lijiye.', history: [{ buyerMessage: 'Restock kab hoga?', aiReply: 'Acid wash Black M ka koi shipment nahi hai, Coming Soon check kar lijiye.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    const r = await runCase({ buyerText: 'Isme toh acid wash nahi hai', reply: 'Acid wash uss page pe abhi list nahi hai sir, Black M ka koi shipment nahi hai, jo available hai wo le lijiye.', history: [{ buyerMessage: 'Restock kab hoga?', aiReply: 'Acid wash Black M ka koi shipment nahi hai, alert laga lijiye https://www.bulkplaintshirt.com/delhi-stock.html?alert=1', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
     assert.equal(r.sent.length, 0)
     assert.equal(r.handled.length, 0)
     const held = r.pending.get('buyer-test')?.messages[0]
@@ -182,7 +218,7 @@ const tests = [
     assert.deepEqual(r.errors, [])
   }],
   ['restock procurement continuation cannot send another no-date echo', async () => {
-    const r = await runCase({ buyerText: 'Abhi mangwa sakte hai kya?', reply: 'Abhi nahi bata sakta sir, acid wash Black M ka koi shipment nahi hai.', history: [{ buyerMessage: 'Isme acid wash nahi hai', aiReply: 'Acid wash Black M ka koi shipment nahi hai.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    const r = await runCase({ buyerText: 'Abhi mangwa sakte hai kya?', reply: 'Abhi nahi bata sakta sir, acid wash Black M ka koi shipment nahi hai.', history: [{ buyerMessage: 'Isme acid wash nahi hai', aiReply: 'Acid wash Black M ka koi shipment nahi hai, alert laga lijiye https://www.bulkplaintshirt.com/delhi-stock.html?alert=1', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
     assert.equal(r.sent.length, 0)
     assert.equal(r.pending.get('buyer-test')?.messages[0].logData.deferReason, 'restock_pointer_handoff')
     assert.deepEqual(r.errors, [])
@@ -190,7 +226,8 @@ const tests = [
   ['fresh stock alternative is still sent beside a no-date answer', async () => {
     const reply = 'Black M acid wash ka koi shipment nahi hai, Black XL available hai sir.'
     const r = await runCase({ buyerText: 'Acid wash kab restock hoga?', reply, history: [{ buyerMessage: 'Black M acid wash kab aayega?', aiReply: 'Check Coming Soon sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
-    assert.equal(r.sent[0].message, reply)
+    assert.ok(r.sent[0].message.startsWith(reply))
+    assert.match(r.sent[0].message, /alert=1/)
     assert.equal(r.pending.size, 0)
     assert.deepEqual(r.errors, [])
   }],
@@ -212,10 +249,10 @@ const tests = [
     assert.equal(r.sent[0].message, 'Set a stock alert https://www.bulkplaintshirt.com/delhi-stock.html?alert=1')
     assert.deepEqual(r.errors, [])
   }],
-  ['normal stock sheet and Coming Soon remain plain links', async () => {
+  ['stock page links consistently use the upgraded destination', async () => {
     for (const reply of ['Live stock yahan hai sir https://www.bulkplaintshirt.com/delhi-stock.html', 'Coming Soon tab check kar lijiye https://www.bulkplaintshirt.com/delhi-stock.html']) {
       const r = await runCase({ buyerText: 'Live stock kahan dekhu?', reply })
-      assert.equal(r.sent[0].message, reply)
+      assert.equal(r.sent[0].message, reply.replace('delhi-stock.html', 'delhi-stock.html?alert=1'))
       assert.deepEqual(r.errors, [])
     }
   }],
@@ -463,7 +500,8 @@ const tests = [
     const history = [{ status: 'REPLIED', createdAt: new Date(Date.now() - 30000).toISOString(), buyerMessage: 'Black tshirt', aiReply: 'Black 180gsm ya 260gsm sir?' }]
     const reply = '260gsm black ke liye Coming Soon tab check kar lijiye sir.'
     const selected = await runCase({ buyerText: '260gsm stock kab aayega?', reply, history })
-    assert.equal(selected.sent[0].message, reply)
+    assert.match(selected.sent[0].message, /260gsm black/i)
+    assert.match(selected.sent[0].message, /alert=1/)
     const held = await runCase({ buyerText: 'Stock kab aayega aur mera refund?', reply: '[DEFER]', history })
     assert.equal(held.sent.length, 0)
     assert.equal(held.pending.size, 1)
@@ -595,8 +633,8 @@ const tests = [
     assert.equal(r.sent.length, 0)
     assert.equal(r.pending.get('buyer-test').messages[0].logData.status, 'DEFERRED')
   }],
-  ['repeated stock pointer becomes a tracked owner handoff', async () => {
-    const r = await runCase({ buyerText: 'Acid wash ka stock kab refill hoga, information nahi hai', reply: 'Coming Soon tab mein update aata rehta hai sir, wahin check karte rahiye', history: [{ buyerMessage: 'Black M acid wash kab aayega?', aiReply: 'Check Coming Soon sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+  ['repeated stock pointer after an alert becomes a tracked owner handoff', async () => {
+    const r = await runCase({ buyerText: 'Acid wash ka stock kab refill hoga, information nahi hai', reply: 'Coming Soon tab mein update aata rehta hai sir, wahin check karte rahiye', history: [{ buyerMessage: 'Black M acid wash kab aayega?', aiReply: 'Alert laga lijiye sir https://www.bulkplaintshirt.com/delhi-stock.html?alert=1', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
     assert.equal(r.sent.length, 0)
     const held = r.pending.get('buyer-test')?.messages[0]
     assert.ok(held)
@@ -604,10 +642,12 @@ const tests = [
     assert.deepEqual(Array.from(held.messageIds), ['inbound-test'])
     assert.ok(held.logData.costUsd > 0)
   }],
-  ['first stock pointer remains answerable', async () => {
+  ['first stock pointer becomes a helpful alert offer', async () => {
     const r = await runCase({ buyerText: 'Acid wash kab restock hoga?', reply: 'Check Coming Soon sir.' })
     assert.equal(r.pending.size, 0)
-    assert.equal(r.sent[0].message, 'Check Coming Soon sir.')
+    assert.match(r.sent[0].message, /alert=1/)
+    assert.match(r.sent[0].message, /WhatsApp/)
+    assert.doesNotMatch(r.sent[0].message, /Coming Soon/)
   }],
   ['matching new timing is not replaced by the restock guard', async () => {
     const r = await runCase({ buyerText: 'Acid wash kab restock hoga?', reply: 'Black M acid wash 4 din mein aa jayega sir.', history: [{ buyerMessage: 'Black M acid wash kab aayega?', aiReply: 'Check Coming Soon sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })

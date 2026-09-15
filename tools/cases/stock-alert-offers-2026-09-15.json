@@ -1,0 +1,284 @@
+[
+  {
+    "id": "first-oos-restock-offer",
+    "msg": "240 navy S,M kabtak milega?",
+    "whatsappNumber": "919999999999",
+    "at": "2026-09-15T13:00:00+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "inStock": {
+        "Oversize 240gsm": {
+          "Navy": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          },
+          "Off-white": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Navy": "S,M",
+          "Off-white": "S,M"
+        }
+      },
+      "coming": {},
+      "fetchedAt": 1789457400000
+    },
+    "timedFacts": [],
+    "must": [
+      "alert=1&ph=9999999999",
+      "WhatsApp"
+    ],
+    "mustNot": [
+      "Coming Soon tab check",
+      "\\b[1-9]\\d?\\s*(?:din|days|weeks)"
+    ]
+  },
+  {
+    "id": "week-after-pointer-first-offer",
+    "msg": "1 week ke andar milega?",
+    "whatsappNumber": "919999999999",
+    "at": "2026-09-15T13:00:00+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "inStock": {
+        "Oversize 240gsm": {
+          "Navy": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          },
+          "Off-white": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Navy": "S,M",
+          "Off-white": "S,M"
+        }
+      },
+      "coming": {},
+      "fetchedAt": 1789457400000
+    },
+    "timedFacts": [],
+    "history": [
+      {
+        "buyer": "240 navy S,M kabtak milega?",
+        "ai": "Navy S aur M abhi out of stock hai sir, koi shipment nahi hai filhaal \u2014 Coming Soon tab check karte rahiye \ud83d\udc49 https://www.bulkplaintshirt.com/delhi-stock.html",
+        "at": "2026-09-15T12:59:00+05:30"
+      }
+    ],
+    "must": [
+      "alert=1&ph=9999999999",
+      "WhatsApp"
+    ],
+    "mustNot": [
+      "DEFER",
+      "1 week|7 din|ek hafte",
+      "Coming Soon tab check"
+    ]
+  },
+  {
+    "id": "already-offered-unknown-date",
+    "msg": "240 navy S,M kab tak aayega? Exact date chahiye",
+    "whatsappNumber": "919999999999",
+    "at": "2026-09-15T13:00:00+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "inStock": {
+        "Oversize 240gsm": {
+          "Navy": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          },
+          "Off-white": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Navy": "S,M",
+          "Off-white": "S,M"
+        }
+      },
+      "coming": {},
+      "fetchedAt": 1789457400000
+    },
+    "timedFacts": [],
+    "history": [
+      {
+        "buyer": "240 navy S,M kabtak milega?",
+        "ai": "Date nahi pata sir. Alert laga lijiye, stock aane par WhatsApp aa jayega \ud83d\udc49 https://www.bulkplaintshirt.com/delhi-stock.html?alert=1&ph=9999999999",
+        "at": "2026-09-15T12:59:00+05:30"
+      }
+    ],
+    "must": [
+      "DEFER"
+    ],
+    "mustNot": [
+      "alert=1"
+    ]
+  },
+  {
+    "id": "available-size-orders",
+    "msg": "240 navy L available hai?",
+    "whatsappNumber": "919999999999",
+    "at": "2026-09-15T13:00:00+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "inStock": {
+        "Oversize 240gsm": {
+          "Navy": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          },
+          "Off-white": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Navy": "S,M",
+          "Off-white": "S,M"
+        }
+      },
+      "coming": {},
+      "fetchedAt": 1789457400000
+    },
+    "timedFacts": [],
+    "must": [
+      "available|stock mein hai",
+      "sale91.com/catalog/p/oversize-240gsm"
+    ],
+    "mustNot": [
+      "alert=1",
+      "out of stock"
+    ]
+  },
+  {
+    "id": "exact-fresh-eta-and-offer",
+    "msg": "240 navy S restock kab aayega?",
+    "whatsappNumber": "919999999999",
+    "at": "2026-09-15T13:00:00+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "inStock": {
+        "Oversize 240gsm": {
+          "Navy": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          },
+          "Off-white": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Navy": "S,M",
+          "Off-white": "S,M"
+        }
+      },
+      "coming": {},
+      "fetchedAt": 1789457400000
+    },
+    "timedFacts": [
+      {
+        "content": "[stated 2026-09-15] Buyer asked: \"Oversize 240gsm Navy S restock kab aayega?\" \u2014 Ketu's answer: \"5 din mein aayega\""
+      }
+    ],
+    "must": [
+      "5\\s*din",
+      "alert=1&ph=9999999999"
+    ],
+    "mustNot": [
+      "DEFER"
+    ]
+  },
+  {
+    "id": "unmade-colour-no-alert",
+    "msg": "Kids green kab aayega?",
+    "whatsappNumber": "919999999999",
+    "at": "2026-09-15T13:00:00+05:30",
+    "must": [
+      "green|colour"
+    ],
+    "mustNot": [
+      "alert=1",
+      "stockalert="
+    ]
+  },
+  {
+    "id": "discontinued-size-no-alert",
+    "msg": "240 gsm navy XS kab restock hoga?",
+    "whatsappNumber": "919999999999",
+    "at": "2026-09-15T13:00:00+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "inStock": {
+        "Oversize 240gsm": {
+          "Navy": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          },
+          "Off-white": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Navy": "S,M",
+          "Off-white": "S,M"
+        }
+      },
+      "coming": {},
+      "fetchedAt": 1789457400000
+    },
+    "timedFacts": [],
+    "must": [
+      "XS",
+      "Black|White"
+    ],
+    "mustNot": [
+      "alert=1",
+      "Coming Soon",
+      "\\b[1-9]\\d?\\s*din"
+    ]
+  },
+  {
+    "id": "tracking-no-alert",
+    "msg": "Mera parcel kab milega? Tracking update chahiye",
+    "whatsappNumber": "919999999999",
+    "at": "2026-09-15T13:00:00+05:30",
+    "must": [
+      "DEFER"
+    ],
+    "mustNot": [
+      "alert=1"
+    ]
+  }
+]

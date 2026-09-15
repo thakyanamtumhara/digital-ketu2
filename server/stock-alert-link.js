@@ -1,7 +1,6 @@
 export const STOCK_ALERT_URL = 'https://www.bulkplaintshirt.com/delhi-stock.html?alert=1'
 
 const HOSTS = new Set(['sale91.com', 'www.sale91.com', 'bulkplaintshirt.com', 'www.bulkplaintshirt.com'])
-const ALERT_OFFER = /\bstock\s*alerts?\b|\bwhatsapp\s+(?:stock\s+)?(?:alerts?|notifications?)\b|\b(?:set|enable|register|laga\w*)\s+(?:(?:a|an|the)\s+)?(?:stock\s+)?(?:alerts?|notifications?)\b|\balert\s+(?:laga\w*|set)\b/i
 
 export function stockAlertUrl(whatsappNumber, selectors = null) {
   const url = new URL(STOCK_ALERT_URL)
@@ -18,11 +17,7 @@ export function stockAlertUrl(whatsappNumber, selectors = null) {
 
 export function canonicalizeStockAlertLinks(reply, whatsappNumber) {
   const text = String(reply || '')
-  let previousLinkEnd = 0
   return text.replace(/https?:\/\/[^\s<>"']+|(?<!\S)(?:www\.)?(?:sale91\.com|bulkplaintshirt\.com)(?:\/|\?)[^\s<>"']*/gi, (match, offset) => {
-    const lead = text.slice(previousLinkEnd, offset).trim().split(/[.!?\n]/).filter(part => part.trim()).at(-1) || ''
-    const alertOffer = ALERT_OFFER.test(lead)
-    previousLinkEnd = offset + match.length
     const before = text.slice(0, offset)
     const tokenPrefix = before.match(/\S*$/)?.[0] || ''
     if (tokenPrefix && !/^[([<"'`*]+$/.test(tokenPrefix) && !/(?:^|\s)\[[^\]\r\n]*\]\($/.test(before)) return match
@@ -33,8 +28,7 @@ export function canonicalizeStockAlertLinks(reply, whatsappNumber) {
     if (!HOSTS.has(url.hostname.toLowerCase())) return match
     const stockPage = url.pathname.toLowerCase() === '/delhi-stock.html'
     const legacy = url.searchParams.get('stockalert') === '1'
-    const alertPage = stockPage && (['alert', 'ph', 'phone'].some(key => url.searchParams.has(key)) || alertOffer)
-    if (!legacy && !alertPage) return match
+    if (!legacy && !stockPage) return match
     return stockAlertUrl(whatsappNumber, stockPage ? url.searchParams : null) + suffix
   })
 }

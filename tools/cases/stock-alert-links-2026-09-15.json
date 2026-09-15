@@ -26,15 +26,14 @@
     "msg": "Live stock ki poori list ka link bhejo",
     "whatsappNumber": "919999999999",
     "must": [
-      "delhi-stock\\.html"
+      "delhi-stock\\.html\\?alert=1&ph=9999999999"
     ],
     "mustNot": [
-      "alert=1",
       "stockalert="
     ]
   },
   {
-    "id": "unresolved-timing-control",
+    "id": "unresolved-timing-first-alert",
     "msg": "Acid wash stock kab refill hoga? Coming Soon mein update nahi hai",
     "whatsappNumber": "919999999999",
     "history": [
@@ -46,11 +45,12 @@
     ],
     "at": "2026-09-15T09:00:00+05:30",
     "must": [
-      "DEFER"
+      "alert=1&ph=9999999999"
     ],
     "mustNot": [
-      "alert=1",
-      "stockalert="
-    ]
+      "stockalert=",
+      "DEFER"
+    ],
+    "why": "Later 15-Sep owner instruction supersedes Coming Soon-only: offer WhatsApp alert once before an unresolved repeat timing handoff."
   }
 ]
