@@ -133,6 +133,29 @@ async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Kh
 }
 
 const tests = [
+  ['obsolete imported launch denial is removed before the paid prompt', async () => {
+    const obsolete = { source: 'CORRECTION', similarity: 0.9, title: 'Old launch answer', content: 'Buyer: When is the ladies tee launch?\nCorrect reply: Ladies tees will not launch.', metadata: { backfilled: true } }
+    const useful = { source: 'CORRECTION', similarity: 0.8, title: 'Care advice', content: 'Buyer: How to wash this tee?\nCorrect reply: Hand wash gently.', metadata: { backfilled: true } }
+    const r = await runCase({ buyerText: 'When is the ladies tee launch?', knowledge: [obsolete, useful], reply: 'The women range has not launched yet sir.' })
+    assert.equal(r.requests.length, 1)
+    const prompt = JSON.stringify(r.requests[0])
+    assert.doesNotMatch(prompt, /Ladies tees will not launch/)
+    assert.match(prompt, /Hand wash gently/)
+    assert.equal(r.sent.length, 1)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['current owner cancellation and different garment corrections remain available', async () => {
+    const knowledge = [
+      { source: 'CORRECTION', similarity: 0.9, title: 'Current owner decision', content: 'Buyer: When is the ladies tee launch?\nCorrect reply: Ladies tees will not launch.', metadata: { backfilled: false } },
+      { source: 'CORRECTION', similarity: 0.8, title: 'Different garment', content: 'Buyer: When is the girls crop tee launch?\nCorrect reply: Girls tees will not launch.', metadata: { backfilled: true } },
+    ]
+    const r = await runCase({ buyerText: 'Which new garments are planned?', knowledge, reply: 'Let me check sir.' })
+    const prompt = JSON.stringify(r.requests[0])
+    assert.match(prompt, /Current owner decision/)
+    assert.match(prompt, /Different garment/)
+    assert.equal(r.sent.length, 1)
+    assert.deepEqual(r.errors, [])
+  }],
   ['stock-alert repeat handling preserves an independent fabric answer', async () => {
     const reply = 'Navy S is out of stock. It is 100% cotton sir.'
     const r = await runCase({ buyerText: '240 navy S restock kab hoga, cotton hai?', reply, history: [{ buyerMessage: '240 navy S kab milega?', aiReply: 'Alert laga lijiye sir, stock aane par WhatsApp aa jayega https://www.bulkplaintshirt.com/delhi-stock.html?alert=1', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })

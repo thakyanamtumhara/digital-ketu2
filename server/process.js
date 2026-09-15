@@ -28,6 +28,7 @@ import { repairReplyLanguage, buyerUsesEnglish } from './reply-language.js'
 import { arrivalClockGuard } from './arrival-clock.js'
 import { restockPointerGuard } from './restock-pointer.js'
 import { stockAlertOfferGuard } from './stock-alert-offer.js'
+import { isSupersededLaunchCorrection } from './launch-knowledge.js'
 import { canonicalizeStockAlertLinks } from './stock-alert-link.js'
 import { couponCodeGuard, isConflictingCouponCorrection } from './coupon-code.js'
 import { discontinuedSizeRequest, discontinuedSizeGuard } from './discontinued-size.js'
@@ -3217,7 +3218,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   // would be boosted and replayed to a buyer as Ketu's own words, i.e. gibberish.
   const vectorResults = allVectorResults.filter(r => {
     const answer = correctionAnswer(r)
-    return !isDeferLine(answer) && !hasGarbledTranscript(answer) && !isConflictingCouponCorrection(r)
+    return !isDeferLine(answer) && !hasGarbledTranscript(answer) && !isConflictingCouponCorrection(r) && !isSupersededLaunchCorrection(r)
   })
 
   const bestSimilarity = vectorResults.length > 0
