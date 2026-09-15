@@ -14,6 +14,7 @@
 import { readFileSync, existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
+import { canonicalizeStockAlertLinks } from '../server/stock-alert-link.js'
 
 const args = process.argv.slice(2)
 const file = args.find(a => !a.startsWith('--'))
@@ -163,6 +164,7 @@ for (const c of cases) {
       const g3 = arrivalClockGuard({ buyerText: c.msg, reply: txt })
       if (g3) { console.log('   Arrival-clock guard retained a handoff'); txt = g3 }
     }
+    txt = canonicalizeStockAlertLinks(txt, c.whatsappNumber)
     if (!/^\s*\[(DEFER|SKIP)\]\s*$/.test(txt)) {
       const repaired = await repairReplyLanguage({
         anthropic: rewriteClient, reply: txt, buyerText: c.msg, preferredLanguage: c.preferredLanguage,

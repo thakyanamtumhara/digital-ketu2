@@ -1,0 +1,56 @@
+[
+  {
+    "id": "explicit-stock-alert",
+    "msg": "Stock wapas aane par notify kar dena sir",
+    "whatsappNumber": "919999999999",
+    "must": [
+      "delhi-stock\\.html\\?alert=1&ph=9999999999"
+    ],
+    "mustNot": [
+      "stockalert="
+    ]
+  },
+  {
+    "id": "boxy-alert",
+    "msg": "Boxy fit stock mein kab aayega?",
+    "whatsappNumber": "919999999999",
+    "must": [
+      "delhi-stock\\.html\\?alert=1&ph=9999999999"
+    ],
+    "mustNot": [
+      "stockalert="
+    ]
+  },
+  {
+    "id": "stock-overview-control",
+    "msg": "Live stock ki poori list ka link bhejo",
+    "whatsappNumber": "919999999999",
+    "must": [
+      "delhi-stock\\.html"
+    ],
+    "mustNot": [
+      "alert=1",
+      "stockalert="
+    ]
+  },
+  {
+    "id": "unresolved-timing-control",
+    "msg": "Acid wash stock kab refill hoga? Coming Soon mein update nahi hai",
+    "whatsappNumber": "919999999999",
+    "history": [
+      {
+        "buyer": "Black M acid wash kab aayega?",
+        "ai": "Coming Soon tab check kar lijiye https://www.bulkplaintshirt.com/delhi-stock.html",
+        "at": "2026-09-15T08:30:00+05:30"
+      }
+    ],
+    "at": "2026-09-15T09:00:00+05:30",
+    "must": [
+      "DEFER"
+    ],
+    "mustNot": [
+      "alert=1",
+      "stockalert="
+    ]
+  }
+]

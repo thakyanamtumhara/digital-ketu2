@@ -6,7 +6,7 @@ import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, forma
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [] } = {}) {
+async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [] } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
   const restraintRequests = [], handled = []
   const timers = [], recoveryQueries = []
@@ -91,7 +91,7 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
     knowledgeChunk: { findFirst: async () => null, findMany: async () => [] },
     buyerMemory: { findUnique: async () => preferredLanguage ? { language: preferredLanguage } : null, upsert: async () => ({}) },
     buyerConversation: {
-      findUnique: async () => ({ whatsappNumber: 'buyer-test', lastMessageAt: new Date(), cooldownUntil: recovery?.cooldown || (cooldown && ++conversationReads > 1 ? new Date(Date.now() + 60000) : null) }),
+      findUnique: async () => ({ whatsappNumber, lastMessageAt: new Date(), cooldownUntil: recovery?.cooldown || (cooldown && ++conversationReads > 1 ? new Date(Date.now() + 60000) : null) }),
       upsert: async () => ({ id: 'conversation-test', isFirstTime: false }),
     },
     $queryRaw: async () => timedFacts, $executeRaw: async () => 0,
@@ -123,14 +123,56 @@ async function runCase({ reply = 'Address sir: Khanpur.', failCalls = 0, guardTh
       await timers[0].fn()
     }
   } else if (incomingText !== null || incomingMessages) {
-    await module.namespace.processIncomingMessage({ whatsappNumber: 'buyer-test', messages: incomingMessages || [{ messageId: 'inbound-test', messageType: 'text', messageText: incomingText }], db, anthropic, settings: { isActive: active, partialAiEnabled: !active, dailyBudgetInr: 1500, systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' } })
+    await module.namespace.processIncomingMessage({ whatsappNumber, messages: incomingMessages || [{ messageId: 'inbound-test', messageType: 'text', messageText: incomingText }], db, anthropic, settings: { isActive: active, partialAiEnabled: !active, dailyBudgetInr: 1500, systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' } })
   } else {
-    await module.namespace.runAiFlow({ whatsappNumber: 'buyer-test', mergedText: buyerText, normalizedText: buyerText, imageUrl, conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
+    await module.namespace.runAiFlow({ whatsappNumber, mergedText: buyerText, normalizedText: buyerText, imageUrl, conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
   }
   return { sent, logs, errors, requests, rewriteRequests, restraintRequests, handled, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
 }
 
 const tests = [
+  ['stock alert removes a different buyer phone carried by the model', async () => {
+    const r = await runCase({ whatsappNumber: '919999999999', buyerText: 'Stock alert please', reply: 'Set a stock alert https://www.bulkplaintshirt.com/delhi-stock.html?alert=1&ph=8888888888' })
+    assert.match(r.sent[0].message, /[&]ph=9999999999$/)
+    assert.doesNotMatch(r.sent[0].message, /8888888888/)
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['stock alert keeps unknown phone blank instead of borrowing a historical phone', async () => {
+    const r = await runCase({ buyerText: 'Stock alert please', reply: 'Set a stock alert https://www.bulkplaintshirt.com/delhi-stock.html?alert=1&ph=8888888888' })
+    assert.equal(r.sent[0].message, 'Set a stock alert https://www.bulkplaintshirt.com/delhi-stock.html?alert=1')
+    assert.deepEqual(r.errors, [])
+  }],
+  ['normal stock sheet and Coming Soon remain plain links', async () => {
+    for (const reply of ['Live stock yahan hai sir https://www.bulkplaintshirt.com/delhi-stock.html', 'Coming Soon tab check kar lijiye https://www.bulkplaintshirt.com/delhi-stock.html']) {
+      const r = await runCase({ buyerText: 'Live stock kahan dekhu?', reply })
+      assert.equal(r.sent[0].message, reply)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['stock alert survives language repair with the current buyer phone', async () => {
+    const fixed = 'Set a stock alert here sir https://www.bulkplaintshirt.com/delhi-stock.html?alert=1&ph=9999999999'
+    const r = await runCase({ whatsappNumber: '919999999999', buyerText: 'Please notify me when stock returns', reply: 'Stock alert laga lijiye sir https://sale91.com/?stockalert=1', rewriteReply: fixed })
+    assert.equal(r.sent[0].message, fixed)
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.logs.at(-1).aiReply, fixed)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['stock alert preserves partial handoff and owner cooldown', async () => {
+    const r = await runCase({ buyerText: 'Stock alert laga do aur mera refund check karna', reply: 'Stock alert yahan laga lijiye https://sale91.com/?stockalert=1\n[DEFER]' })
+    assert.match(r.sent[0].message, /delhi-stock\.html\?alert=1/)
+    assert.equal(r.pending.size, 1)
+    assert.deepEqual(r.errors, [])
+    const held = await runCase({ buyerText: 'Stock alert laga do', reply: 'Stock alert https://sale91.com/?stockalert=1', cooldown: true })
+    assert.equal(held.sent.length, 0)
+    assert.equal(held.logs.at(-1).deferReason, 'superseded_by_intervention')
+  }],
+  ['stock notification uses the WhatsApp form and current buyer number before send and log', async () => {
+    const r = await runCase({ whatsappNumber: '919999999999', buyerText: 'Kal ek bar update kar dena aap', reply: 'Ji sir, stock alert laga lijiye 👉 https://sale91.com/?stockalert=1' })
+    assert.equal(r.sent[0].message, 'Ji sir, stock alert laga lijiye 👉 https://www.bulkplaintshirt.com/delhi-stock.html?alert=1&ph=9999999999')
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.deepEqual(r.errors, [])
+  }],
   ['generic biowash quote keeps live size bands through send and logging', async () => {
     const catalogData = { categories: [{ products: [{ name: 'Biowash Round Neck', slug: 'biowash-round-neck', gsm: 180, colors: ['Black'], sizes: ['38', '46'], rates: [{ colors: ['Black'], pricePerSize: { 38: 111, 46: 121 }, samplePrice: 151 }] }] }] }
     const r = await runCase({ buyerText: 'Bhai biowash ka price kya hai?', reply: 'Bio Rneck ₹111 hai bhai (10+ pcs pe)', catalogData })
