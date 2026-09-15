@@ -131,6 +131,29 @@ async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Kh
 }
 
 const tests = [
+  ['no-date stock repetition stays visible as an owner handoff', async () => {
+    const r = await runCase({ buyerText: 'Isme toh acid wash nahi hai', reply: 'Acid wash uss page pe abhi list nahi hai sir, Black M ka koi shipment nahi hai, jo available hai wo le lijiye.', history: [{ buyerMessage: 'Restock kab hoga?', aiReply: 'Acid wash Black M ka koi shipment nahi hai, Coming Soon check kar lijiye.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.handled.length, 0)
+    const held = r.pending.get('buyer-test')?.messages[0]
+    assert.ok(held)
+    assert.equal(held.logData.deferReason, 'restock_pointer_handoff')
+    assert.deepEqual(Array.from(held.messageIds), ['inbound-test'])
+    assert.deepEqual(r.errors, [])
+  }],
+  ['restock procurement continuation cannot send another no-date echo', async () => {
+    const r = await runCase({ buyerText: 'Abhi mangwa sakte hai kya?', reply: 'Abhi nahi bata sakta sir, acid wash Black M ka koi shipment nahi hai.', history: [{ buyerMessage: 'Isme acid wash nahi hai', aiReply: 'Acid wash Black M ka koi shipment nahi hai.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.get('buyer-test')?.messages[0].logData.deferReason, 'restock_pointer_handoff')
+    assert.deepEqual(r.errors, [])
+  }],
+  ['fresh stock alternative is still sent beside a no-date answer', async () => {
+    const reply = 'Black M acid wash ka koi shipment nahi hai, Black XL available hai sir.'
+    const r = await runCase({ buyerText: 'Acid wash kab restock hoga?', reply, history: [{ buyerMessage: 'Black M acid wash kab aayega?', aiReply: 'Check Coming Soon sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.sent[0].message, reply)
+    assert.equal(r.pending.size, 0)
+    assert.deepEqual(r.errors, [])
+  }],
   ['old Notification shortcut without a protocol is repaired before send', async () => {
     const r = await runCase({ whatsappNumber: '919999999999', buyerText: 'Stock aane par notify karna', reply: 'Stock Alert ko enable kar lo - sale91.com/?stockalert=1' })
     assert.equal(r.sent[0].message, 'Stock Alert ko enable kar lo - https://www.bulkplaintshirt.com/delhi-stock.html?alert=1&ph=9999999999')
