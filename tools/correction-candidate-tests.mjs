@@ -105,6 +105,36 @@ await test('named stock and launch subjects retain validated temporary learning'
     assert.equal(result.verdict, 'accepted', buyerQuestion)
   }
 })
+await test('ambiguous product timing stays pending with original evidence and no validator spend', async () => {
+  let calls = 0
+  const model = { messages: { create: async () => { calls++; throw Error('unexpected validation') } } }
+  for (const [buyerQuestion, correctReply] of [
+    ['240gsm restock kab hoga?', 'Try 210 instead; AcidWash needs 6-7 days.'],
+    ['240gsm sizes restock kab hoga?', 'जो उपलब्ध है ले लो, बाकी एसिड वाश में 6-7 दिन लगेंगे।'],
+    ['Polo restock kab hoga?', 'Hoodie in 6 days'],
+    ['Polo and hoodie restock kab hoga?', 'Polo in 6 days'],
+  ]) {
+    const db = fakeDb()
+    const result = await validateLearningCandidate(db, model, { ...input, buyerQuestion, correctReply, timed: true })
+    assert.equal(result.verdict, 'pending', buyerQuestion)
+    assert.equal(result.reason, 'ambiguous_timing_subject')
+    assert.equal(db.rows.get(result.id).payload.correctReply, correctReply)
+  }
+  assert.equal(calls, 0)
+})
+await test('same-subject and subject-free owner timing remain eligible', async () => {
+  for (const [buyerQuestion, correctReply] of [
+    ['AcidWash 240gsm restock kab hoga?', 'Try 210 or 260 for now; AcidWash needs 6-7 days.'],
+    ['AcidWash Oversize Black restock kab hoga?', '6-7 din mein aa jayega'],
+    ['AcidWash restock kab hoga?', 'AcidWash Oversize in 6 days'],
+    ['एसिड वाश restock कब होगा?', 'एसिड वाश में 6-7 दिन लगेंगे।'],
+    ['Polo restock kab hoga?', 'Polo in 6 days'],
+    ['Oversize 240gsm restock kab hoga?', '6 days'],
+    ['240gsm restock kab hoga?', '6 days'],
+  ]) {
+    assert.equal(learningEligibility({ buyerQuestion, correctReply, timed: true }), null, buyerQuestion)
+  }
+})
 await test('dated price changes never reach the validator or permanent promotion', async () => {
   let calls = 0
   const model = { messages: { create: async () => { calls++; throw Error('unexpected paid validation') } } }

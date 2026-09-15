@@ -2880,6 +2880,9 @@ export function hasInventedDays(reply) {
 export function deliveryDaysGuard({ buyerText, reply }) {
   if (!reply || /\[DEFER\]/.test(reply)) return null
   const b = String(buyerText || '')
+  const productMention = /\b(?:\d{3}\s*gsm|acid\s*wash|acidwash|oversized?|hoodie|sweatshirt|polo|t[- ]?shirt|rneck|round\s*neck|biowash|boxy|shorts)\b/i.test(b)
+  const deliveryMention = /\b(?:deliver\w*|courier|shipping|dispatch\w*|parcel|tracking|shipment|orders?|ordered|pahunch\w*|pohonch\w*|reach\w*)\b|ड[िे]ल[िी]वर|कूरियर|कुरियर|कोरियर|पार्सल|डिस्पैच|ऑर्डर|आर्डर|पहुं[चँ]|पहुँच/i.test(b)
+  if (productMention && !deliveryMention) return null
   if (!DELIVERY_ASK_RE.test(b)) {
     const hindiDelivery = /ड[िे]ल[िी]वर|कूरियर|कुरियर|कोरियर|\b(?:courier|deliver\w*|shipping)\b/i.test(b)
     const hindiDuration = /कितन[ाेी]|कब\s*तक|समय|टाइम|टाम/.test(b)

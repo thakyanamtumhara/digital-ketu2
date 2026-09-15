@@ -155,3 +155,28 @@ export function hasNamedTimingSubject(question) {
   const text = String(question || '').replace(/https?:\/\/\S+/gi, ' ').replace(/\[[^\]]*\]/g, ' ')
   return /\b(?:true[\s-]*bio|non[\s-]*bio|bio(?:wash)?|polo|oversized?|over\s*size|drop\s*shoulder|acid(?:\s*wash)?|hoodie|hoody|sweat\s*shirt|zip(?:per)?|varsity|jacket|shorts?|kids?|sublimation|boxy|rneck|round\s*neck|t[\s-]*shirts?|tees?|women(?:'?s)?|womens|ladies|female|winter|(?:180|200|210|220|240|260|320|430)\s*gsm|os\s*-?\s*(?:180|210|240|260))\b|पोलो|बायो|ओवर\s*साइ[जज़]|एसिड\s*व[ॉा]श|हू?डी|हुडी|ज़?िप(?:र)?|जिपर|स्वेट\s*शर्ट|स्वेटर|टी\s*शर्ट|शॉर्ट्स|जैकेट|बच्चों|महिला|लेडी[जज़]|वूम[ेै]न/i.test(text)
 }
+
+const TIMING_FAMILIES = [
+  /\bacid(?:\s*wash)?\b|एसिड\s*व[ॉा]श/i,
+  /\bpolo\b|पोलो/i,
+  /\bhood(?:ie|y)\b|हू?डी|हुडी/i,
+  /\bsweat\s*shirt\b|स्वेट\s*शर्ट|स्वेटर/i,
+  /\bshorts?\b|शॉर्ट्स/i,
+  /\bkids?\b|बच्चों/i,
+  /\b(?:women(?:'?s)?|womens|ladies|female)\b|महिला|लेडी[जज़]|वूम[ेै]न/i,
+  /\bvarsity\b/i,
+  /\bboxy\b/i,
+  /\bzip(?:per)?\b|ज़?िप(?:र)?|जिपर/i,
+  /\b(?:oversized?|over\s*size|drop\s*shoulder)\b|ओवर\s*साइ[जज़]/i,
+  /\b(?:true[\s-]*bio|non[\s-]*bio|bio(?:wash)?)\b|बायो/i,
+  /\b(?:rneck|round\s*neck)\b/i,
+]
+
+export function hasAmbiguousTimingSubject(question, answer) {
+  if (!looksLikeTimingAnswer(answer)) return false
+  const clean = text => String(text || '').replace(/https?:\/\/\S+/gi, ' ').replace(/\[[^\]]*\]/g, ' ').replace(/\bacid\s*wash[\s-]+oversized?\b/gi, 'AcidWash')
+  const buyer = clean(question), owner = clean(answer)
+  const asked = TIMING_FAMILIES.map((pattern, index) => pattern.test(buyer) ? index : -1).filter(index => index >= 0)
+  const answered = TIMING_FAMILIES.map((pattern, index) => pattern.test(owner) ? index : -1).filter(index => index >= 0)
+  return asked.length > 1 || answered.some(index => !asked.includes(index))
+}

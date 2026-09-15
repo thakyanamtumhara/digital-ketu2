@@ -1,4 +1,4 @@
-import { hasNamedTimingSubject } from './stock-question.js'
+import { hasNamedTimingSubject, hasAmbiguousTimingSubject } from './stock-question.js'
 
 const DAY_MS = 86400000
 const DAY_DURATION = /(?<![\d.\-–])([0-9०-९]{1,3})(?:\s*(?:[-–]|to|se|से)\s*([0-9०-९]{1,3}))?\s*(days?\b|din\b|दिन)/gi
@@ -10,6 +10,7 @@ export function parseTimedFact(content) {
 
 export function currentTimedFact(fact, now = Date.now()) {
   if (!fact) return null
+  if (hasAmbiguousTimingSubject(fact.question, fact.answer)) return null
   const instant = new Date(now)
   const stated = Date.parse(`${fact.date}T00:00:00Z`)
   if (!Number.isFinite(instant.getTime()) || !Number.isFinite(stated) || new Date(stated).toISOString().slice(0, 10) !== fact.date) return null

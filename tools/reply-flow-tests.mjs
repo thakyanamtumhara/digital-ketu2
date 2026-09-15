@@ -133,6 +133,22 @@ async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Kh
 }
 
 const tests = [
+  ['product restock answer survives the delivery guard in the send flow', async () => {
+    const reply = '210gsm Black S ~6 din mein aa jayega sir'
+    const r = await runCase({ buyerText: '210 gsm mein S aur XL kab tak aayenge?', reply })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.sent[0].message, reply)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['explicit product courier answer still gets corrected in the send flow', async () => {
+    const r = await runCase({ buyerText: '210gsm S courier se kab tak aayega?', reply: '5 din mein mil jayega sir' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /Usually 2-3 din/)
+    assert.match(r.sent[0].message, /ETD/)
+    assert.deepEqual(r.errors, [])
+  }],
   ['Hindi courier duration repairs unsupported days through the send path', async () => {
     const r = await runCase({ buyerText: 'मैं जयपुर से हूँ। डिलिवर में मैक्सिमम टाम कितना लगाओगे?', reply: '4-5 din mein mil jaata hai sir' })
     assert.equal(r.requests.length, 1)
