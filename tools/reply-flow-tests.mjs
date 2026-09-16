@@ -140,6 +140,46 @@ const blueCatalog = { categories: [{ products: [{
 }] }] }
 
 const tests = [
+  ['catalogue shortcut keeps a Roman Hindi duration question in the answer flow', async () => {
+    const r = await runCase({ incomingText: 'Kitane din me aayega aur catelog bhejo sir', keywordFilters: [{ name: 'catalog_request', matchType: 'partial', keywords: 'catelog', action: 'auto_reply', autoReplyText: 'catalog-only' }], reply: 'Usually 2-3 din sir. Catalogue: https://sale91.com/catalog' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /2-3 din/)
+    assert.equal(r.logs.some(row => row.deferReason === 'catalog_request'), false)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['catalogue shortcut keeps English and Hindi timing questions actionable', async () => {
+    for (const text of ['Send catalog and how long does shipping take?', 'Catalog please, when will it arrive?', 'Delivery time and catalog please', 'कितने दिन में आएगा, catalog bhejo']) {
+      const r = await runCase({ incomingText: text, keywordFilters: [{ name: 'catalog_request', matchType: 'partial', keywords: 'catalog', action: 'auto_reply', autoReplyText: 'catalog-only' }], reply: 'https://sale91.com/catalog [DEFER]' })
+      assert.equal(r.requests.length, 1, text)
+      assert.equal(r.logs.some(row => row.deferReason === 'catalog_request'), false, text)
+      assert.equal(r.pending.size, 1, text)
+    }
+  }],
+  ['plain catalogue and price-list requests retain their zero-cost shortcut', async () => {
+    for (const text of ['Send catalog please', 'Color catelog chahiye', 'catalog with prices', 'catalog https://example.invalid/delivery-time']) {
+      const r = await runCase({ incomingText: text, keywordFilters: [{ name: 'catalog_request', matchType: 'partial', keywords: 'catalog,catelog', action: 'auto_reply', autoReplyText: 'catalog-only' }] })
+      assert.equal(r.requests.length, 0, text)
+      assert.equal(r.sent[0].message, 'catalog-only', text)
+    }
+  }],
+  ['catalogue timing bypass preserves manual cooldown', async () => {
+    const r = await runCase({ incomingText: 'Send catalog and how many days for delivery?', cooldown: true, keywordFilters: [{ name: 'catalog_request', matchType: 'partial', keywords: 'catalog', action: 'auto_reply', autoReplyText: 'catalog-only' }] })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.logs.at(-1).deferReason, 'cooldown')
+  }],
+  ['catalogue timing bypass does not disable other configured filters', async () => {
+    const r = await runCase({ incomingText: 'Send catalog and how long for delivery?', keywordFilters: [{ name: 'owner_only', matchType: 'partial', keywords: 'delivery', action: 'defer' }, { name: 'catalog_request', matchType: 'partial', keywords: 'catalog', action: 'auto_reply', autoReplyText: 'catalog-only' }] })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.pending.size, 1)
+  }],
+  ['partial AI catalogue timing question respects disabled full replies', async () => {
+    const r = await runCase({ incomingText: 'Kitane din me aayega aur catelog bhejo', active: false })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.logs.some(row => row.deferReason === 'catalog_request'), false)
+  }],
   ['completed shipment questions keep the model handoff and inbound evidence', async () => {
     for (const buyerText of ['Sir abhi bhej diya kya?', 'Aaj bhej dia?', 'Kal dispatch kar diya?', 'Abhi nikal gaya?', 'Aaj shipped?', 'Today already sent?']) {
       const r = await runCase({ buyerText, reply: '[DEFER]' })

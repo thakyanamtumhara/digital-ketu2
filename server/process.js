@@ -19,6 +19,7 @@ import { poloRateSummaryGuard } from './polo-price.js'
 import { hoodieRateSummaryGuard } from './hoodie-price.js'
 import { biowashRateSummaryGuard } from './biowash-price.js'
 import { isStoreMenuGreeting } from './store-greeting.js'
+import { catalogRequestHasTimingQuestion } from './catalog-request.js'
 import { regularFitBlueHint, regularFitBlueGuard } from './regular-fit-blue.js'
 import { pendingProductChoiceGuard } from './product-choice.js'
 import { isAppStoreLookupProblem, appDiscoveryReplyGuard } from './app-discovery.js'
@@ -1546,7 +1547,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     // Ketu stepped in. A GSM number or 2+ question marks means the buyer wants ANSWERS, not just
     // the link — let the model handle it. Also never fire the identical canned link twice in 24h:
     // a repeat ask means the canned reply failed the first time.
-    const isRichInquiry = /\d{3}\s*gsm/i.test(catalogLowerMsg) || (catalogLowerMsg.match(/\?/g) || []).length >= 2
+    const isRichInquiry = /\d{3}\s*gsm/i.test(catalogLowerMsg) || (catalogLowerMsg.match(/\?/g) || []).length >= 2 || catalogRequestHasTimingQuestion(mergedText)
     let cannedCatalogRecently = false
     if (matchedCatalogKw && !isRichInquiry && catalogLowerMsg.length <= 80) {
       cannedCatalogRecently = !!(await db.messageLog.findFirst({
@@ -2339,6 +2340,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     // === DYNAMIC PATH: filters from database ===
     for (const filter of dynamicFilters) {
       if (filter.name === 'acknowledgment' && /[?？؟]/u.test(mergedText)) continue
+      if (filter.name === 'catalog_request' && catalogRequestHasTimingQuestion(mergedText)) continue
       // For exact match filters, use normalizedText (honorifics stripped)
       // For greeting, use normalizedForGreeting (emojis also stripped)
       const textForMatch = filter.name === 'greeting' ? normalizedForGreeting : normalizedText
