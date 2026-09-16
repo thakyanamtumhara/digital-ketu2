@@ -2,7 +2,7 @@ const CATALOG_URL = process.env.LIVE_PRODUCTS_URL || 'https://www.bulkplaintshir
 
 export const CATALOG_UNAVAILABLE = 'CURRENT CATALOG UNAVAILABLE — product facts could not be verified. Do not quote prices or infer them from previous messages, images or stored knowledge. For a product-fact question, offer https://sale91.com/catalog or [DEFER] if the buyer needs confirmation. Continue answering supported general questions normally.'
 
-const HEADER = 'AUTHORITATIVE CATALOG — the COMPLETE, current product list. This is the ONLY source of product FACTS: every price, GSM, fabric, colour, size and link the buyer could ask about is here. If you state ANY price/gsm/colour/size, it MUST be copied EXACTLY from this list (never round, never guess, never use a number from memory or the chat). "bulk" = 10+ pcs, "sample" = under 10 pcs — counted on the buyer\'s TOTAL order across ALL products combined, NOT per product (a 3-pc line inside an 18-pc total order is still BULK rate). Each rate group applies ONLY to its listed colours and sizes. Old screenshots and previous quotes never override these rates. A colour NOT listed for a product = we don\'t make it in that colour (send HD Photos). A product NOT in this list = we don\'t make it. If a listed detail isn\'t shown, don\'t invent it. (The KNOWLEDGE BASE in the user message is only for STYLE/how-Ketu-phrases-it — NOT for facts.)'
+const HEADER = 'AUTHORITATIVE CATALOG — the COMPLETE, current product list. This is the ONLY source of product FACTS: every price, GSM, fabric, colour, size and link the buyer could ask about is here. If you state ANY price/gsm/colour/size, it MUST be copied EXACTLY from this list (never round, never guess, never use a number from memory or the chat). "bulk" = 10+ pcs, "sample" = under 10 pcs — counted on the buyer\'s TOTAL order across ALL products combined, NOT per product (a 3-pc line inside an 18-pc total order is still BULK rate). Each rate group applies ONLY to its listed colours and sizes. Old screenshots and previous quotes never override these rates. For a broad colour-family request, listed shades count: Navy, Royal Blue and Sky are blue choices, not evidence that blue is missing. Apply the listed product fit too; True Bio is within the regular-fit range. For an exact shade, use that shade only. A colour family with NO listed member, or an exact shade NOT listed, = we don\'t make it for that product (send HD Photos). A product NOT in this list = we don\'t make it. If a listed detail isn\'t shown, don\'t invent it. (The KNOWLEDGE BASE in the user message is only for STYLE/how-Ketu-phrases-it — NOT for facts.)'
 
 function textList(value) {
   return Array.isArray(value) && value.length > 0 && value.every(x => typeof x === 'string' && x.trim())
@@ -47,7 +47,8 @@ export function buildCatalogFacts(data) {
     if (seenColors.size !== p.colors.length) throw Error('Incomplete live catalog colour rates')
     parts.push(`→ /catalog/p/${p.slug}`)
     lines.push(parts.join(' | '))
-    products.push({ title: p.name, gsm: Number(p.gsm) || null, bulk: Math.min(...bulk), sample: Math.min(...sample), bulkRange: [Math.min(...bulk), Math.max(...bulk)], sampleRange: [Math.min(...sample), Math.max(...sample)], slug: p.slug })
+    const fit = /(?:^|[,;|])\s*regular[\s-]+fit(?=\s*(?:[,;|]|$))/i.test(p.description || '') ? 'regular' : null
+    products.push({ title: p.name, gsm: Number(p.gsm) || null, fit, colors: [...p.colors], bulk: Math.min(...bulk), sample: Math.min(...sample), bulkRange: [Math.min(...bulk), Math.max(...bulk)], sampleRange: [Math.min(...sample), Math.max(...sample)], slug: p.slug })
   }
   return { block: HEADER + '\n' + lines.sort().join('\n'), products }
 }

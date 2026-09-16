@@ -132,7 +132,68 @@ async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Kh
   return { sent, logs, errors, requests, rewriteRequests, restraintRequests, handled, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
 }
 
+const blueCatalog = { categories: [{ products: [{
+  name: 'True Biowash Round Neck', slug: 'true-biowash-round-neck', gsm: 180,
+  description: 'Regular Fit, True Biowash Round neck, 180gsm',
+  colors: ['Black', 'Navy', 'Royal Blue', 'Sky'], sizes: ['36', '38', '40', '42'],
+  rates: [{ colors: ['Black', 'Navy', 'Royal Blue', 'Sky'], pricePerSize: { 36: 158, 38: 158, 40: 158, 42: 158 }, samplePrice: 195 }],
+}] }] }
+
 const tests = [
+  ['generic regular-fit blue contradiction is repaired before delivery', async () => {
+    const r = await runCase({ catalogData: blueCatalog, buyerText: '180gsm regular fit blue ka rate?', reply: '180gsm regular fit mein blue nahi hai sir — True Bio mein Navy, Royal Blue, Sky hai, ₹158. Kitne pieces chahiye?' })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /^Haan sir, True Bio 180gsm regular fit mein Navy, Royal Blue, Sky aate hain\./)
+    assert.match(r.sent[0].message, /₹158\. Kitne pieces chahiye\?$/)
+    assert.doesNotMatch(r.sent[0].message, /blue nahi hai/)
+    assert.match(JSON.stringify(r.requests[0].messages), /REGULAR-FIT BLUE REQUEST/)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['English blue correction preserves the remaining answer', async () => {
+    const r = await runCase({ catalogData: blueCatalog, preferredLanguage: 'English', buyerText: 'Is blue available in 180gsm regular fit?', reply: '180gsm regular fit blue is not available — Please select a size.' })
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.sent[0].message, 'Yes sir, True Bio is 180gsm regular fit and comes in Navy, Royal Blue, Sky. Please select a size.')
+    assert.deepEqual(r.errors, [])
+  }],
+  ['blue correction leaves exact shades and other fits untouched', async () => {
+    for (const buyerText of ['180gsm regular fit exact blue chahiye', '180gsm oversize blue chahiye']) {
+      const reply = '180gsm regular fit mein blue nahi hai sir — HD photos check kar lijiye.'
+      const r = await runCase({ catalogData: blueCatalog, buyerText, reply })
+      assert.equal(r.sent.length, 1)
+      assert.equal(r.sent[0].message, reply)
+      assert.doesNotMatch(JSON.stringify(r.requests[0].messages), /REGULAR-FIT BLUE REQUEST/)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['blue correction retains a genuine size-stock qualification', async () => {
+    const reply = 'True Bio Navy S abhi out of stock hai sir.'
+    const r = await runCase({ catalogData: blueCatalog, buyerText: '180gsm regular fit blue S hai?', reply })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /^True Bio Navy S abhi out of stock hai sir\./)
+    assert.doesNotMatch(r.sent[0].message, /Haan sir|Yes sir/)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['blue correction requires a verified current catalogue source', async () => {
+    const reply = '180gsm regular fit mein blue nahi hai sir — HD photos check kar lijiye.'
+    const r = await runCase({ buyerText: '180gsm regular fit blue hai?', reply })
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.sent[0].message, reply)
+    assert.doesNotMatch(JSON.stringify(r.requests[0].messages), /REGULAR-FIT BLUE REQUEST/)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['blue correction preserves current-stock questions, exclusions and attached shade photos', async () => {
+    for (const context of [
+      { buyerText: '180gsm regular fit blue stock mein hai?' },
+      { buyerText: '180gsm regular fit blue, not True Bio' },
+      { buyerText: '180gsm regular fit blue chahiye', imageUrl: 'https://media.invalid/shade.jpg' },
+    ]) {
+      const reply = '180gsm regular fit mein blue nahi hai sir.'
+      const r = await runCase({ catalogData: blueCatalog, ...context, reply })
+      assert.equal(r.sent.length, 1)
+      assert.equal(r.sent[0].message, reply)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
   ['product restock answer survives the delivery guard in the send flow', async () => {
     const reply = '210gsm Black S ~6 din mein aa jayega sir'
     const r = await runCase({ buyerText: '210 gsm mein S aur XL kab tak aayenge?', reply })

@@ -56,6 +56,7 @@ const { gsmAmbiguityHint, gsmPriceRangeGuard } = await import('../server/gsm-hin
 const { poloRateSummaryGuard } = await import('../server/polo-price.js')
 const { hoodieRateSummaryGuard } = await import('../server/hoodie-price.js')
 const { biowashRateSummaryGuard } = await import('../server/biowash-price.js')
+const { regularFitBlueHint, regularFitBlueGuard } = await import('../server/regular-fit-blue.js')
 const { pendingProductChoiceGuard } = await import('../server/product-choice.js')
 const { repairReplyLanguage, buyerUsesEnglish } = await import('../server/reply-language.js')
 const { arrivalClockGuard } = await import('../server/arrival-clock.js')
@@ -101,6 +102,9 @@ function userPromptFor(c) {
   if (EXPORT_ASK_RE.test(c.msg)) p = EXPORT_HINT + '\n\n' + p // mirrors runAiFlow (2026-09-05)
   const gsmHint = gsmAmbiguityHint(catalogProducts, c.msg) // mirrors runAiFlow (2026-09-06)
   if (gsmHint) p = gsmHint + '\n\n' + p
+  const blueHistory = (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at }))
+  const blueHint = !c.imageUrl && regularFitBlueHint({ products: catalogProducts, buyerText: c.msg, history: blueHistory, now })
+  if (blueHint) p = blueHint + '\n\n' + p
   return p
 }
 
@@ -146,6 +150,7 @@ for (const c of cases) {
     {
       txt = canonicalizeCatalogLinks(txt, catalogProducts)
       const gsmHistory = (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, deferReason: h.manual ? 'manual_reply' : null }))
+      txt = (!c.imageUrl && regularFitBlueGuard({ products: catalogProducts, buyerText: c.msg, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })), now: c.at ? Date.parse(c.at) : Date.now(), reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) })) || txt
       txt = gsmPriceRangeGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
       txt = poloRateSummaryGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
       txt = hoodieRateSummaryGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt

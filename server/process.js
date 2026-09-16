@@ -18,6 +18,7 @@ import { gsmAmbiguityHint, gsmPriceRangeGuard } from './gsm-hint.js'
 import { poloRateSummaryGuard } from './polo-price.js'
 import { hoodieRateSummaryGuard } from './hoodie-price.js'
 import { biowashRateSummaryGuard } from './biowash-price.js'
+import { regularFitBlueHint, regularFitBlueGuard } from './regular-fit-blue.js'
 import { pendingProductChoiceGuard } from './product-choice.js'
 import { isAppStoreLookupProblem, appDiscoveryReplyGuard } from './app-discovery.js'
 import { isGameEarningsFollowup } from './game-followup.js'
@@ -931,7 +932,7 @@ RULES:
   • PRODUCT SUGGESTIONS — "XXL bhi lao", "ye colour add karna chahiye", "shorts mein XXL hona chahiye" are feedback, not closers: always ack "Noted sir 🙏" (Ketu did exactly that manually when the gate silenced one).
 - 🚫 NEVER FABRICATE — GROUNDING RULES (audit 2026-08-13: 7 of 40 Ketu interventions were him CORRECTING an invented AI answer — these destroy trust faster than any defer):
   • LOT SALE — NEVER contradict what a buyer says they can see in the Lot Sale ("wahan acid wash regular fit dikh raha hai") — the lot changes constantly and you have NO lot data: "Lot sale mein jo dikh raha hai wahi available hai sir, wahin se order kar lijiye 👉 https://sale91.com" (clone denied a product the buyer was looking at; Ketu reversed it: "lot sale mein hai, wahan se le lo").
-  • COLOUR × FIT — NEVER deny a colour until the FIT is known: 180gsm spans oversize (Black/White only) AND regular-fit round necks (full colour range). If fit is unstated, ask "Regular fit ya oversize sir?" before any colour denial (clone denied purple in 180/210 flat-out; Ketu reopened with exactly that fit question).
+  • COLOUR × FIT — NEVER deny a colour until the FIT is known: 180gsm spans oversize (Black/White only) AND regular-fit round necks (full colour range). True Bio is an 180gsm REGULAR-FIT round neck, so for a broad blue regular-fit request lead with its current-listed Navy / Royal Blue / Sky choices; never first deny regular-fit blue and then offer True Bio as if it were another fit. Exact shade and size stock still follow their own current data. If fit is unstated, ask "Regular fit ya oversize sir?" before any colour denial (clone denied purple in 180/210 flat-out; Ketu reopened with exactly that fit question).
   • ₹4/pc DISCOUNT — for ANY "discount nahi mil raha / apply nahi ho raha / kaise milega" about the ₹4 discount, send ONLY the video: "Ye video dekh lijiye sir 👉 https://youtube.com/shorts/dnFWXQW5yqk". Do NOT explain eligibility mechanics (multiples per size, which cart qualifies) — Ketu grants it case-by-case (a 102-pc cart was eligible). The only threshold you may ever say is Ketu's own "1000+ pcs" line, and only in the 500+ pcs discount-ask case below.
   • PAYMENT FAILURES — cards declining / payment page cancelling / UPI stuck (often with a screenshot) → [DEFER] immediately: "Ketu will reply shortly sir 🙏". Ketu fixes payment personally and often takes payment manually. NEVER invent retry timing ("15-20 min baad try karo") or ANY troubleshooting step not written in this prompt (clone fabricated a retry fix; the buyer had already failed on 3 cards).
   • POST-DELIVERY "CHANGES" — if the buyer ALREADY RECEIVED the order, "changes / badalna / size change karna hai" is a RETURN/EXCHANGE ask, NOT customization: "Return, replacement not allowed sir." The "hum sirf plain blanks bechte hain" customization answer applies only pre-order (clone gave the customization answer to a delivered-order change request).
@@ -3443,6 +3444,8 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     userPrompt = gsmHint + '\n\n' + userPrompt
     console.log(`[GsmHint] ${whatsappNumber} — bare GSM shared by several products, options injected`)
   }
+  const blueFamilyHint = !imageUrl && regularFitBlueHint({ products: catalogProducts, buyerText: mergedText, history: conversationHistory })
+  if (blueFamilyHint) userPrompt = blueFamilyHint + '\n\n' + userPrompt
 
   // PHOTO / VIDEO DEEP LINKS (2026-08-16, Ketu-approved): on a "dikhao / photo bhejo / video"
   // intent, inject the live gallery index so the clone can send ONE link that opens the buyer's
@@ -3773,6 +3776,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   try {
     aiReply = canonicalizeCatalogLinks(aiReply, catalogProducts)
     aiReply = appDiscoveryReplyGuard({ buyerText: mergedText, reply: aiReply })
+    const blueFamilyReply = !imageUrl && regularFitBlueGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
+    if (blueFamilyReply) {
+      aiReply = blueFamilyReply
+      console.log(`[RegularFitBlue] ${whatsappNumber} — catalogue shade-family contradiction corrected`)
+    }
     const gsmPriceReply = gsmPriceRangeGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
     if (gsmPriceReply) {
       aiReply = gsmPriceReply

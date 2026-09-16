@@ -19,6 +19,19 @@ assert.equal(facts.products[0].bulk, 211)
 assert.deepEqual(facts.products[0].bulkRange, [211, 251])
 assert.deepEqual(facts.products[0].sampleRange, [277, 299])
 assert.equal(facts.products[0].slug, 'example-hoodie')
+assert.equal(facts.products[0].fit, null)
+assert.deepEqual(facts.products[0].colors, ['Black', 'White'])
+for (const [description, expected] of [
+  ['Regular Fit, True Biowash Round neck, 180gsm', 'regular'],
+  ['Regular-fit; 100% cotton', 'regular'],
+  ['Not regular fit, oversized', null],
+  ['Oversized fit', null],
+  ['', null],
+]) {
+  const data = fixture()
+  data.categories[0].products[0].description = description
+  assert.equal(buildCatalogFacts(data).products[0].fit, expected)
+}
 
 for (const mutate of [
   d => { d.categories = [] },

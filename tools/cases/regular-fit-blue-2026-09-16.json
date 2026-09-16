@@ -1,0 +1,50 @@
+[
+  {
+    "id": "regular-blue-family",
+    "msg": "180gsm regular fit blue colour milta hai?",
+    "must": [
+      "True[ -]?Bio",
+      "Navy",
+      "Royal Blue",
+      "Sky"
+    ],
+    "mustNot": [
+      "regular.?fit[^.!?]{0,30}(?:blue[^.!?]{0,15})?(?:nahi|not available|no blue)"
+    ]
+  },
+  {
+    "id": "true-bio-blue-family",
+    "msg": "True Bio blue mein kya options hai?",
+    "must": [
+      "Navy",
+      "Royal Blue",
+      "Sky"
+    ],
+    "mustNot": [
+      "blue (?:nahi|not available)"
+    ]
+  },
+  {
+    "id": "exact-sky-control",
+    "msg": "180gsm True Bio mein Sky shade hai?",
+    "must": [
+      "Sky"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]",
+      "Sky[^.!?]{0,20}(?:nahi|not available)"
+    ]
+  },
+  {
+    "id": "oversize-blue-control",
+    "msg": "180gsm oversize mein blue milta hai?",
+    "must": [
+      "Black",
+      "White"
+    ],
+    "mustNot": [
+      "oversize[^.!?]{0,25}(?:mein|in) Navy",
+      "Yes sir[^.!?]{0,30}Royal Blue"
+    ]
+  }
+]
