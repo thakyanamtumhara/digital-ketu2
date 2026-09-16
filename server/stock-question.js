@@ -117,6 +117,7 @@ export function isTransactionalReply(reply, opts = {}) {
   if (!reply || !reply.trim()) return false
   const t = reply.toLowerCase()
   if (TRANSACTIONAL_LINKS_RE.test(t)) return true
+  if (/(?:^|[^\p{L}\p{M}])ट्र[ैे]किंग(?:$|[^\p{L}\p{M}])/u.test(t)) return true
   if (!opts.forTiming && TRANSACTIONAL_TIMING_RE.test(t)) return true
   // A reply carrying a buyer's ACCOUNT CREDENTIALS (their login email / a password) is per-buyer
   // private data — replaying it would send one buyer's credentials to another (caught live

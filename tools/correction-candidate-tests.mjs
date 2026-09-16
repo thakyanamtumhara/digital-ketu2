@@ -43,6 +43,25 @@ await test('stock-arrival state stays evidence without validator or promotion', 
   assert.equal(db.rows.get(result.id).payload.correctReply, 'अभी नहीं है')
 })
 
+await test('Hindi tracking actions stay evidence in every learning origin', async () => {
+  let calls = 0
+  const model = { messages: { create: async () => { calls++; return { content: [{ text: 'YES' }] } } } }
+  for (const origin of ['edit', 'intervention', 'backlog', 'reviewer_manual']) {
+    for (const correctReply of ['नंबर ठीक कर दिया, ट्रैकिंग अभी भेजता हूँ।', 'ट्रेकिंग भेज दूँगा।', 'आपकी ट्रैकिंग, थोड़ी देर में भेज दूँगा।']) {
+      const db = fakeDb()
+      const result = await validateLearningCandidate(db, model, { ...input, origin, buyerQuestion: 'Please check my parcel details.', correctReply })
+      assert.equal(result.verdict, 'rejected')
+      assert.equal(result.reason, 'transactional_reply')
+      assert.equal(db.rows.get(result.id).payload.correctReply, correctReply)
+    }
+  }
+  assert.equal(calls, 0)
+  assert.equal(learningEligibility({ buyerQuestion: 'Polo restock kab?', correctReply: 'ट्रैकिंग भेजता हूँ, 8 दिन में', timed: true }), 'transactional_reply')
+  assert.equal(learningEligibility({ buyerQuestion: 'Polo restock kab?', correctReply: '8 दिन में', timed: true }), null)
+  assert.equal(learningEligibility({ buyerQuestion: 'Which label is attached?', correctReply: 'केवल साइज लेबल लगा होता है।' }), null)
+  assert.equal(learningEligibility({ buyerQuestion: 'Where do I edit my number?', correctReply: 'वेबसाइट पर अपना मोबाइल नंबर बदल सकते हैं।' }), null)
+})
+
 await test('outage preserves exact evidence before validation and never promotes', async () => {
   const db = fakeDb()
   const model = { messages: { create: async () => {
