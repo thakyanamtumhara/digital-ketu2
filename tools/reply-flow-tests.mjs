@@ -6,7 +6,7 @@ import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, forma
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [] } = {}) {
+async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [] } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
   const restraintRequests = [], handled = []
   const timers = [], recoveryQueries = []
@@ -20,7 +20,7 @@ async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Kh
     console: { log() {}, warn() {}, error(...args) { errors.push(args.join(' ')) } },
     process: { env: { WWBUN_API_URL: 'https://transport.invalid', DIGITAL_KETU_SECRET: 'test-only', OWNER_WHATSAPP: 'owner-test' } },
     Buffer, URL, Date: recovery ? TestDate : Date, AbortController, AbortSignal,
-    setTimeout(fn, ms) { if (recovery) timers.push({ fn, ms }); else if (ms < 30000) queueMicrotask(fn); return { unref() {} } },
+    setTimeout(fn, ms) { timers.push({ fn, ms }); if (!recovery && ms < 30000) queueMicrotask(fn); return { unref() {} } },
     clearTimeout() {},
     fetch: async (url, options) => {
       if (String(url) === 'https://transport.invalid/api/conversations/mark-handled') { handled.push(JSON.parse(options.body)); return { ok: true } }
@@ -93,7 +93,7 @@ async function runCase({ whatsappNumber = 'buyer-test', reply = 'Address sir: Kh
     knowledgeChunk: { findFirst: async () => null, findMany: async () => [] },
     buyerMemory: { findUnique: async () => preferredLanguage ? { language: preferredLanguage } : null, upsert: async () => ({}) },
     buyerConversation: {
-      findUnique: async () => ({ whatsappNumber, lastMessageAt: new Date(), cooldownUntil: recovery?.cooldown || (cooldown && ++conversationReads > 1 ? new Date(Date.now() + 60000) : null) }),
+      findUnique: async query => firstContact && query.select?.lastMessageAt ? null : ({ whatsappNumber, lastMessageAt: new Date(), cooldownUntil: recovery?.cooldown || (cooldown && ++conversationReads > 1 ? new Date(Date.now() + 60000) : null) }),
       upsert: async () => ({ id: 'conversation-test', isFirstTime: false }),
     },
     $queryRaw: async () => timedFacts, $executeRaw: async () => 0,
@@ -140,6 +140,67 @@ const blueCatalog = { categories: [{ products: [{
 }] }] }
 
 const tests = [
+  ['text reaction placeholders skip first-contact paid followups and preserve source ids', async () => {
+    for (const firstContact of [true, false]) {
+      for (const text of ['[Reaction]', '  [reaction]  ']) {
+        const r = await runCase({ firstContact, incomingText: text })
+        assert.equal(r.requests.length, 0)
+        assert.equal(r.restraintRequests.length, 0)
+        assert.equal(r.rewriteRequests.length, 0)
+        assert.equal(r.sent.length, 0)
+        assert.equal(r.handled.length, 0)
+        assert.equal(r.timerDelays.length, 0)
+        assert.equal(r.logs.at(-1).deferReason, 'emoji_reaction')
+        assert.ok(r.logs.at(-1).messageIds.includes('inbound-test'))
+        assert.deepEqual(r.errors, [])
+      }
+    }
+  }],
+  ['typed and original reaction events retain their existing silent outcome', async () => {
+    for (const message of [
+      { messageType: 'reaction', messageText: '👍' },
+      { messageType: 'text', messageText: '[Reacted: ❤️]' },
+    ]) {
+      const r = await runCase({ firstContact: true, incomingMessages: [{ messageId: 'reaction-test', ...message }] })
+      assert.equal(r.logs.at(-1).deferReason, 'emoji_reaction')
+      assert.equal(r.timerDelays.length, 0)
+      assert.equal(r.sent.length, 0)
+    }
+  }],
+  ['a reaction beside a buyer question still receives an answer', async () => {
+    for (const incomingMessages of [
+      [{ messageId: 'question-test', messageType: 'text', messageText: '[Reaction] How do I order?' }],
+      [{ messageId: 'reaction-test', messageType: 'text', messageText: '[Reaction]' }, { messageId: 'question-test', messageType: 'text', messageText: 'How do I order?' }],
+    ]) {
+      const r = await runCase({ incomingMessages, reply: 'Please order on the website sir.' })
+      assert.equal(r.requests.length, 1)
+      assert.equal(r.sent.length, 1)
+      assert.ok(!r.logs.some(row => row.deferReason === 'emoji_reaction'))
+      assert.ok(r.logs.at(-1).messageIds.includes('question-test'))
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['a reaction marker cannot hide an accompanying image or document', async () => {
+    for (const message of [
+      { messageType: 'image', messageText: '[Reaction]', mediaUrl: 'https://media.invalid/photo.jpg' },
+      { messageType: 'text', messageText: '[Reaction]', hasMedia: true },
+      { messageType: 'text', messageText: '[Reaction]', mediaUrl: 'https://media.invalid/photo.jpg' },
+      { messageType: 'document', messageText: '[Reaction]', mediaUrl: 'https://media.invalid/document.pdf' },
+    ]) {
+      const r = await runCase({ incomingMessages: [{ messageId: 'media-test', ...message }], reply: '[DEFER]', invoiceKind: 'NOT_INVOICE' })
+      assert.ok(!r.logs.some(row => row.deferReason === 'emoji_reaction'))
+    }
+  }],
+  ['reaction plus owner-only question preserves handoff and cooldown', async () => {
+    for (const cooldown of [false, true]) {
+      const r = await runCase({ incomingText: '[Reaction] Refund status?', cooldown, reply: '[DEFER]' })
+      assert.equal(r.sent.length, 0)
+      assert.ok(!r.logs.some(row => row.deferReason === 'emoji_reaction'))
+      if (cooldown) assert.equal(r.logs.at(-1).deferReason, 'cooldown')
+      else assert.equal(r.pending.size, 1)
+    }
+  }],
+
   ['catalogue shortcut keeps a Roman Hindi duration question in the answer flow', async () => {
     const r = await runCase({ incomingText: 'Kitane din me aayega aur catelog bhejo sir', keywordFilters: [{ name: 'catalog_request', matchType: 'partial', keywords: 'catelog', action: 'auto_reply', autoReplyText: 'catalog-only' }], reply: 'Usually 2-3 din sir. Catalogue: https://sale91.com/catalog' })
     assert.equal(r.requests.length, 1)

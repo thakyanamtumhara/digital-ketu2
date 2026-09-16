@@ -1882,7 +1882,8 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // --- Check: Emoji reaction (👍, ❤️, etc.) — skip silently ---
   const isReaction = messages.every(m =>
     m.messageType === 'reaction' ||
-    (m.messageText && m.messageText.startsWith('[Reacted:'))
+    (m.messageText && m.messageText.startsWith('[Reacted:')) ||
+    (m.messageType === 'text' && !m.hasMedia && !m.mediaUrl && /^\s*\[Reaction\]\s*$/i.test(m.messageText || ''))
   )
   if (isReaction) {
     await createLog(db, conversation.id, mergedText || '[reaction]', messageIds, {
