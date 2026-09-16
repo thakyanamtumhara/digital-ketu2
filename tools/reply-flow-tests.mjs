@@ -140,6 +140,30 @@ const blueCatalog = { categories: [{ products: [{
 }] }] }
 
 const tests = [
+  ['store menu skips model and welcome routing with its inbound id', async () => {
+    const incomingText = '👋 Welcome to Example Clothing!\n👕 T-Shirts and custom prints\n🧥 Hoodies\n🏫 School Uniforms\n🎉 Festival & Event Wear\nBrowse our catalog and message us your requirements.\nExample Clothing — wear your style!'
+    const r = await runCase({ incomingText })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.restraintRequests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.logs.at(-1).deferReason, 'automated_business_reply')
+    assert.ok(r.logs.at(-1).messageIds.includes('inbound-test'))
+    assert.deepEqual(r.errors, [])
+  }],
+  ['a buying request after a store menu remains answerable', async () => {
+    const incomingText = '👋 Welcome to Example Clothing!\n👕 T-Shirts and custom prints\n🧥 Hoodies\n🏫 School Uniforms\n🎉 Festival & Event Wear\nBrowse our catalog and message us your requirements.\nI need plain tees. How do I order?'
+    const r = await runCase({ incomingText, reply: 'You can order from the website sir.' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.ok(!r.logs.some(row => row.deferReason === 'automated_business_reply'))
+    assert.deepEqual(r.errors, [])
+  }],
+  ['simple business acknowledgement keeps its existing skip', async () => {
+    const r = await runCase({ incomingText: 'Thank you for contacting Example Clothing! Please let us know how we can help you.' })
+    assert.equal(r.logs.at(-1).deferReason, 'automated_business_reply')
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.requests.length, 0)
+  }],
   ['generic regular-fit blue contradiction is repaired before delivery', async () => {
     const r = await runCase({ catalogData: blueCatalog, buyerText: '180gsm regular fit blue ka rate?', reply: '180gsm regular fit mein blue nahi hai sir — True Bio mein Navy, Royal Blue, Sky hai, ₹158. Kitne pieces chahiye?' })
     assert.equal(r.sent.length, 1)
