@@ -140,6 +140,32 @@ const blueCatalog = { categories: [{ products: [{
 }] }] }
 
 const tests = [
+  ['completed shipment questions keep the model handoff and inbound evidence', async () => {
+    for (const buyerText of ['Sir abhi bhej diya kya?', 'Aaj bhej dia?', 'Kal dispatch kar diya?', 'Abhi nikal gaya?', 'Aaj shipped?', 'Today already sent?']) {
+      const r = await runCase({ buyerText, reply: '[DEFER]' })
+      assert.equal(r.sent.length, 0, buyerText)
+      const held = r.pending.get('buyer-test')?.messages[0]
+      assert.ok(held, buyerText)
+      assert.ok(held.messageIds.includes('inbound-test'))
+      assert.ok(held.logData.costUsd > 0)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['future dispatch questions and instructions keep their established acknowledgement', async () => {
+    for (const buyerText of ['Aaj dispatch hoga na?', 'Abhi bhej doge?', 'Kal nikal jayega?', 'Aaj nikalwa dena please']) {
+      const r = await runCase({ buyerText, reply: '[DEFER]' })
+      assert.equal(r.sent.length, 1, buyerText)
+      assert.equal(r.pending.size, 0)
+      assert.equal(r.logs.at(-1).deferReason, 'dispatch_ack_defer_override')
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['completed dispatch protection preserves an independently supported answer', async () => {
+    const reply = 'Your parcel was dispatched today sir.'
+    const r = await runCase({ buyerText: 'Today dispatched?', reply, history: [{ status: 'SKIPPED', deferReason: 'manual_reply', buyerMessage: 'old pairing', aiReply: 'Dispatched today', createdAt: new Date().toISOString() }] })
+    assert.equal(r.sent[0].message, reply)
+    assert.equal(r.pending.size, 0)
+  }],
   ['compact colour-arrival question receives current stock before answering', async () => {
     const stockSnapshot = { fetchedAt: Date.now(), inStock: { 'Oversize 240gsm': { 'Off-white': { S: 1 } } }, oos: { 'Oversize 240gsm': { 'Off-white': 'S' } }, coming: {} }
     const r = await runCase({ buyerText: 'Bhai ofwhite aaya?', stockSnapshot, reply: 'Alert laga lijiye sir, stock aane par WhatsApp aa jayega 👉 https://www.bulkplaintshirt.com/delhi-stock.html?alert=1' })

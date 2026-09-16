@@ -3903,9 +3903,10 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   const deferSplit = partialDeferSplit(aiReply)
   if (!postModelGuardFailed && !arrivalClockBlocked && !couponCodeHeld && !restockPointerHeld && deferSplit.isDefer && !deferSplit.isPartial) {
     const DISPATCH_BLOCK_RE = /nahi|nhi\b|\bnot\b|abhi\s*tak|cancel|return|wapas|refund|complaint|damage|ref:\s*wo_|total\s*\d+\s*pcs|kyu\b|why/i
+    const DISPATCH_COMPLETED_RE = /\b(?:bhej|bhijwa|dispatch|ship)\s*(?:(?:kar|kr)\s*)?(?:diya|dia|diye|die|di|kiya|kia|hua|hui|ho\s*(?:gaya|gya))\b|\b(?:nika?l|nikaal)\s*(?:gaya|gya|gayi|gyi|chuka|chuki)\b|\b(?:sent|shipped|dispatched|bheja)\b/i
     const DISPATCH_YESNO_RE = /\b(aa?j|kal|abhi|today|tomorrow)\b[^]{0,40}\b(dispatch|nika?l|bhej)[^]{0,25}(hoga|hogi|jayega|jaega|\bna\b|\?)|\bdispatch\s*(hoga|ho\s*jayega)\b/i
     const DISPATCH_INSTRUCT_RE = /(nikal\s*wa|nikalwa|nikla?wa|bhij\s*wa|bhijwa|rakh\s*wa|rakhwa|porter\s*kar[wv]a)\s*(de?na|di?jiye|do\b|dena)|dispatch\s*(kar|kr)[wv]a\s*(dena|do|dijiye)|(aa?j|kal)[^]{0,20}(bhijwa|nikalwa|rakhwa)\s*(dena|dijiye|do)/i
-    if (!DISPATCH_BLOCK_RE.test(mergedText || '')) {
+    if (!DISPATCH_BLOCK_RE.test(mergedText || '') && !DISPATCH_COMPLETED_RE.test(mergedText || '')) {
       let ack = null
       if (DISPATCH_YESNO_RE.test(mergedText || '')) {
         // Pre-order same-day ask ("180 pcs black aaj dispatch karoge?") → Ketu's order-now variant
