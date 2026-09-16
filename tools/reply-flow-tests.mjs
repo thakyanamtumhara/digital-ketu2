@@ -298,6 +298,35 @@ const tests = [
     assert.deepEqual(r.errors, [])
   }],
 
+  ['printer fulfilment question reaches the answer despite a silent gate', async () => {
+    const history = [{ buyerMessage: 'Can I get my logo added?', aiReply: 'For printing, contact the printer https://wa.me/910000000000', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }]
+    const r = await runCase({ buyerText: 'Can he print them and ship directly to us', reply: 'Please confirm printing and shipping with the printer sir.', gateVerdict: 'SILENT', history })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.handled.length, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['printer follow-up preserves acknowledgement and stale referral silence', async () => {
+    for (const [buyerText, age] of [['Okay I will talk to him', 60000], ['Can he print them and ship directly to us', 7200001]]) {
+      const history = [{ aiReply: 'For printing, contact the printer https://wa.me/910000000000', status: 'REPLIED', createdAt: new Date(Date.now() - age) }]
+      const r = await runCase({ buyerText, gateVerdict: 'SILENT', history })
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.sent.length, 0)
+    }
+  }],
+  ['printer follow-up preserves manual ownership and daily cap', async () => {
+    const history = [{ aiReply: 'For printing, contact the printer https://wa.me/910000000000', status: 'REPLIED', createdAt: new Date(Date.now() - 900000) }]
+    for (const boundary of [{ outboundHistory: [{ status: 'SKIPPED', deferReason: 'manual_reply', createdAt: new Date(Date.now() - 700000) }] }, { repliesToday: 25 }]) {
+      const r = await runCase({ buyerText: 'Can he print them and ship directly to us', gateVerdict: 'SILENT', history, ...boundary })
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.sent.length, 0)
+    }
+  }],
+  ['printer follow-up preserves manual cooldown', async () => {
+    const r = await runCase({ incomingText: 'Can he print them and ship directly to us', cooldown: true, gateVerdict: 'SILENT', history: [{ aiReply: 'For printing, contact the printer https://wa.me/910000000000', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+  }],
   ['game earning clarification reaches the answer despite a silent gate', async () => {
     const r = await runCase({ buyerText: 'Could I make money from this game', reply: 'No sir, just for play purpose.', gateVerdict: 'SILENT', history: [{ buyerMessage: 'What is the website game for?', aiReply: 'Just for play purpose sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
     assert.equal(r.requests.length, 1)
