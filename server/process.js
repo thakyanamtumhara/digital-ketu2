@@ -26,7 +26,7 @@ import { isGameEarningsFollowup } from './game-followup.js'
 import { isPrinterFulfilmentFollowup } from './printer-followup.js'
 import { isRecipientReceiptQuestion } from './receipt-question.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
-import { isDeferLine, hasGarbledTranscript } from './stock-question.js'
+import { isDeferLine, hasGarbledTranscript, isStockArrivalQuestion } from './stock-question.js'
 import { partialDeferSplit } from './reconcile.js'
 import { repairReplyLanguage, buyerUsesEnglish } from './reply-language.js'
 import { arrivalClockGuard } from './arrival-clock.js'
@@ -3413,7 +3413,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   let unnamedCandidates = []
   let stockSnapshot = null
   const timingNow = Date.now()
-  if (STOCK_INTENT_RE.test(mergedText || '') || discontinuedSizeRequest(mergedText)) {
+  if (STOCK_INTENT_RE.test(mergedText || '') || isStockArrivalQuestion(mergedText) || discontinuedSizeRequest(mergedText)) {
     try {
       stockSnapshot = await getStockSnapshot()
       const stockBlock = formatStockBlock(stockSnapshot, { timedFacts: await fetchTimedFacts(db), now: timingNow })

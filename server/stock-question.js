@@ -56,8 +56,20 @@ export function hasGarbledTranscript(text) {
 // Any answer to these ("7 days", "abhi nahi", "there is no red", "aa gaya") is true only at
 // that moment, so it must NEVER be captured as a permanent correction — the live AI answers
 // these dynamically (check website + enable stock alert). Used as a capture-time guard.
+export function isStockArrivalQuestion(text) {
+  const value = String(text || '').trim().toLowerCase()
+  if (!/[?？]|\bkya\b/.test(value)) return false
+  const match = /^(.{1,120}?)\s+(?:aaya|aayi|aaye|aya|ayi|aye|aa\s+gay[aei])(?:\s+(?:hai|hain|kya|sir|bhai|bhaiya|ji))*\s*[?？]*$/i.exec(value)
+  if (!match) return false
+  const subject = match[1].replace(/\boff?[- ]*white\b/g, 'off white')
+  if (!/\b(?:black|white|navy|blue|red|green|grey|gray|maroon|beige|cream|pink|yellow|mustard|lavender|charcoal|brown|orange|polo|hoodie|sweatshirt|varsity|shorts|rneck|bio|oversize|oversized|stock)\b/.test(subject)) return false
+  const allowed = /^(?:sir|bhai|bhaiya|ji|abhi|tak|kya|black|white|off|navy|blue|royal|sky|powder|red|green|bottle|army|sage|grey|gray|maroon|beige|cream|pink|baby|rose|yellow|mustard|lavender|charcoal|brown|orange|polo|cotton|premium|hoodie|sweatshirt|varsity|shorts|rneck|round|neck|bio|true|oversize|oversized|acid|wash|kids|stock|gsm|180|210|220|240|260|320|430|\d{3}gsm|xxs|xs|s|m|l|xl|xxl|xxxl|2xl|3xl|36|38|40|42|44|46)$/
+  return subject.split(/\s+/).every(word => allowed.test(word))
+}
+
 export function isStockAvailabilityQuestion(text) {
   if (!text || !text.trim()) return false
+  if (isStockArrivalQuestion(text)) return true
   const t = text.toLowerCase()
 
   // Restock / "when will it come" timing

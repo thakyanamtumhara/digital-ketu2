@@ -140,6 +140,27 @@ const blueCatalog = { categories: [{ products: [{
 }] }] }
 
 const tests = [
+  ['compact colour-arrival question receives current stock before answering', async () => {
+    const stockSnapshot = { fetchedAt: Date.now(), inStock: { 'Oversize 240gsm': { 'Off-white': { S: 1 } } }, oos: { 'Oversize 240gsm': { 'Off-white': 'S' } }, coming: {} }
+    const r = await runCase({ buyerText: 'Bhai ofwhite aaya?', stockSnapshot, reply: 'Alert laga lijiye sir, stock aane par WhatsApp aa jayega 👉 https://www.bulkplaintshirt.com/delhi-stock.html?alert=1' })
+    assert.match(r.requests[0].messages[0].content, /📦 LIVE STOCK DATA/)
+    assert.match(r.sent[0].message, /alert=1/)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['stock-arrival fetch failure keeps the existing handoff', async () => {
+    const r = await runCase({ buyerText: 'Bhai ofwhite aaya?', stockThrows: true, reply: '[DEFER]' })
+    assert.doesNotMatch(r.requests[0].messages[0].content, /📦 LIVE STOCK DATA/)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 1)
+    assert.ok(r.errors.some(x => x.includes('stock unavailable')))
+  }],
+  ['parcel arrival does not acquire inventory facts', async () => {
+    const stockSnapshot = { fetchedAt: Date.now(), inStock: { 'Oversize 240gsm': { White: { S: 1 } } }, oos: {}, coming: {} }
+    const r = await runCase({ buyerText: 'Mera white parcel aaya?', stockSnapshot, reply: '[DEFER]' })
+    assert.doesNotMatch(r.requests[0].messages[0].content, /📦 LIVE STOCK DATA/)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 1)
+  }],
   ['store menu skips model and welcome routing with its inbound id', async () => {
     const incomingText = '👋 Welcome to Example Clothing!\n👕 T-Shirts and custom prints\n🧥 Hoodies\n🏫 School Uniforms\n🎉 Festival & Event Wear\nBrowse our catalog and message us your requirements.\nExample Clothing — wear your style!'
     const r = await runCase({ incomingText })

@@ -32,6 +32,17 @@ const input = { origin: 'edit', buyerQuestion: 'Can I mix colours?', correctRepl
 let tests = 0
 const test = async (name, fn) => { await fn(); tests++; console.log(`PASS ${name}`) }
 
+await test('stock-arrival state stays evidence without validator or promotion', async () => {
+  let calls = 0
+  const db = fakeDb()
+  const model = { messages: { create: async () => { calls++; return { content: [{ text: 'YES' }] } } } }
+  const result = await validateLearningCandidate(db, model, { ...input, buyerQuestion: 'Bhai cream aaya?', correctReply: 'अभी नहीं है' })
+  assert.equal(result.verdict, 'rejected')
+  assert.equal(result.reason, 'perishable_stock_answer')
+  assert.equal(calls, 0)
+  assert.equal(db.rows.get(result.id).payload.correctReply, 'अभी नहीं है')
+})
+
 await test('outage preserves exact evidence before validation and never promotes', async () => {
   const db = fakeDb()
   const model = { messages: { create: async () => {
