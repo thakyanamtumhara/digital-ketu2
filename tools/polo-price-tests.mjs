@@ -7,12 +7,20 @@ const output = poloRateSummaryGuard(base)
 assert.match(output, /Cotton Polo ₹211–₹223; Premium Polo ₹267–₹279/)
 assert.match(output, /bulk \(10\+ total pcs, colour\/size/)
 assert.match(poloRateSummaryGuard({ ...base, buyerText: 'Please share polo prices', english: true }), /by colour\/size/)
+for (const buyerText of ['Please send me the details of both polo t-shirts.', 'Polo tshirt details please', 'Share polo t shirt price list']) {
+  assert.match(poloRateSummaryGuard({ ...base, buyerText, english: true }), /Cotton Polo ₹211–₹223; Premium Polo ₹267–₹279.*by colour\/size/)
+}
+for (const buyerText of ['Share polo t-shirt fabric details', 'Details of polo delivery', 'Polo t-shirts size 46 details', 'Details of polo sample prices', 'Details of polo and hoodie', 'Details of my polo order']) {
+  assert.equal(poloRateSummaryGuard({ ...base, buyerText }), null, buyerText)
+}
 assert.ok(poloRateSummaryGuard({ ...base, history: [{ buyerMessage: 'Around 1200pcs for a college event, rate kya hoga?' }] }))
 assert.ok(poloRateSummaryGuard({ ...base, history: [{ buyerMessage: 'Hi, a question about Cotton Polo https://sale91.com/catalog/p/cotton-polo' }] }))
 assert.equal(poloRateSummaryGuard({ ...base, reply: output }), null)
 assert.match(poloRateSummaryGuard({ ...base, reply: 'Polo mein Cotton Polo ₹211 aur Premium Polo ₹267 hai sir (220gsm)' }), /₹211–₹223.*₹267–₹279 \(220gsm\)/)
 assert.equal(poloRateSummaryGuard({ ...base, reply: base.reply + ' (180gsm)' }), null)
 assert.equal(poloRateSummaryGuard({ ...base, reply: base.reply + ' 100% cotton' }), null)
+assert.match(poloRateSummaryGuard({ ...base, reply: 'Polo 2 hain sir — Cotton Polo ₹211 👉 https://sale91.com/catalog/p/cotton-polo, Premium Polo ₹267 👉 https://sale91.com/catalog/p/premium-polo', english: true }), /₹211–₹223.*₹267–₹279.*by colour\/size/)
+for (const prefix of ['Polo 2 pcs hain sir — ', 'Polo 2 samples hain sir — ', 'Polo 3 hain sir — ', '2 Cotton Polo — ']) assert.equal(poloRateSummaryGuard({ ...base, reply: prefix + base.reply }), null, prefix)
 assert.match(poloRateSummaryGuard({ ...base, products: products.map(p => ({ ...p, bulkRange: p.bulkRange.map(n => n + 10) })) }), /₹221–₹233.*₹277–₹289/)
 
 for (const buyerText of ['Cotton Polo size 46 price', '2 polo samples', 'Polo price and delivery time', 'Polo refund', 'kids polo', 'polo navy', 'polo fabric', '[Image] polo', '?', 'hoodie rates']) assert.equal(poloRateSummaryGuard({ ...base, buyerText }), null, buyerText)

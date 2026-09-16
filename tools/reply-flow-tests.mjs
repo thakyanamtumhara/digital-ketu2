@@ -647,6 +647,28 @@ const tests = [
     assert.equal(r.logs.at(-1).sentViaWwbun, true)
     assert.deepEqual(r.errors, [])
   }],
+  ['plain polo details preserve current ranges without replacing a fabric answer', async () => {
+    const catalogData = { categories: [{ products: [
+      { name: 'Cotton Polo', slug: 'cotton-polo', gsm: 220, colors: ['Black'], sizes: ['36', '46'], rates: [{ colors: ['Black'], pricePerSize: { '36': 211, '46': 223 }, samplePrice: 271 }] },
+      { name: 'Premium Polo', slug: 'premium-polo', gsm: 220, colors: ['Black'], sizes: ['36', '46'], rates: [{ colors: ['Black'], pricePerSize: { '36': 267, '46': 279 }, samplePrice: 327 }] },
+    ] }] }
+    const buyerText = 'Please send me the details of both polo t-shirts.'
+    const r = await runCase({ buyerText, reply: 'Cotton Polo ₹211; Premium Polo ₹267 (bulk) sir.', catalogData })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /Cotton Polo ₹211–₹223; Premium Polo ₹267–₹279/)
+    assert.match(r.sent[0].message, /10\+ total pcs, by colour\/size/)
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.deepEqual(r.errors, [])
+    const counted = await runCase({ buyerText, reply: 'Polo 2 hain sir — Cotton Polo ₹211 👉 https://sale91.com/catalog/p/cotton-polo, Premium Polo ₹267 👉 https://sale91.com/catalog/p/premium-polo', catalogData })
+    assert.equal(counted.sent[0].message, r.sent[0].message)
+    assert.equal(counted.logs.at(-1).aiReply, counted.sent[0].message)
+    const reply = 'Cotton Polo ₹211; Premium Polo ₹267 in bulk. Fabric details are in the catalog sir.'
+    const mixed = await runCase({ buyerText: 'Please send polo fabric details', reply, catalogData })
+    assert.equal(mixed.sent[0].message, reply)
+    const cooldown = await runCase({ incomingText: buyerText, cooldown: true, catalogData })
+    assert.equal(cooldown.requests.length, 0)
+    assert.equal(cooldown.sent.length, 0)
+  }],
   ['specific polo sample quote and owner handoff preserve their paths', async () => {
     const catalogData = { categories: [{ products: [
       { name: 'Cotton Polo', slug: 'cotton-polo', gsm: 220, colors: ['Black'], sizes: ['36', '46'], rates: [{ colors: ['Black'], pricePerSize: { '36': 211, '46': 223 }, samplePrice: 271 }] },
