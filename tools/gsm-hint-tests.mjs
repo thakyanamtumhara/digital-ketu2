@@ -62,4 +62,20 @@ assert.equal(gsmPriceRangeGuard({ ...request, reply: 'Rate ₹211. [DEFER]' }), 
 assert.equal(gsmPriceRangeGuard({ ...request, reply: 'Which fit sir? https://sale91.com/catalog' }), null)
 assert.equal(gsmPriceRangeGuard({ ...request, products: P }), null)
 console.log('PASS GSM price guard and product, quantity, history, mixed-task, handoff, no-price and unavailable-source controls')
+const multiple = { ...request, products: [...current.products,
+  { title: 'Oversize 210gsm', gsm: 210, bulkRange: [321, 333] },
+  { title: 'Oversize 240gsm', gsm: 240, bulkRange: [341, 353] },
+  { title: 'AcidWash Oversize', gsm: 240, bulkRange: [361, 373] },
+], buyerText: 'Helo sir 180gsm price wholesale sale aur 210gsm aur 240gsm price bta do bhi' }
+const multiReply = gsmPriceRangeGuard(multiple)
+assert.match(multiReply, /180gsm — Example Round Neck: ₹211–₹251; Oversize 180gsm: ₹313/)
+assert.match(multiReply, /210gsm — Oversize 210gsm: ₹321–₹333/)
+assert.match(multiReply, /240gsm — Oversize 240gsm: ₹341–₹353; AcidWash Oversize: ₹361–₹373/)
+assert.match(multiReply, /180gsm: Kaunsa product chahiye sir\?/)
+assert.match(multiReply, /bulk \(10\+ total pcs\)/)
+assert.match(gsmPriceRangeGuard({ ...multiple, buyerText: '180gsm and 240gsm prices please', english: true }), /180gsm: Which product sir\?/)
+assert.equal((gsmPriceRangeGuard({ ...multiple, buyerText: '180gsm and 180gsm price' }).match(/Example Round Neck/g) || []).length, 1)
+for (const buyerText of ['180gsm 210gsm 240gsm 300gsm prices', '180gsm 300gsm price', '180gsm 240gsm sample price', '180gsm 240gsm 20 pcs price', '180gsm 240gsm oversize price', '180gsm 240gsm price and delivery', '180gsm 240gsm price and fabric', '180gsm 240gsm price wrong', '210gsm 240gsm price']) assert.equal(gsmPriceRangeGuard({ ...multiple, buyerText }), null)
+for (const extra of [{ imageUrl: 'https://media.invalid/product.jpg' }, { reply: '₹211. [DEFER]' }, { reply: 'Which fit sir?' }, { history: [{ buyerMessage: 'regular fit please' }] }, { history: [{ deferReason: 'manual_reply', aiReply: '2 pcs sample' }] }, { products: multiple.products.filter(p => p.gsm !== 210) }, { products: multiple.products.map(p => p.gsm === 210 ? { ...p, bulkRange: [333, 321] } : p) }]) assert.equal(gsmPriceRangeGuard({ ...multiple, ...extra }), null)
+console.log('PASS bounded multiple GSM requests preserve every requested group, fit choice, full ranges and exception boundaries')
 console.log(`\n${pass}/${total} passed`); process.exit(pass === total ? 0 : 1)

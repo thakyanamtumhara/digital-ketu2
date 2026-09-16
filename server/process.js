@@ -3785,7 +3785,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
       aiReply = blueFamilyReply
       console.log(`[RegularFitBlue] ${whatsappNumber} — catalogue shade-family contradiction corrected`)
     }
-    const gsmPriceReply = gsmPriceRangeGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
+    const gsmPriceReply = gsmPriceRangeGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, imageUrl, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
     if (gsmPriceReply) {
       aiReply = gsmPriceReply
       console.log(`[GsmPriceRange] ${whatsappNumber} — current catalogue ranges applied`)

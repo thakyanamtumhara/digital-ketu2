@@ -140,6 +140,33 @@ const blueCatalog = { categories: [{ products: [{
 }] }] }
 
 const tests = [
+  ['multiple GSM quotes preserve all requested products and unresolved fit', async () => {
+    const catalogData = { categories: [{ products: [
+      { name: 'Example Round Neck', slug: 'example-round-neck', gsm: 180, colors: ['Black'], sizes: ['M', 'XL'], rates: [{ colors: ['Black'], pricePerSize: { M: 111, XL: 121 }, samplePrice: 151 }] },
+      { name: 'Oversize 180gsm', slug: 'oversize-180gsm', gsm: 180, colors: ['Black'], sizes: ['M'], rates: [{ colors: ['Black'], pricePerSize: { M: 131 }, samplePrice: 161 }] },
+      { name: 'Oversize 210gsm', slug: 'oversize-210gsm', gsm: 210, colors: ['Black'], sizes: ['M'], rates: [{ colors: ['Black'], pricePerSize: { M: 141 }, samplePrice: 171 }] },
+    ] }] }
+    const buyerText = '180gsm and 210gsm wholesale price please', reply = '180gsm oversize ₹131, 210gsm ₹141 sir.'
+    const r = await runCase({ buyerText, reply, catalogData })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /Example Round Neck: ₹111–₹121; Oversize 180gsm: ₹131/)
+    assert.match(r.sent[0].message, /210gsm — Oversize 210gsm: ₹141/)
+    assert.match(r.sent[0].message, /180gsm: Which product sir\?/)
+    assert.match(r.sent[0].message, /bulk \(10\+ total pcs\)/)
+    assert.deepEqual(r.errors, [])
+    for (const extra of [{ imageUrl: 'https://media.invalid/product.jpg' }, { buyerText: buyerText + ' and fabric' }, { history: [{ status: 'REPLIED', buyerMessage: 'oversize only', aiReply: 'Ok sir', createdAt: new Date() }] }]) {
+      const control = await runCase({ buyerText, reply, catalogData, ...extra })
+      assert.equal(control.sent[0].message, reply)
+      assert.deepEqual(control.errors, [])
+    }
+    const held = await runCase({ buyerText, reply: '[DEFER]', catalogData })
+    assert.equal(held.sent.length, 0)
+    assert.equal(held.pending.size, 1)
+    const cooldown = await runCase({ incomingText: buyerText, cooldown: true, catalogData })
+    assert.equal(cooldown.requests.length, 0)
+    assert.equal(cooldown.sent.length, 0)
+  }],
   ['text reaction placeholders skip first-contact paid followups and preserve source ids', async () => {
     for (const firstContact of [true, false]) {
       for (const text of ['[Reaction]', '  [reaction]  ']) {

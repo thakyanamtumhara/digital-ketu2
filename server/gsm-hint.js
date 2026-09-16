@@ -51,22 +51,26 @@ export function gsmAmbiguityHint(products, text) {
   ].join('\n')
 }
 
-export function gsmPriceRangeGuard({ products = [], buyerText, history = [], reply, english = false }) {
+export function gsmPriceRangeGuard({ products = [], buyerText, history = [], reply, english = false, imageUrl = null }) {
   const text = String(buyerText || '').trim()
-  const gsms = [...text.matchAll(/\b(\d{3})\s*(?:gsm|gsn|gms|g\.s\.m)\b/gi)]
-  if (gsms.length !== 1 || text.length > 160 || FIT_OR_PRODUCT_RE.test(text)) return null
+  const gsmPattern = /\b(\d{3})\s*(?:gsm|gsn|gms|g\.s\.m)\b/gi
+  const gsms = [...new Set([...text.matchAll(gsmPattern)].map(match => Number(match[1])))]
+  if (imageUrl || !gsms.length || gsms.length > 3 || text.length > 160 || FIT_OR_PRODUCT_RE.test(text)) return null
   if (!/\b(?:prices?|rates?|catalog(?:ue)?)\b/i.test(text)) return null
-  if (/\d/.test(text.replace(gsms[0][0], '')) || /\b(?:samples?|pcs?|pieces?|qty|quantity|coupon|code|discount|payment|paid|refund|return|exchange|complaint|delivery|dispatch|stock|available|restock|photos?|videos?|size|order|print(?:ing)?|embroidery|shipping|transport|courier|address|location|contact|hours?|quality|fabric)\b|\[[^\]]+\]|https?:\/\//i.test(text)) return null
-  const words = text.replace(gsms[0][0], '').toLowerCase().replace(/t[\s-]?shirts?/g, 'tshirt').replace(/[^a-z]+/g, ' ').trim().split(/\s+/)
-  if (/[^\x00-\x7f]/.test(text) || words.some(word => !/^(?:tshirt|tee|tees|plain|cotton|ka|ki|ke|kya|hai|hain|mein|me|mujhe|chahiye|catalog|catalogue|with|and|aur|or|price|prices|rate|rates|list|bulk|please|pls|plz|sir|hi|hello|share|send|show|give|tell|me|your|the|a|for|can|you|could|want|i|need|kijiye|kijie|kariye|kro|karo|bhejo|bhejiye|bhejna|batao|bataiye|dijiye|dikhaiye)$/.test(word))) return null
+  if (/\d/.test(text.replace(gsmPattern, '')) || /\b(?:samples?|pcs?|pieces?|qty|quantity|coupon|code|discount|payment|paid|refund|return|exchange|complaint|delivery|dispatch|stock|available|restock|photos?|videos?|size|order|print(?:ing)?|embroidery|shipping|transport|courier|address|location|contact|hours?|quality|fabric)\b|\[[^\]]+\]|https?:\/\//i.test(text)) return null
+  const words = text.replace(gsmPattern, '').toLowerCase().replace(/t[\s-]?shirts?/g, 'tshirt').replace(/[^a-z]+/g, ' ').trim().split(/\s+/)
+  if (/[^\x00-\x7f]/.test(text) || words.some(word => !/^(?:tshirt|tee|tees|plain|cotton|ka|ki|ke|kya|hai|hain|mein|me|mujhe|chahiye|catalog|catalogue|with|and|aur|or|price|prices|rate|rates|list|bulk|wholesale|sale|please|pls|plz|sir|hi|hello|helo|share|send|show|give|tell|me|your|the|a|for|can|you|could|want|i|need|kijiye|kijie|kariye|kro|karo|bhejo|bhejiye|bhejna|batao|bataiye|bta|do|bhi|dijiye|dikhaiye)$/.test(word))) return null
   if (history.slice(-6).some(row => {
     const prior = String(row.deferReason === 'manual_reply' ? row.aiReply || '' : row.buyerMessage || '')
     return FIT_OR_PRODUCT_RE.test(prior) || /\bsamples?\b|\d+\s*(?:pcs?|pieces?)\b/i.test(prior)
   })) return null
   if (!/(?:₹\s*|\brs\.?\s*)\d/i.test(String(reply || '')) || /\[(?:DEFER|SKIP)\]/i.test(reply)) return null
-  const gsm = Number(gsms[0][1]), hits = products.filter(p => p.gsm === gsm)
-  if (hits.length < 2 || !hits.some(p => /round\s*neck|polo|hoodie|sweat|boxy|kids/i.test(p.title))) return null
-  if (hits.some(p => !Array.isArray(p.bulkRange) || p.bulkRange.length !== 2 || p.bulkRange.some(n => typeof n !== 'number' || !Number.isFinite(n) || n <= 0) || p.bulkRange[0] > p.bulkRange[1])) return null
-  const options = hits.map(p => `${p.title}: ₹${p.bulkRange[0]}${p.bulkRange[0] === p.bulkRange[1] ? '' : `–₹${p.bulkRange[1]}`}`).join('; ')
-  return `${gsm}gsm bulk (10+ total pcs), ${english ? 'ranges by colour/size' : 'colour/size ke hisaab se'}: ${options}. ${english ? 'Which product sir?' : 'Kaunsa product chahiye sir?'} 👉 https://sale91.com/catalog`
+  const groups = gsms.map(gsm => ({ gsm, hits: products.filter(p => p.gsm === gsm) }))
+  const choices = groups.filter(({ hits }) => hits.length >= 2 && hits.some(p => /round\s*neck|polo|hoodie|sweat|boxy|kids/i.test(p.title)))
+  if (!choices.length || groups.some(({ hits }) => !hits.length || hits.some(p => !Array.isArray(p.bulkRange) || p.bulkRange.length !== 2 || p.bulkRange.some(n => typeof n !== 'number' || !Number.isFinite(n) || n <= 0) || p.bulkRange[0] > p.bulkRange[1]))) return null
+  const options = hits => hits.map(p => `${p.title}: ₹${p.bulkRange[0]}${p.bulkRange[0] === p.bulkRange[1] ? '' : `–₹${p.bulkRange[1]}`}`).join('; ')
+  const scope = `bulk (10+ total pcs), ${english ? 'ranges by colour/size' : 'colour/size ke hisaab se'}`
+  const question = english ? 'Which product sir?' : 'Kaunsa product chahiye sir?'
+  if (groups.length === 1) return `${gsms[0]}gsm ${scope}: ${options(groups[0].hits)}. ${question} 👉 https://sale91.com/catalog`
+  return `${scope}:\n${groups.map(({ gsm, hits }) => `${gsm}gsm — ${options(hits)}`).join('\n')}\n${choices.map(({ gsm }) => `${gsm}gsm`).join(', ')}: ${question} 👉 https://sale91.com/catalog`
 }
