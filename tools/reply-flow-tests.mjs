@@ -149,6 +149,43 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['nearest metro question reaches the answer model despite a silent gate', async () => {
+    const r = await runCase({ incomingText: 'Nearest metro station please?', gateVerdict: 'SILENT', reply: 'Saket metro sir.', history: [{ buyerMessage: 'Your Delhi address', aiReply: 'Our warehouse is in Khanpur, Delhi.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.restraintRequests.length, 0)
+    assert.equal(r.sent[0]?.message, 'Saket metro sir.')
+    assert.equal(r.handled.length, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['near metro fragment is answerable without a question mark', async () => {
+    const r = await runCase({ incomingText: 'Near metro station', gateVerdict: 'SILENT', reply: 'Saket metro sir.' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.logs.at(-1).sentViaWwbun, true)
+  }],
+  ['metro acknowledgement retains the silence decision', async () => {
+    const r = await runCase({ incomingText: 'Saket metro thanks', gateVerdict: 'SILENT' })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.logs.at(-1).deferReason, 'ai_chose_silence')
+  }],
+  ['metro question keeps owner cooldown and the daily reply cap', async () => {
+    const r = await runCase({ incomingText: 'Nearest metro station?', cooldown: true })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.handled.length, 0)
+    assert.equal(r.logs[0].status, 'COOLDOWN')
+    const capped = await runCase({ buyerText: 'Nearest metro station?', repliesToday: 25 })
+    assert.equal(capped.requests.length, 0)
+    assert.equal(capped.logs[0].deferReason, 'daily_reply_cap')
+  }],
+  ['metro routing keeps an owner-only reply as a handoff', async () => {
+    const r = await runCase({ incomingText: 'Nearest metro station?', gateVerdict: 'SILENT', reply: '[DEFER]' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 1)
+    assert.equal(r.handled.length, 0)
+  }],
   ['plural sweatshirt keeps its named-product reply through the actual guards', async () => {
     const r = await runCase({ realStockResolver: true, stockSnapshot: pluralStockSnapshot,
       buyerText: 'Sweatshirts black ke alava kab stock mein vapas aayenge?',
