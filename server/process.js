@@ -732,7 +732,7 @@ function isShoppingInquiry(text) {
 async function hasRecentDelayComplaint(db, conversationId) {
   try {
     const recent = await db.messageLog.findMany({
-      where: { conversationId },
+      where: { conversationId, createdAt: { gt: new Date(Date.now() - 7 * 24 * 3600 * 1000) } },
       orderBy: { createdAt: 'desc' },
       take: 6,
       select: { buyerMessage: true },

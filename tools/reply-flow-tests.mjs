@@ -6,7 +6,7 @@ import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, forma
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [] } = {}) {
+async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [] } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
   const restraintRequests = [], handled = []
   const timers = [], recoveryQueries = []
@@ -81,6 +81,11 @@ async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', re
         const range = query.where.createdAt
         return recovery.rows.filter(row => +row.createdAt >= +range.gte && +row.createdAt <= +range.lte && (!range.lt || +row.createdAt < +range.lt))
       }
+      if (guardHistory && !query.where.OR) {
+        const range = query.where.createdAt
+        return guardHistory.filter(row => (!range?.gt || +new Date(row.createdAt) > +range.gt) && (!range?.gte || +new Date(row.createdAt) >= +range.gte))
+          .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)).slice(0, query.take)
+      }
       if (query.select?.status && query.select.createdAt && !query.where.OR) return outboundHistory
       if (query.where.status?.in) return history.filter(row => query.where.status.in.includes(row.status)).slice().reverse().slice(0, query.take)
       if (!query.where.OR) return []
@@ -149,6 +154,56 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['old delay history does not defer a fresh bare bill in either mode', async () => {
+    for (const active of [true, false]) {
+      for (const ageDays of [8, 48]) {
+        const guardHistory = [{ buyerMessage: 'Parcel mein delay hai', status: 'DEFERRED', createdAt: new Date(Date.now() - ageDays * 86400000) }]
+        const r = await runCase({ active, guardHistory, incomingText: '[Document: Invoice_new.pdf]' })
+        assert.equal(r.sent.length, 1)
+        assert.equal(r.logs.at(-1).deferReason, 'bill_document')
+        assert.equal(r.pending.size, 0)
+        assert.equal(r.requests.length, 0)
+        assert.deepEqual(r.errors, [])
+      }
+    }
+  }],
+  ['delay complaints within the past week still protect bare bills', async () => {
+    for (const active of [true, false]) {
+      const guardHistory = [{ buyerMessage: 'Parcel mein delay hai', status: 'REPLIED', createdAt: new Date(Date.now() - 6 * 86400000) }]
+      const r = await runCase({ active, guardHistory, incomingText: '[Document: Invoice_new.pdf]' })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 1)
+      assert.equal(r.requests.length, 0)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['current owner handling protects bills without delay vocabulary', async () => {
+    for (const active of [true, false]) {
+      const guardHistory = [{ buyerMessage: 'Please check this', aiReply: 'Checking', status: 'SKIPPED', deferReason: 'manual_reply', createdAt: new Date(Date.now() - 3600000) }]
+      const r = await runCase({ active, guardHistory, incomingText: '[Document: Invoice_new.pdf]' })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 1)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['current bill complaint is not erased with old history', async () => {
+    for (const active of [true, false]) {
+      const guardHistory = [{ buyerMessage: 'Old parcel delay', status: 'DEFERRED', createdAt: new Date(Date.now() - 48 * 86400000) }]
+      const r = await runCase({ active, guardHistory, incomingText: '[Document: Invoice_new.pdf] Wrong size received, replace it' })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 1)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['invoice image keeps the same old-versus-recent delay boundary', async () => {
+    for (const ageDays of [6, 48]) {
+      const guardHistory = [{ buyerMessage: 'Parcel delay', status: 'REPLIED', createdAt: new Date(Date.now() - ageDays * 86400000) }]
+      const r = await runCase({ guardHistory, invoiceKind: 'FRESH', incomingMessages: [{ messageId: 'invoice-age-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/invoice.jpg' }] })
+      assert.equal(r.sent.length, ageDays === 48 ? 1 : 0)
+      assert.equal(r.pending.size, ageDays === 48 ? 0 : 1)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
   ['nearest metro question reaches the answer model despite a silent gate', async () => {
     const r = await runCase({ incomingText: 'Nearest metro station please?', gateVerdict: 'SILENT', reply: 'Saket metro sir.', history: [{ buyerMessage: 'Your Delhi address', aiReply: 'Our warehouse is in Khanpur, Delhi.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
     assert.equal(r.requests.length, 1)
