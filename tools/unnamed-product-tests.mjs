@@ -23,6 +23,10 @@ t('no colour → nothing', detectColoursAndSizes('38 kab aayega').colours, [])
 t('MISS 2026-09-08: OS 240 names the product', detectColoursAndSizes('Dada, mujhe 100 pcs OS 240 chahiye but red and off white main sab size nahi mil rahe').productNamed, true)
 t('bare 240 names the product', detectColoursAndSizes('240 red off white kab tak').productNamed, true)
 t('colour+size only still unnamed', detectColoursAndSizes('XL black 4 piece available').productNamed, false)
+t('plural sweatshirts names the product', detectColoursAndSizes('sweatshirts black ke alava kab vapas aayenge').productNamed, true)
+t('spaced plural sweat shirts names the product', detectColoursAndSizes('black sweat shirts available?').productNamed, true)
+t('singular sweatshirt still names the product', detectColoursAndSizes('black sweatshirt available?').productNamed, true)
+t('unrelated sweatshirt-like word stays unnamed', detectColoursAndSizes('black sweatshirtstore available?').productNamed, false)
 t('off white is one colour', detectColoursAndSizes('240GSM, 220GSM me off white kabtk aa jayegi stock me').colours, ['Off-white'])
 t('white and off-white both named → both', detectColoursAndSizes('white aur off white dono 38').colours, ['White', 'Off-white'])
 
@@ -71,6 +75,8 @@ t('"from" + city in India → no', E('main delhi se hoon, delivery kitne din me?
 // --- many-candidate guard ---
 const snap2 = { inStock: { 'Oversize 240gsm': { Black: { S:1, M:1, L:1, XL:1 } }, 'Oversize 210gsm': { Black: { S:1, XL:1 } }, 'Hoodie 320gsm-1': { Black: { XL:1 } }, Sweatshirt: { Black: { XL:1 } }, Shorts: { Black: { XS:1, S:1, M:1, L:1, XL:1 } } }, oos: { Shorts: { Black: 'XL' } }, coming: {}, fetchedAt: 0 }
 const cands = unnamedProductCandidates(snap2, 'XL black 4 piece available')
+t('plural sweatshirt gets no unnamed-product prompt', resolveUnnamedProduct(snap2, 'sweatshirts black ke alava kab vapas aayenge'), null)
+t('plural sweatshirt gets no many-product candidates', unnamedProductCandidates(snap2, 'sweatshirts black ke alava kab vapas aayenge'), [])
 t('MISS 2026-09-07: five candidates for XL black', cands.length, 5)
 t('family mapping', productFamily('Hoodie 320gsm-1') + '/' + productFamily('AcidWash OS'), 'hoodie/acid wash')
 t('guard replaces a single-product verdict', /Kaunsa product sir/.test(unnamedProductGuard({ candidates: cands, reply: 'Sir Black shorts XL abhi out of stock hai 🙏 XS, S, M, L available hain', historyText: '' }) || ''), true)

@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
-import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, formatStockBlock } from '../server/stock-lookup.js'
+import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, formatStockBlock, resolveUnnamedProduct, unnamedProductCandidates, unnamedProductGuard } from '../server/stock-lookup.js'
 
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [] } = {}) {
+async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [] } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
   const restraintRequests = [], handled = []
   const timers = [], recoveryQueries = []
@@ -48,7 +48,7 @@ async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', re
     './transcribe.js': { transcribeAudio() {}, isTranscriptionConfigured: () => false, getTranscriptionProvider() {} },
     './ig-gate.js': { evaluateIgGate() {} },
     './order-lookup.js': { lookupOrdersByPhone: async () => [], formatOrderLookupBlock: () => '', getBuyerProfile: async () => null, formatBuyerProfileBlock: () => '' },
-    './stock-lookup.js': { getStockSnapshot: async () => { if (stockThrows) throw Error('stock unavailable'); return stockSnapshot || {} }, formatStockBlock: snapshot => stockSnapshot ? formatStockBlock(snapshot, { timedFacts }) : '', resolveUnnamedProduct: () => '', unnamedProductCandidates: () => [], unnamedProductGuard() {}, resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE },
+    './stock-lookup.js': { getStockSnapshot: async () => { if (stockThrows) throw Error('stock unavailable'); return stockSnapshot || {} }, formatStockBlock: snapshot => stockSnapshot ? formatStockBlock(snapshot, { timedFacts }) : '', resolveUnnamedProduct: realStockResolver ? resolveUnnamedProduct : () => '', unnamedProductCandidates: realStockResolver ? unnamedProductCandidates : () => [], unnamedProductGuard: realStockResolver ? unnamedProductGuard : () => null, resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE },
     './photo-links.js': { getPhotoIndex: async () => [], formatPhotoBlock: () => '', PHOTO_INTENT_RE: /a^/ },
     './openai-fallback.js': { openaiReply() { throw Error('unexpected fallback') }, isOpenAiFallbackConfigured: () => false },
   }
@@ -139,7 +139,41 @@ const blueCatalog = { categories: [{ products: [{
   rates: [{ colors: ['Black', 'Navy', 'Royal Blue', 'Sky'], pricePerSize: { 36: 158, 38: 158, 40: 158, 42: 158 }, samplePrice: 195 }],
 }] }] }
 
+const pluralStockSnapshot = {
+  inStock: {
+    Sweatshirt: { Black: { M: 1 }, Navy: { M: 1 } },
+    'Oversize 240gsm': { Black: { M: 1 } },
+    Shorts: { Black: { M: 1 } },
+    'Hoodie 320gsm-1': { Black: { M: 1 } },
+  },
+  oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
+}
 const tests = [
+  ['plural sweatshirt keeps its named-product reply through the actual guards', async () => {
+    const r = await runCase({ realStockResolver: true, stockSnapshot: pluralStockSnapshot,
+      buyerText: 'Sweatshirts black ke alava kab stock mein vapas aayenge?',
+      reply: 'Sweatshirt mein baaki colours abhi out of stock hain sir, alert laga lijiye.' })
+    assert.equal(r.sent.length, 1)
+    assert.doesNotMatch(JSON.stringify(r.requests), /PRODUCT NOT NAMED/)
+    assert.doesNotMatch(r.sent[0].message, /Kaunsa product/)
+    assert.match(r.sent[0].message, /Sweatshirt/)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['unnamed black stock still cannot become a single-product guess', async () => {
+    const r = await runCase({ realStockResolver: true, stockSnapshot: pluralStockSnapshot,
+      buyerText: 'Black M available?', reply: 'Sweatshirt Black M available hai sir.' })
+    assert.equal(r.sent.length, 1)
+    assert.match(JSON.stringify(r.requests), /PRODUCT NOT NAMED/)
+    assert.match(r.sent[0].message, /Kaunsa product/)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['plural sweatshirt preserves an owner handoff', async () => {
+    const r = await runCase({ realStockResolver: true, stockSnapshot: pluralStockSnapshot,
+      buyerText: 'Black sweatshirts order mein galat aaye', reply: '[DEFER]' })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 1)
+    assert.deepEqual(r.errors, [])
+  }],
   ['checkout image preserves the coupon quantity conversation for vision', async () => {
     const history = [{ status: 'REPLIED', buyerMessage: 'Any coupon available?', aiReply: 'How many pieces are you ordering sir?', createdAt: new Date(Date.now() - 60000) }]
     const r = await runCase({ history, invoiceKind: 'NO', gateVerdict: 'SILENT', reply: '[DEFER]', incomingMessages: [
