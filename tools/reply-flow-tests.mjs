@@ -140,6 +140,30 @@ const blueCatalog = { categories: [{ products: [{
 }] }] }
 
 const tests = [
+  ['store receipt template skips welcome while appended buyer questions remain actionable', async () => {
+    const template = "Hi! Thank you for messaging Example Apparel\nWe've received your message and will get back to you as soon as possible.Feel free to send us a screenshot, product name, or size you're looking for!"
+    for (const firstContact of [false, true]) {
+      const r = await runCase({ incomingText: template, firstContact })
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.restraintRequests.length, 0)
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 0)
+      assert.equal(r.timerDelays.length, 0)
+      assert.ok(r.logs.some(log => log.deferReason === 'automated_business_reply' && log.status === 'SKIPPED' && log.messageIds.includes('inbound-test')))
+      assert.deepEqual(r.errors, [])
+    }
+    for (const incomingText of [template + '\nCan I order a sample?', 'Can I order a sample?\n' + template]) {
+      const r = await runCase({ incomingText, reply: 'Yes sir, order a sample from the website.' })
+      assert.equal(r.requests.length, 1)
+      assert.equal(r.sent.length, 1)
+      assert.ok(!r.logs.some(log => log.deferReason === 'automated_business_reply'))
+      assert.deepEqual(r.errors, [])
+    }
+    const held = await runCase({ incomingText: template + '\nPlease refund my payment.', reply: '[DEFER]' })
+    assert.equal(held.sent.length, 0)
+    assert.equal(held.pending.size, 1)
+    assert.deepEqual(held.errors, [])
+  }],
   ['English request after a Hindi honorific keeps the English answer path', async () => {
     const buyerText = 'Hello bhaiya I need shirts sent by train. Which option should I choose?'
     const reply = 'Train option select kar lijiye sir 👉 https://example.invalid/order'
