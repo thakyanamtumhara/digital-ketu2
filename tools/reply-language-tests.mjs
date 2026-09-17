@@ -3,6 +3,21 @@ import { buyerUsesEnglish, buyerUsesRomanHindi, repairReplyLanguage, containsHin
 
 const englishHistory = [{ buyerMessage: 'We need some shirts', aiReply: 'Kaunsa product chahiye sir?' }]
 
+for (const buyerText of ['Hello bhaiya I need shirts sent by train. Which option should I choose?', 'Bhai, can you send the catalogue?', 'Hey bhaiya! Please share sample details']) {
+  assert.equal(buyerUsesEnglish({ buyerText }), true)
+  assert.equal(buyerUsesRomanHindi({ buyerText }), false)
+  assert.equal(buyerUsesEnglish({ buyerText, preferredLanguage: 'hindi' }), false)
+  assert.equal(buyerUsesRomanHindi({ buyerText, preferredLanguage: 'hindi' }), true)
+  assert.equal(buyerUsesEnglish({ buyerText, history: [{ buyerMessage: 'Hindi mein batao' }] }), false)
+}
+for (const buyerText of ['Hello bhaiya', 'Bhai catalogue', 'Bhaiya I need shirts, kal bhej sakte ho kya?', 'Bhaiya shirts chahiye', 'Bhaiya விலை என்ன', 'Hello bhaiya https://example.invalid/i/need/shirts']) {
+  assert.equal(buyerUsesEnglish({ buyerText }), false)
+}
+assert.equal(buyerUsesRomanHindi({ buyerText: 'Hello bhaiya shirts chahiye' }), true)
+assert.equal(buyerUsesEnglish({ buyerText: 'Polo', history: [{ buyerMessage: 'Hello bhaiya please send sample details' }] }), true)
+assert.equal(buyerUsesEnglish({ buyerText: 'Polo', history: [{ buyerMessage: 'Hello bhaiya please send sample details', deferReason: 'manual_reply' }] }), false)
+console.log('24 greeting-honorific language boundary checks passed')
+
 for (const reply of ['180gsm oversize me yes sir, ₹213 per pc', '240 gsm me ₹215 per pc', 'Hoodie me ₹310 sir', 'Polo me M to XL sir']) {
   assert.equal(containsHindi(reply), true, reply)
 }

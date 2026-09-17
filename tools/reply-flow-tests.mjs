@@ -140,6 +140,28 @@ const blueCatalog = { categories: [{ products: [{
 }] }] }
 
 const tests = [
+  ['English request after a Hindi honorific keeps the English answer path', async () => {
+    const buyerText = 'Hello bhaiya I need shirts sent by train. Which option should I choose?'
+    const reply = 'Train option select kar lijiye sir 👉 https://example.invalid/order'
+    const rewriteReply = 'Please select the train option sir 👉 https://example.invalid/order'
+    const r = await runCase({ buyerText, reply, rewriteReply })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, rewriteReply)
+    assert.deepEqual(r.errors, [])
+    for (const extra of [{ buyerText: 'Hello bhaiya shirts chahiye, train se bhejo' }, { preferredLanguage: 'hindi' }]) {
+      const control = await runCase({ buyerText, reply, rewriteReply, ...extra })
+      assert.equal(control.rewriteRequests.length, 0)
+      assert.equal(control.sent[0].message, reply)
+      assert.deepEqual(control.errors, [])
+    }
+    const held = await runCase({ buyerText, reply: '[DEFER]' })
+    assert.equal(held.sent.length, 0)
+    assert.equal(held.pending.size, 1)
+    const cooldown = await runCase({ incomingText: buyerText, cooldown: true })
+    assert.equal(cooldown.requests.length, 0)
+    assert.equal(cooldown.sent.length, 0)
+  }],
   ['multiple GSM quotes preserve all requested products and unresolved fit', async () => {
     const catalogData = { categories: [{ products: [
       { name: 'Example Round Neck', slug: 'example-round-neck', gsm: 180, colors: ['Black'], sizes: ['M', 'XL'], rates: [{ colors: ['Black'], pricePerSize: { M: 111, XL: 121 }, samplePrice: 151 }] },

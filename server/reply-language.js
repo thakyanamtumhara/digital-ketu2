@@ -19,8 +19,15 @@ function explicitLanguage(text) {
   return null
 }
 
-function detectedLanguage(text) {
+function buyerLanguageWords(text) {
   const words = withoutLinks(text)
+  const prose = words.replace(/^\s*(?:(?:hi|hello|hey)[\s,!:.]+)?(?:bhaiya|bhai)[\s,!:.]+/i, '')
+  return prose !== words && !containsHindi(prose) && !nonLatinLetters(prose)
+    && ENGLISH_PROSE.test(prose) && (prose.match(ENGLISH_WORDS) || []).length >= 2 ? prose : words
+}
+
+function detectedLanguage(text) {
+  const words = buyerLanguageWords(text)
   if (containsHindi(words) || nonLatinLetters(words)) return 'other'
   if (/^\s*(?:(?:hi|hello|hey|sir)[\s,!:.]+)*looking\s+for\s+\p{L}/iu.test(words)) return 'english'
   return (words.match(ENGLISH_WORDS) || []).length >= 2 ? 'english' : null
@@ -45,7 +52,7 @@ export function buyerUsesEnglish({ buyerText, history = [], preferredLanguage = 
 }
 
 export function buyerUsesRomanHindi({ buyerText, history = [], preferredLanguage = null }) {
-  const words = withoutLinks(buyerText)
+  const words = buyerLanguageWords(buyerText)
   if (nonLatinLetters(words)) return false
   const buyerHistory = (Array.isArray(history) ? history : []).filter(row => row && row.deferReason !== 'manual_reply')
   const explicit = explicitLanguage(buyerText) || preferredLanguage
