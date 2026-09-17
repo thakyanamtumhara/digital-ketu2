@@ -140,6 +140,32 @@ const blueCatalog = { categories: [{ products: [{
 }] }] }
 
 const tests = [
+  ['checkout image preserves the coupon quantity conversation for vision', async () => {
+    const history = [{ status: 'REPLIED', buyerMessage: 'Any coupon available?', aiReply: 'How many pieces are you ordering sir?', createdAt: new Date(Date.now() - 60000) }]
+    const r = await runCase({ history, invoiceKind: 'NO', gateVerdict: 'SILENT', reply: '[DEFER]', incomingMessages: [
+      { messageId: 'checkout-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/checkout.jpg' },
+    ] })
+    assert.equal(r.requests.length, 1)
+    assert.match(JSON.stringify(r.requests[0]), /How many pieces are you ordering/)
+    assert.ok(r.requests[0].messages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image')))
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.logs.some(log => log.deferReason === 'bill_document'), false)
+    assert.ok(r.pending.get('buyer-test').messages[0].messageIds.includes('checkout-test'))
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'claude_deferred')
+    assert.deepEqual(r.errors, [])
+  }],
+  ['plain checkout help answers from vision without a dispatch acknowledgement', async () => {
+    const r = await runCase({ invoiceKind: 'NO', reply: 'Click Pay Now to complete your order sir.', incomingMessages: [
+      { messageId: 'checkout-help-test', messageType: 'image', messageText: 'How do I finish this order?', mediaUrl: 'https://media.invalid/checkout.jpg' },
+    ] })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /Pay Now/)
+    assert.doesNotMatch(r.sent[0].message, /dispatch/i)
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.logs.some(log => log.deferReason === 'bill_document'), false)
+    assert.deepEqual(r.errors, [])
+  }],
   ['store receipt template skips welcome while appended buyer questions remain actionable', async () => {
     const template = "Hi! Thank you for messaging Example Apparel\nWe've received your message and will get back to you as soon as possible.Feel free to send us a screenshot, product name, or size you're looking for!"
     for (const firstContact of [false, true]) {
