@@ -1729,6 +1729,25 @@ const tests = [
     assert.equal(r.sent.length, 1)
     assert.equal(r.logs.at(-1).status, 'REPLIED')
   }],
+  ['runtime ages bounded Hindi timing in both fact and stock paths', async () => {
+    const date = new Date(Date.now() + 19800000 - 2 * 86400000).toISOString().slice(0, 10)
+    const r = await runCase({ buyerText: 'Oversize 240gsm Red M kab aayega?', reply: '6-8 din sir', timedFacts: [{ content: `[stated ${date}] Buyer asked: "Oversize 240gsm Red restock?" — Ketu's answer: "आट से दस दिन में आएगा"` }], stockSnapshot: { fetchedAt: Date.now(), inStock: { 'Oversize 240gsm': { Red: { M: 1 }, White: { M: 1 } } }, oos: { 'Oversize 240gsm': { Red: 'M', White: 'M' } }, coming: {} } })
+    const prompt = r.requests[0].messages[0].content
+    assert.match(prompt, /6-8 days/)
+    assert.match(prompt, /Red \[out: M[^\n]*6-8 days/)
+    assert.match(prompt, /White \[out: M[^\n]*NO shipment/)
+    assert.doesNotMatch(prompt, /आट से दस|dated estimate/)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.errors.length, 0)
+  }],
+  ['runtime omits due Hindi timing without inventing a new wait', async () => {
+    const date = new Date(Date.now() + 19800000 - 8 * 86400000).toISOString().slice(0, 10)
+    const r = await runCase({ buyerText: 'Oversize 240gsm Red M kab aayega?', reply: '[DEFER]', timedFacts: [{ content: `[stated ${date}] Buyer asked: "Oversize 240gsm Red restock?" — Ketu's answer: "आठ से दस दिन में आएगा"` }] })
+    assert.doesNotMatch(r.requests[0].messages[0].content, /आठ से दस|Current timing estimate/)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 1)
+    assert.equal(r.errors.length, 0)
+  }],
   ['short address typo is repaired before transport', async () => {
     const r = await runCase({ buyerText: 'Hello store adresss pls?', reply: 'Location pe TSHIRT WALA GODAM poochh lena sir', rewriteReply: 'Ask for TSHIRT WALA GODAM when you arrive sir' })
     assert.equal(r.rewriteRequests.length, 1)

@@ -2,6 +2,7 @@ import { hasNamedTimingSubject, hasAmbiguousTimingSubject } from './stock-questi
 
 const DAY_MS = 86400000
 const DAY_DURATION = /(?<![\d.\-–])([0-9०-९]{1,3})(?:\s*(?:[-–]|to|se|से)\s*([0-9०-९]{1,3}))?\s*(days?\b|din\b|दिन)/gi
+const HINDI_EIGHT_TEN_DURATION = /(?<![\p{L}\p{M}\p{N}])(?:आठ|आट)\s*(?:से|[-–])\s*दस\s+दिन(?![\p{L}\p{M}\p{N}])/gu
 
 export function parseTimedFact(content) {
   const m = String(content || '').match(/\[stated (\d{4}-\d{2}-\d{2})\]\s*Buyer asked:\s*"([\s\S]*?)"\s*—\s*Ketu's answer:\s*"([\s\S]*?)"\s*$/)
@@ -17,7 +18,12 @@ export function currentTimedFact(fact, now = Date.now()) {
   const asOf = new Date(instant.getTime() + 19800000).toISOString().slice(0, 10)
   const elapsedDays = (Date.parse(`${asOf}T00:00:00Z`) - stated) / DAY_MS
   if (elapsedDays < 0) return null
-  const matches = [...fact.answer.matchAll(DAY_DURATION)]
+  const worded = [...fact.answer.matchAll(HINDI_EIGHT_TEN_DURATION)]
+  if (worded.some(match => /(?:साढ़े|साढे)\s*$/.test(fact.answer.slice(0, match.index)))) return null
+  const matches = [
+    ...fact.answer.matchAll(DAY_DURATION),
+    ...worded.map(match => Object.assign([match[0], '8', '10', 'दिन'], { index: match.index })),
+  ]
   if (!matches.length) return { ...fact, asOf, elapsedDays, adjusted: false }
   if (matches.length !== 1) return null
   const match = matches[0]
