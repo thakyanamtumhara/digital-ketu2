@@ -193,6 +193,39 @@ const tests = [
       }
     }
   }],
+  ['prospective stock wait does not turn a fresh bill into a shipment complaint', async () => {
+    const buyerMessage = 'Sir mujhe navy color ki hoodie order karni hai lekin size available nahi hai to kab tak rukna padega? Ya pehle se order laga sakte hai?'
+    for (const active of [true, false]) {
+      const guardHistory = [{ buyerMessage, status: 'REPLIED', createdAt: new Date(Date.now() - 86400000) }]
+      const r = await runCase({ active, guardHistory, incomingText: '[Document: Invoice_new.pdf]' })
+      assert.equal(r.sent.length, 1)
+      assert.equal(r.logs.at(-1).deferReason, 'bill_document')
+      assert.equal(r.pending.size, 0)
+      assert.equal(r.requests.length, 0)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['stock wait exception preserves a separate or mixed shipment complaint', async () => {
+    const buyerMessage = 'Sir mujhe navy color ki hoodie order karni hai lekin size available nahi hai to kab tak rukna padega?'
+    for (const active of [true, false]) {
+      for (const mixed of [true, false]) {
+        const stock = { buyerMessage, status: 'REPLIED', createdAt: new Date(Date.now() - 86400000) }
+        const guardHistory = mixed ? [{ ...stock, buyerMessage: buyerMessage + ' Parcel abhi tak nahi aaya' }] : [stock, { ...stock, buyerMessage: 'Parcel abhi tak nahi aaya' }]
+        const r = await runCase({ active, guardHistory, incomingText: '[Document: Invoice_new.pdf]' })
+        assert.equal(r.sent.length, 0)
+        assert.equal(r.pending.size, 1)
+        assert.equal(r.requests.length, 0)
+        assert.deepEqual(r.errors, [])
+      }
+    }
+  }],
+  ['fresh invoice image shares the prospective-stock history exception', async () => {
+    const guardHistory = [{ buyerMessage: 'Sir mujhe navy color ki hoodie order karni hai lekin size available nahi hai to kab tak rukna padega?', status: 'REPLIED', createdAt: new Date(Date.now() - 86400000) }]
+    const r = await runCase({ guardHistory, invoiceKind: 'FRESH', incomingMessages: [{ messageId: 'invoice-stock-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/invoice.jpg' }] })
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.pending.size, 0)
+    assert.deepEqual(r.errors, [])
+  }],
   ['delay complaints within the past week still protect bare bills', async () => {
     for (const active of [true, false]) {
       const guardHistory = [{ buyerMessage: 'Parcel mein delay hai', status: 'REPLIED', createdAt: new Date(Date.now() - 6 * 86400000) }]

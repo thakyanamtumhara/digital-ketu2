@@ -33,6 +33,7 @@ import { partialDeferSplit } from './reconcile.js'
 import { repairReplyLanguage, buyerUsesEnglish } from './reply-language.js'
 import { arrivalClockGuard } from './arrival-clock.js'
 import { restockPointerGuard } from './restock-pointer.js'
+import { isProspectiveStockWait } from './bill-history.js'
 import { stockAlertOfferGuard } from './stock-alert-offer.js'
 import { isSupersededLaunchCorrection } from './launch-knowledge.js'
 import { INVOICE_IMAGE_PROMPT, invoiceImageKind } from './invoice-image.js'
@@ -737,7 +738,7 @@ async function hasRecentDelayComplaint(db, conversationId) {
       take: 6,
       select: { buyerMessage: true },
     })
-    return recent.some(r => DELAY_COMPLAINT_RE.test(r.buyerMessage || ''))
+    return recent.some(r => DELAY_COMPLAINT_RE.test(r.buyerMessage || '') && !isProspectiveStockWait(r.buyerMessage))
   } catch {
     return false
   }
