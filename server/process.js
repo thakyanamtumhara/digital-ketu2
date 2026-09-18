@@ -18,7 +18,7 @@ import { gsmAmbiguityHint, gsmPriceRangeGuard } from './gsm-hint.js'
 import { poloRateSummaryGuard } from './polo-price.js'
 import { hoodieRateSummaryGuard } from './hoodie-price.js'
 import { biowashRateSummaryGuard } from './biowash-price.js'
-import { isStoreMenuGreeting, isStoreReceiptGreeting } from './store-greeting.js'
+import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting } from './store-greeting.js'
 import { catalogRequestHasTimingQuestion } from './catalog-request.js'
 import { regularFitBlueHint, regularFitBlueGuard } from './regular-fit-blue.js'
 import { pendingProductChoiceGuard } from './product-choice.js'
@@ -1871,7 +1871,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // wwbun (2026-09-09) flags greeting-bot replies at ingest (autoReply: true) but still forwards them
   // so this side gives the second opinion: the flag counts like a regex hit, REAL_ASK_RE still overrides.
   const flaggedAutoReply = Array.isArray(messages) && messages.some(m => m && m.autoReply === true)
-  if (!hasMediaOnly && (isStoreReceiptGreeting(mergedText, messages) || ((AUTO_REPLY_RE.test(mergedText || '') || flaggedAutoReply || isStoreMenuGreeting(mergedText, messages)) && !REAL_ASK_RE.test(mergedText || '')))) {
+  if (!hasMediaOnly && (isStoreReceiptGreeting(mergedText, messages) || isPrintServiceGreeting(mergedText, messages) || ((AUTO_REPLY_RE.test(mergedText || '') || flaggedAutoReply || isStoreMenuGreeting(mergedText, messages)) && !REAL_ASK_RE.test(mergedText || '')))) {
     await createLog(db, conversation.id, mergedText, messageIds, {
       status: 'SKIPPED', deferReason: 'automated_business_reply',
       processingMs: Date.now() - startTime,

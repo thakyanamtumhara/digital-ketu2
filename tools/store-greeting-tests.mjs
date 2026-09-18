@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { isStoreMenuGreeting, isStoreReceiptGreeting } from '../server/store-greeting.js'
+import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting } from '../server/store-greeting.js'
 
 const menu = '👋 Welcome to Example Clothing!\n👕 T-Shirts and custom prints\n🧥 Hoodies\n🏫 School Uniforms\n🎉 Festival & Event Wear\nBrowse our catalog and message us your requirements.\nExample Clothing — wear your style!'
 const messages = [{ messageType: 'text' }]
@@ -30,4 +30,20 @@ for (const text of [receipt.repeat(4), receipt.replace('Example Apparel', 'Examp
 for (const messageType of ['image', 'document', 'audio', 'video', 'reaction']) receiptEq(receipt, false, [...messages, { messageType }])
 receiptEq(receipt, false, [{ messageType: 'text', mediaUrl: 'https://media.invalid/file' }])
 receiptEq(receipt, false, [{ messageType: 'text', hasMedia: true }])
+const printing = 'Thank you Hello! Thank you for contacting Example Prints 👕 We specialize in custom T-shirt printing. Please share your design, quantity, and T-shirt size. Our team will reply shortly!"'
+function printingEq(text, expected, items = messages) { assert.equal(isPrintServiceGreeting(text, items), expected, text); checks++ }
+printingEq(printing, true)
+printingEq(printing.replace('Thank you Hello! ', ''), true)
+printingEq(printing.replace('Thank you Hello!', 'Thanks Hello!').replace('specialize', 'specialise'), true)
+printingEq(printing.replaceAll(' ', '\n'), true)
+printingEq(printing, true, [{ messageType: 'text' }, { messageType: 'text' }])
+for (const extra of ['Can I order a sample?', 'I need plain shirts', 'Please send prices', 'Black M', '100 pcs', 'Please refund my payment.', 'मुझे चाहिए', 'Available？', 'Available؟', '240gsm']) {
+  printingEq(printing + '\n' + extra, false)
+  printingEq(extra + '\n' + printing, false)
+}
+for (const text of [printing.repeat(4), printing.replace('Example Prints', 'I need shirts'), printing.replace('Example Prints', 'मुझे चाहिए'), printing.replace('design, quantity, and T-shirt size', 'payment details'), printing.replace('Our team will reply shortly!', 'What is your price?'), printing + '?']) printingEq(text, false)
+printingEq(printing, false, [])
+for (const messageType of ['image', 'document', 'audio', 'video', 'reaction']) printingEq(printing, false, [...messages, { messageType }])
+printingEq(printing, false, [{ messageType: 'text', mediaUrl: 'https://media.invalid/file' }])
+printingEq(printing, false, [{ messageType: 'text', hasMedia: true }])
 console.log(`${checks} store-greeting checks passed`)

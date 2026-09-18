@@ -316,6 +316,43 @@ const tests = [
     assert.equal(held.pending.size, 1)
     assert.deepEqual(held.errors, [])
   }],
+  ['complete print-service greeting skips paid welcome for new and returning contacts', async () => {
+    const template = 'Thank you Hello! Thank you for contacting Example Prints 👕 We specialize in custom T-shirt printing. Please share your design, quantity, and T-shirt size. Our team will reply shortly!"'
+    for (const firstContact of [false, true]) {
+      const r = await runCase({ incomingText: template, firstContact, flushWelcome: true })
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.restraintRequests.length, 0)
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 0)
+      assert.equal(r.timerDelays.length, 0)
+      assert.ok(r.logs.some(log => log.deferReason === 'automated_business_reply' && log.status === 'SKIPPED' && log.messageIds.includes('inbound-test')))
+      assert.deepEqual(r.errors, [])
+    }
+    for (const incomingText of [template + '\nCan I order a sample?', 'Can I order a sample?\n' + template]) {
+      const r = await runCase({ incomingText, reply: 'Yes sir, order a sample from the website.' })
+      assert.equal(r.requests.length, 1)
+      assert.equal(r.sent.length, 1)
+      assert.ok(!r.logs.some(log => log.deferReason === 'automated_business_reply'))
+      assert.deepEqual(r.errors, [])
+    }
+    const held = await runCase({ incomingText: template + '\nPlease refund my payment.', reply: '[DEFER]' })
+    assert.equal(held.sent.length, 0)
+    assert.equal(held.pending.size, 1)
+    assert.deepEqual(held.errors, [])
+    const media = await runCase({ incomingMessages: [
+      { messageId: 'greeting-test', messageType: 'text', messageText: template },
+      { messageId: 'photo-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/photo.jpg' },
+    ], invoiceKind: 'NO', reply: '[DEFER]' })
+    assert.equal(media.requests.length, 1)
+    assert.equal(media.pending.size, 1)
+    assert.ok(!media.logs.some(log => log.deferReason === 'automated_business_reply'))
+    assert.deepEqual(media.errors, [])
+    const cooldown = await runCase({ incomingText: template + '\nCan I order a sample?', cooldown: true })
+    assert.ok(cooldown.logs.some(log => log.deferReason === 'cooldown'))
+    assert.ok(!cooldown.logs.some(log => log.deferReason === 'automated_business_reply'))
+    assert.equal(cooldown.requests.length, 0)
+    assert.deepEqual(cooldown.errors, [])
+  }],
   ['English request after a Hindi honorific keeps the English answer path', async () => {
     const buyerText = 'Hello bhaiya I need shirts sent by train. Which option should I choose?'
     const reply = 'Train option select kar lijiye sir 👉 https://example.invalid/order'

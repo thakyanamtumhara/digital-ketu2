@@ -1,6 +1,14 @@
 const BUYER_INTENT = /[?？؟]|\d+\s*(?:gsm|pcs?|pieces?)\b|\b(?:prices?|rates?|gsm|chahiye|chaiye|orders?|stock|sizes?|colou?rs?|samples?|bulk|hai|milega|kitna|kitne|send|bhej|buy|buying|purchase|need|want|require|interested|enquiry|inquiry|refund|return|complaint|payment|paid|invoice|delivery|dispatch|tracking|partnership|supplier|manufactur(?:e|er|ing)|black|white|navy|maroon|xxl|xl)\b|चाहिए|मिलेगा|कितन|कीमत|भेज|ऑर्डर/i
 const APPAREL = /\b(?:t[ -]?shirts?|tees?|hoodies?|polos?|uniforms?|sports\s*wear|festival\s*(?:and|&)\s*event\s*wear|custom\s*(?:clothing|designs?|prints?))\b/i
 
+export function isPrintServiceGreeting(text, messages = []) {
+  if (!messages.length || messages.some(m => m?.messageType !== 'text' || m.hasMedia || m.mediaUrl)) return false
+  const value = String(text || '').replace(/\s+/g, ' ').trim()
+  if (value.length > 700) return false
+  const match = value.match(/^(?:(?:thank\s+you|thanks)[.!\s]*)?(?:hello[.!\s]*)?thank\s+you\s+for\s+contacting\s+([\p{Script=Latin}\p{N}& .'’-]{1,80}?)[\s\p{P}\p{S}]*we\s+speciali[sz]e\s+in\s+custom\s+t[ -]?shirt\s+printing[.!\s]+please\s+share\s+your\s+design,\s*quantity,\s*and\s+t[ -]?shirt\s+size[.!\s]+our\s+team\s+will\s+reply\s+shortly[.!"”\s]*$/iu)
+  return !!match && !BUYER_INTENT.test(match[1])
+}
+
 export function isStoreReceiptGreeting(text, messages = []) {
   if (!messages.length || messages.some(m => m?.messageType !== 'text' || m.hasMedia || m.mediaUrl)) return false
   const value = String(text || '').trim().replace(/[’‘]/g, "'")
