@@ -7,6 +7,13 @@ const output = poloRateSummaryGuard(base)
 assert.match(output, /Cotton Polo ₹211–₹223; Premium Polo ₹267–₹279/)
 assert.match(output, /bulk \(10\+ total pcs, colour\/size/)
 assert.match(poloRateSummaryGuard({ ...base, buyerText: 'Please share polo prices', english: true }), /by colour\/size/)
+const optionsReply = 'Polo comes in 2 options sir — Cotton Polo ₹211 👉 https://sale91.com/catalog/p/cotton-polo, Premium Polo ₹267 👉 https://sale91.com/catalog/p/premium-polo'
+for (const buyerText of ['We need polo tshirt', 'I want polo', 'We want polo t-shirts', 'I need polo prices']) {
+  for (const reply of [base.reply, optionsReply, optionsReply.replace('comes in 2 options', 'mein 2 option hai')]) assert.match(poloRateSummaryGuard({ ...base, buyerText, reply, english: true }), /₹211–₹223; Premium Polo ₹267–₹279.*10\+ total pcs, by colour\/size/)
+}
+assert.match(poloRateSummaryGuard({ ...base, reply: optionsReply }), /₹211–₹223; Premium Polo ₹267–₹279/)
+for (const buyerText of ['We need polo size 46', 'We need 2 polo samples', 'I want polo delivery tomorrow', 'We need polo printing', 'I want my polo refund', 'We need polo and hoodie']) assert.equal(poloRateSummaryGuard({ ...base, buyerText, reply: optionsReply }), null, buyerText)
+for (const prefix of ['Polo comes in 3 options sir — ', 'Polo comes in 2 pcs sir — ', 'Polo comes in 2 samples sir — ', 'Polo mein 2 pcs hai sir — ', 'Polo mein 3 option hai sir — ']) assert.equal(poloRateSummaryGuard({ ...base, reply: optionsReply.replace(/^.*?— /, prefix) }), null, prefix)
 for (const buyerText of ['Please send me the details of both polo t-shirts.', 'Polo tshirt details please', 'Share polo t shirt price list']) {
   assert.match(poloRateSummaryGuard({ ...base, buyerText, english: true }), /Cotton Polo ₹211–₹223; Premium Polo ₹267–₹279.*by colour\/size/)
 }

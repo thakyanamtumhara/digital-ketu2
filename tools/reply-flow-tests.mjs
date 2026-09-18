@@ -1156,6 +1156,25 @@ const tests = [
     assert.equal(cooldown.requests.length, 0)
     assert.equal(cooldown.sent.length, 0)
   }],
+  ['generic polo purchase wording preserves both size ranges through send', async () => {
+    const catalogData = { categories: [{ products: [
+      { name: 'Cotton Polo', slug: 'cotton-polo', gsm: 220, colors: ['Black'], sizes: ['36', '46'], rates: [{ colors: ['Black'], pricePerSize: { '36': 211, '46': 223 }, samplePrice: 271 }] },
+      { name: 'Premium Polo', slug: 'premium-polo', gsm: 220, colors: ['Black'], sizes: ['36', '46'], rates: [{ colors: ['Black'], pricePerSize: { '36': 267, '46': 279 }, samplePrice: 327 }] },
+    ] }] }
+    const reply = 'Polo comes in 2 options sir — Cotton Polo ₹211 👉 https://sale91.com/catalog/p/cotton-polo, Premium Polo ₹267 👉 https://sale91.com/catalog/p/premium-polo'
+    const r = await runCase({ buyerText: 'We need polo tshirt', reply, catalogData })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /Cotton Polo ₹211–₹223; Premium Polo ₹267–₹279.*10\+ total pcs, by colour\/size/)
+    assert.deepEqual(r.errors, [])
+    const hindiIntro = await runCase({ buyerText: 'We need polo tshirt', reply: reply.replace('comes in 2 options', 'mein 2 option hai'), catalogData })
+    assert.match(hindiIntro.sent[0].message, /Cotton Polo ₹211–₹223; Premium Polo ₹267–₹279.*by colour\/size/)
+    const selectedReply = 'Cotton Polo size 46 ₹223; Premium Polo size 46 ₹279 sir'
+    const selected = await runCase({ buyerText: 'We need polo size 46 price', reply: selectedReply, catalogData })
+    assert.equal(selected.sent[0].message, selectedReply)
+    const held = await runCase({ buyerText: 'We need polo refund', reply: '[DEFER]', catalogData })
+    assert.equal(held.sent.length, 0)
+    assert.equal(held.pending.size, 1)
+  }],
   ['specific polo sample quote and owner handoff preserve their paths', async () => {
     const catalogData = { categories: [{ products: [
       { name: 'Cotton Polo', slug: 'cotton-polo', gsm: 220, colors: ['Black'], sizes: ['36', '46'], rates: [{ colors: ['Black'], pricePerSize: { '36': 211, '46': 223 }, samplePrice: 271 }] },

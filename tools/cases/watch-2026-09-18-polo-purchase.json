@@ -1,0 +1,23 @@
+[
+  {
+    "id": "generic-polo-purchase-current-bands",
+    "msg": "We want polo t-shirts",
+    "why": "A generic two-product quote must retain current size/colour bands and total-order bulk scope.",
+    "must": ["Cotton Polo", "Premium Polo", "10\\+ total", "by colour/size"],
+    "mustNot": ["\\[DEFER\\]", "\\[SKIP\\]"]
+  },
+  {
+    "id": "selected-polo-size-control",
+    "msg": "We need Cotton Polo size 46, bulk price please",
+    "why": "Selected variant pricing must retain the specific requested size rather than a generic two-product range.",
+    "must": ["46", "cotton-polo"],
+    "mustNot": ["Premium Polo", "\\[DEFER\\]"]
+  },
+  {
+    "id": "polo-sample-control",
+    "msg": "I want one Cotton Polo sample. What is its price?",
+    "why": "A one-piece sample keeps the current sample tier rather than generic bulk ranges.",
+    "must": ["sample", "cotton-polo"],
+    "mustNot": ["Premium Polo", "10\\+ total"]
+  }
+]
