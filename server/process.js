@@ -23,6 +23,7 @@ import { catalogRequestHasTimingQuestion } from './catalog-request.js'
 import { regularFitBlueHint, regularFitBlueGuard } from './regular-fit-blue.js'
 import { pendingProductChoiceGuard } from './product-choice.js'
 import { isAppStoreLookupProblem, appDiscoveryReplyGuard } from './app-discovery.js'
+import { multipartShippingGuard } from './multipart-shipping.js'
 import { isGameEarningsFollowup } from './game-followup.js'
 import { isPrinterFulfilmentFollowup } from './printer-followup.js'
 import { isRecipientReceiptQuestion } from './receipt-question.js'
@@ -3910,6 +3911,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
       console.log(`[ArrivalClockGuard] ${whatsappNumber} — unsupported arrival clock deferred`)
     }
   }
+    const shippingAnswer = multipartShippingGuard({ buyerText: mergedText, reply: aiReply, imageUrl, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
+    if (shippingAnswer) {
+      aiReply = shippingAnswer
+      console.log(`[MultipartShipping] ${whatsappNumber} — added omitted shipping resource`)
+    }
     aiReply = canonicalizeStockAlertLinks(aiReply, whatsappNumber)
   } catch (guardErr) {
     postModelGuardFailed = true

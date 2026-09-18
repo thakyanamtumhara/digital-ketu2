@@ -1921,6 +1921,27 @@ const tests = [
     assert.equal(r.logs.at(-1).sentViaWwbun, true)
     assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
   }],
+  ['multipart product reply retains its content and adds omitted shipping details', async () => {
+    const buyerText = 'Please share details for oversize tees:\nSizes and colours\nBulk price and MOQ\nFabric composition and photos\nShipping details'
+    const reply = 'Cotton oversize tees. Current prices and photos 👉 https://sale91.com/catalog/p/oversize-210gsm'
+    const r = await runCase({ buyerText, reply })
+    assert.equal(r.sent.length, 1, r.errors.join('\n'))
+    assert.ok(r.sent[0].message.startsWith(reply))
+    assert.match(r.sent[0].message, /Shipping options and charges show at checkout/)
+    assert.match(r.sent[0].message, /shipping-calculator\.html/)
+    assert.equal(r.pending.size, 0)
+  }],
+  ['multipart shipping guard preserves an owner-only payment handoff', async () => {
+    const r = await runCase({ buyerText: 'Please share details for oversize tees:\nSizes and colours\nBulk price and MOQ\nFabric composition and photos\nShipping details\nPayment was taken twice.', reply: '[DEFER]' })
+    assert.equal(r.sent.length, 0, r.errors.join('\n'))
+    assert.equal(r.pending.size, 1)
+  }],
+  ['multipart shipping does not duplicate an existing checkout answer', async () => {
+    const reply = 'Cotton tees 👉 https://sale91.com/catalog/p/oversize-210gsm — shipping options and charges show at checkout.'
+    const r = await runCase({ buyerText: 'Please share details for oversize tees:\nSizes and colours\nBulk price and MOQ\nFabric composition and photos\nShipping details', reply })
+    assert.equal(r.sent.length, 1, r.errors.join('\n'))
+    assert.equal(r.sent[0].message, reply)
+  }],
   ['overload recovery retries the original buyer request', async () => {
     const r = await runCase({ failCalls: 2 })
     assert.equal(r.sent.length, 1, r.errors.join('\n'))

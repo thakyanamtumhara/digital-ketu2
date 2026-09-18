@@ -171,6 +171,7 @@ for (const c of cases) {
       const g3 = arrivalClockGuard({ buyerText: c.msg, reply: txt })
       if (g3) { console.log('   Arrival-clock guard retained a handoff'); txt = g3 }
     }
+    txt = (await import('../server/multipart-shipping.js')).multipartShippingGuard({ buyerText: c.msg, reply: txt, imageUrl: c.imageUrl, english: buyerUsesEnglish({ buyerText: c.msg, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, deferReason: h.manual ? 'manual_reply' : null })), preferredLanguage: c.preferredLanguage }) }) || txt
     txt = canonicalizeStockAlertLinks(txt, c.whatsappNumber)
     if (!/^\s*\[(DEFER|SKIP)\]\s*$/.test(txt)) {
       const repaired = await repairReplyLanguage({
