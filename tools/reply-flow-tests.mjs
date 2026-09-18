@@ -154,6 +154,41 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['bare payment destination images hand off without a dispatch acknowledgement', async () => {
+    for (const active of [true, false]) {
+      const r = await runCase({ active, invoiceKind: 'PAYMENT', incomingMessages: [
+        { messageId: 'payment-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/payment-qr.jpg' },
+      ] })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.requests.length, 0)
+      const held = r.pending.get('buyer-test')?.messages[0]
+      assert.equal(held?.logData.deferReason, 'payment_details_image')
+      assert.equal(held?.logData.isMedia, true)
+      assert.deepEqual(Array.from(held.messageIds), ['payment-test'])
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['payment destination with a real question still reaches full triage', async () => {
+    const r = await runCase({ invoiceKind: 'PAYMENT', reply: 'Cotton Polo size chart: https://sale91.com/catalog/p/cotton-polo', incomingMessages: [
+      { messageId: 'payment-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/payment-qr.jpg' },
+      { messageId: 'question-test', messageType: 'text', messageText: 'Please send the Cotton Polo size chart' },
+    ] })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /sale91.com\/catalog/)
+    assert.doesNotMatch(r.sent[0].message, /dispatch/i)
+    assert.equal(r.pending.size, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['payment destination does not bypass manual cooldown', async () => {
+    const r = await runCase({ cooldown: true, invoiceKind: 'PAYMENT', incomingMessages: [
+      { messageId: 'payment-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/payment-qr.jpg' },
+    ] })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.logs.at(-1).status, 'COOLDOWN')
+  }],
   ['conditional alert reminder hands an unresolved restock date to the owner', async () => {
     const history = [{ buyerMessage: 'Acid wash restock kab?', aiReply: 'Acid wash ka date nahi hai sir. Alert laga lijiye https://www.bulkplaintshirt.com/delhi-stock.html?alert=1', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }]
     for (const reply of ['Date nahi bata sakta sir; alert laga diya hai to stock aate hi WhatsApp aa jayega', 'Exact date nahi bata sakta sir, alert laga rakhiye, stock aate hi WhatsApp aa jayega']) {

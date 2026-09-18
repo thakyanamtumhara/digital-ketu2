@@ -1436,6 +1436,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       }
     }
     const invoiceKind = invoiceMediaUrl ? await isInvoiceImage(anthropic, invoiceMediaUrl, db) : false
+    if (invoiceKind === 'PAYMENT' && !billImageHasRealText(mergedText)) {
+      scheduleDeferReply({
+        whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+        mergedText, messageIds, logData: {
+          status: 'DEFERRED', deferReason: 'payment_details_image',
+          processingMs: Date.now() - startTime,
+          isMedia: true,
+        }, db,
+      })
+      return
+    }
     if (invoiceKind === 'TRACKING') {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
@@ -2004,6 +2015,17 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     }
   }
   const invoiceKind = invoiceMediaUrl ? await isInvoiceImage(anthropic, invoiceMediaUrl, db) : false
+    if (invoiceKind === 'PAYMENT' && !billImageHasRealText(mergedText)) {
+      scheduleDeferReply({
+        whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
+        mergedText, messageIds, logData: {
+          status: 'DEFERRED', deferReason: 'payment_details_image',
+          processingMs: Date.now() - startTime,
+          isMedia: true,
+        }, db,
+      })
+      return
+    }
     if (invoiceKind === 'TRACKING') {
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
