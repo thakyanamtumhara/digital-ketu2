@@ -64,6 +64,8 @@ function purePointer(text) {
 
 function onlyStockEcho(reply) {
   const text = plain(reply).replace(/\bjo\s+(?:abhi\s+)?available\s+hai\s*(?:wo\s+)?le\s+lijiye\b/gi, '').replace(/\bcotton\s+polo\b/gi, 'polo')
+    .replace(/\bexact\s+(?=date\b)/gi, '')
+    .replace(/\b(alerts?|notifications?)\s+laga\s+(?:diya\s+hai\s+toh?|rakhiye)\b/gi, '$1 laga lijiye')
   const words = text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(/\s+/).filter(Boolean)
   if (!words.length || !words.every(word => ECHO_WORDS.has(word))) return false
   return text.split(/[.!?;—\n]+/).filter(part => /\p{L}/u.test(part)).every(part => OUT.test(part) || NO_DATE.test(part) || POINTER.test(part) || hasAlert(part) || /\bwhatsapp\b/i.test(part))

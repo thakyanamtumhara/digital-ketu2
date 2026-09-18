@@ -10,7 +10,20 @@ const repeat = 'Off-white S,M ka koi shipment nahi hai abhi sir, date nahi de sa
 const call = (extra = {}) => stockAlertOfferGuard({ buyerText: first.buyerMessage, reply: first.aiReply, whatsappNumber: phone, now, ...extra })
 const offered = call()
 const priorAlert = { ...first, aiReply: offered }
+const conditionalEcho = 'Date nahi bata sakta sir; alert laga diya hai to stock aate hi WhatsApp aa jayega'
 const cases = [
+  ['conditional alert reminder cannot repeat an exhausted date answer', () => assert.equal(call({ buyerText: 'Approx kab aayega, 2 week mein?', history: [priorAlert], reply: conditionalEcho }), '[DEFER]')],
+  ['conditional notification spelling retains the same handoff', () => assert.equal(call({ history: [priorAlert], reply: conditionalEcho.replace('alert', 'notification').replace('hai to ', 'hai toh ') }), '[DEFER]')],
+  ['equivalent keep-alert wording cannot renew the no-date loop', () => assert.equal(call({ history: [priorAlert], reply: 'Exact date nahi bata sakta sir, alert laga rakhiye, stock aate hi WhatsApp aa jayega' }), '[DEFER]')],
+  ['exact size information is not removed as a date qualifier', () => assert.equal(call({ history: [priorAlert], reply: conditionalEcho + '. Exact size chart yahan hai.' }), null)],
+  ['conditional reminder without a previous usable offer still gets its link', () => assert.ok(call({ reply: conditionalEcho }).includes(url))],
+  ['conditional reminder for a new product keeps its first offer', () => assert.ok(call({ buyerText: 'Acid wash restock kab?', history: [priorAlert], reply: conditionalEcho }).includes(url))],
+  ['conditional reminder cannot erase a fresh numeric estimate', () => assert.equal(call({ history: [priorAlert], reply: conditionalEcho + '. Stock 3 din mein aayega.' }), null)],
+  ['conditional reminder cannot erase another available variant', () => assert.equal(call({ history: [priorAlert], reply: conditionalEcho + '. Black L available hai.' }), null)],
+  ['conditional reminder cannot erase a fabric answer', () => assert.equal(call({ history: [priorAlert], reply: conditionalEcho + '. Fabric preshrunk hai.' }), null)],
+  ['conditional reminder cannot erase a partial handoff', () => assert.equal(call({ history: [priorAlert], reply: conditionalEcho + ' [DEFER]' }), null)],
+  ['conditional alert resend preserves a useful next action', () => assert.equal(call({ buyerText: 'Alert link dobara bhejo', history: [priorAlert], reply: conditionalEcho }), conditionalEcho + ' 👉 ' + url)],
+  ['unrelated completed action is not allowed by alert normalization', () => assert.equal(call({ history: [priorAlert], reply: 'Date nahi hai sir, stock laga diya hai.' }), null)],
   ['first stock timing gets a compact alert with original facts', () => { assert.ok(offered.includes(url)); assert.ok(offered.startsWith('Off-white S aur M abhi out of stock hai sir, koi shipment nahi hai filhaal')); assert.ok(!/Coming Soon/i.test(offered)) }],
   ['reported one-week follow-up gets its first alert', () => { const reply = call({ buyerText: '1 week ke andar milega?', history: [first], reply: repeat }); assert.ok(reply.includes(url)); assert.ok(!/Coming Soon|1 week/i.test(reply)); assert.equal(restockPointerGuard({ buyerText: '1 week ke andar milega?', history: [first], reply, now }), null) }],
   ['same timing after the alert hands off instead of looping', () => assert.equal(call({ buyerText: '1 week ke andar milega?', history: [priorAlert], reply: repeat }), '[DEFER]')],

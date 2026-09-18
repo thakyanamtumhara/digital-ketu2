@@ -154,6 +154,32 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['conditional alert reminder hands an unresolved restock date to the owner', async () => {
+    const history = [{ buyerMessage: 'Acid wash restock kab?', aiReply: 'Acid wash ka date nahi hai sir. Alert laga lijiye https://www.bulkplaintshirt.com/delhi-stock.html?alert=1', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }]
+    for (const reply of ['Date nahi bata sakta sir; alert laga diya hai to stock aate hi WhatsApp aa jayega', 'Exact date nahi bata sakta sir, alert laga rakhiye, stock aate hi WhatsApp aa jayega']) {
+      const r = await runCase({ buyerText: 'Approx kab aayega, 2 week mein?', history, reply })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 1)
+      assert.equal([...r.pending.values()][0].messages[0].logData.deferReason, 'restock_pointer_handoff')
+      assert.equal(r.requests.length, 1)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['first conditional stock reminder keeps the usable alert offer', async () => {
+    const r = await runCase({ buyerText: 'Acid wash restock kab?', reply: 'Date nahi bata sakta sir; alert laga diya hai to stock aate hi WhatsApp aa jayega' })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /delhi-stock\.html\?alert=1/)
+    assert.equal(r.pending.size, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['fresh estimate survives a conditional stock reminder', async () => {
+    const history = [{ buyerMessage: 'Acid wash restock kab?', aiReply: 'Acid wash ka date nahi hai sir. Alert laga lijiye https://www.bulkplaintshirt.com/delhi-stock.html?alert=1', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }]
+    const r = await runCase({ buyerText: 'Approx kab aayega?', history, reply: '3 din mein aayega sir; alert laga diya hai to stock aate hi WhatsApp aa jayega' })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /3 din/)
+    assert.equal(r.pending.size, 0)
+    assert.deepEqual(r.errors, [])
+  }],
   ['old delay history does not defer a fresh bare bill in either mode', async () => {
     for (const active of [true, false]) {
       for (const ageDays of [8, 48]) {
