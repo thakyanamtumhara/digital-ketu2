@@ -154,6 +154,44 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['bare video transport placeholder reaches existing media handoff before silence', async () => {
+    for (const messageText of ['[Video]', '  [video]  ', '']) {
+      const r = await runCase({ incomingMessages: [{ messageId: 'video-test', messageType: 'video', messageText, hasMedia: true, mediaUrl: 'https://media.invalid/clip.mp4' }], gateVerdict: 'SILENT', invoiceKind: false })
+      assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'media_deferred')
+      assert.equal(r.restraintRequests.length, 0)
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.sent.length, 0)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['video caption and adjacent question retain normal answer routing', async () => {
+    for (const incomingMessages of [
+      [{ messageId: 'video-test', messageType: 'video', messageText: 'What is the price of this hoodie?', hasMedia: true }],
+      [{ messageId: 'video-test', messageType: 'video', messageText: '[Video]', hasMedia: true }, { messageId: 'text-test', messageType: 'text', messageText: 'What is the price of this hoodie?' }],
+    ]) {
+      const r = await runCase({ incomingMessages, reply: 'Please check the hoodie catalogue sir.', invoiceKind: false })
+      assert.equal(r.pending.size, 0)
+      assert.equal(r.requests.length, 1)
+      assert.equal(r.sent.length, 1)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['typed video label is not fabricated media', async () => {
+    const r = await runCase({ incomingText: '[Video]', gateVerdict: 'SILENT', invoiceKind: false })
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.logs.at(-1).deferReason, 'ai_chose_silence')
+  }],
+  ['bare video preserves manual cooldown and partial mode', async () => {
+    const incomingMessages = [{ messageId: 'video-test', messageType: 'video', messageText: '[Video]', hasMedia: true }]
+    const held = await runCase({ incomingMessages, cooldown: true, invoiceKind: false })
+    assert.equal(held.logs.at(-1).deferReason, 'cooldown')
+    assert.equal(held.pending.size, 0)
+    const partial = await runCase({ incomingMessages, active: false, invoiceKind: false })
+    assert.equal(partial.requests.length, 0)
+    assert.equal(partial.restraintRequests.length, 0)
+    assert.equal(partial.pending.size, 0)
+    assert.equal(partial.sent.length, 0)
+  }],
   ['English colour relation repairs the reply before transport', async () => {
     const fixed = 'Navy and Black are listed sir 👉 https://example.invalid/product'
     const r = await runCase({ buyerText: 'Cotton shirts in Navy and Black colours', reply: 'Navy aur Black hain sir 👉 https://example.invalid/product', rewriteReply: fixed })
