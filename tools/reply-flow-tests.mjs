@@ -154,6 +154,32 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['English colour relation repairs the reply before transport', async () => {
+    const fixed = 'Navy and Black are listed sir 👉 https://example.invalid/product'
+    const r = await runCase({ buyerText: 'Cotton shirts in Navy and Black colours', reply: 'Navy aur Black hain sir 👉 https://example.invalid/product', rewriteReply: fixed })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, fixed)
+    assert.equal(r.logs.at(-1).aiReply, fixed)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['English delivery estimate repairs Hindi output after Hindi history', async () => {
+    const fixed = 'Usually 2-3 days sir; check the delivery date at checkout 👉 https://example.invalid/order'
+    const r = await runCase({ buyerText: 'Estimate delivery time to Pune?', reply: 'Usually 2-3 din sir; checkout pe delivery date dekhiye 👉 https://example.invalid/order', rewriteReply: fixed, history: [{ buyerMessage: 'Mujhe shirts chahiye', aiReply: 'Check the catalogue sir', status: 'REPLIED' }] })
+    assert.equal(r.rewriteRequests.length, 1)
+    assert.equal(r.sent[0].message, fixed)
+    assert.equal(r.logs.at(-1).aiReply, fixed)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['estimate request preserves explicit Hindi and owner handoff boundaries', async () => {
+    const reply = 'Usually 2-3 din mein milega sir'
+    const r = await runCase({ buyerText: 'Estimate delivery time?', reply, preferredLanguage: 'hindi' })
+    assert.equal(r.rewriteRequests.length, 0)
+    assert.equal(r.sent[0].message, reply)
+    const held = await runCase({ buyerText: 'Estimate delivery time for my missing parcel?', reply: '[DEFER]' })
+    assert.equal(held.rewriteRequests.length, 0)
+    assert.equal(held.sent.length, 0)
+    assert.equal(held.pending.size, 1)
+  }],
   ['bare payment destination images hand off without a dispatch acknowledgement', async () => {
     for (const active of [true, false]) {
       const r = await runCase({ active, invoiceKind: 'PAYMENT', incomingMessages: [
