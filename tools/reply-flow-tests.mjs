@@ -1882,6 +1882,31 @@ const tests = [
     assert.match(r.requests[0].messages[0].content, /Why is the discount not applying/)
     assert.match(r.sent[0].message, /dnFWXQW5yqk/)
   }],
+  ['cart transfer and limit questions reach payment triage', async () => {
+    for (const question of ['Bhai bank limit over hai. Online transfer kar du? Website mein option nahi aa raha.', 'Can I use bank transfer?', 'NEFT option nahi hai', 'IMPS kar sakta hu?', 'My daily limit is exhausted', 'Can I transfer online?']) {
+      const r = await runCase({ incomingText: `Total 14 pcs · 5 kg\nOversize 240gsm\nBlack M:14\nRef: wo_example\n${question}`, reply: '[DEFER]' })
+      assert.equal(r.requests.length, 1, question)
+      assert.ok(r.requests[0].messages[0].content.includes(question), question)
+      assert.equal(r.sent.length, 0, question)
+      assert.equal(r.pending.size, 1, question)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['cart payment context preserves cooldown and partial mode', async () => {
+    const incomingText = 'Total 14 pcs · 5 kg\nOversize 240gsm\nBlack M:14\nRef: wo_example\nOnline transfer krdu?'
+    const cool = await runCase({ incomingText, cooldown: true })
+    assert.equal(cool.requests.length, 0)
+    assert.equal(cool.sent.length, 0)
+    assert.equal(cool.logs.at(-1).status, 'COOLDOWN')
+    const partial = await runCase({ incomingText, active: false })
+    assert.equal(partial.requests.length, 0)
+    assert.equal(partial.sent.length, 0)
+  }],
+  ['cart transport wording keeps checkout routing', async () => {
+    const r = await runCase({ incomingText: 'Total 14 pcs · 5 kg\nOversize 240gsm\nBlack M:14\nTransport\nRef: wo_example\nSend directly to my shop' })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.logs.at(-1).deferReason, 'cart_block_order_intent')
+  }],
   ['ordinary cart share keeps its immediate checkout reply', async () => {
     const r = await runCase({ incomingText: 'Total 120 pcs · 38 kg\nOversize 240gsm\nBlack M:60, L:60\nRef: wo_example\nYe order karna hai' })
     assert.equal(r.requests.length, 0)

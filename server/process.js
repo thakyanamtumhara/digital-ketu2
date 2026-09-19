@@ -2306,7 +2306,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // dispatch-acking the website's own cart-share block as if it were a placed order. The prompt
   // ban has provably failed — hard-code it. Past-tense placed/paid language means it IS a
   // confirmation, so that still goes to the model.
-  if (/ref:\s*wo_/i.test(mergedText || '') && !DISCOUNT_ASK_RE.test(mergedText || '') && !/(kar\s*diya|kiya\s*h|order\s*kiya|ordered|payment|paid|ho\s*gaya)/i.test(mergedText || '')) {
+  if (/ref:\s*wo_/i.test(mergedText || '') && !DISCOUNT_ASK_RE.test(mergedText || '') && !CART_PAYMENT_CONTEXT_RE.test(mergedText || '') && !/(kar\s*diya|kiya\s*h|order\s*kiya|ordered|payment|paid|ho\s*gaya)/i.test(mergedText || '')) {
     if (inDeferChain) { await suppressPrefillForDeferChain('cart-block route'); return }
     const cartReply = 'Noted sir 🙏 Order website pe place kar dijiye payment ke saath 👉 https://sale91.com'
     const sendResult = await sendReplyViaWwbun(whatsappNumber, cartReply, 'Rule')
@@ -2952,6 +2952,7 @@ export function bigBuyerDiscountGuard({ buyerText, historyText, reply, english =
 // "thodi der baad", "dobara try/order/payment" instruction — the class of fix the clone invents.
 // Legitimate lines stay clear of this: the OTP email check has no wait/retry wording, and the
 // payment-METHOD answer ("website pe UPI/card se pay kar sakte ho") has no failure on the buyer side.
+export const CART_PAYMENT_CONTEXT_RE = /\b(?:(?:online|bank|direct)\s*transfer|transfer\s*(?:online|directly)|neft|imps|(?:upi|card|bank|daily|transaction)\s*limit|limit\s*(?:over|exceed(?:ed)?|cross(?:ed)?|full))\b/i
 export const PAYMENT_TROUBLE_RE = /\b(payment|pay(ment)?\s*now|paying|upi|gpay|phonepe|paytm|card|net\s*banking|checkout|transaction)\b[^]{0,60}\b(fail|failed|failing|error|issue|problem|stuck|declin|cancel|nahi\s*ho|nhi\s*ho|na?hi\s*ho\s*(raha|rha|rahi)|ho\s*nahi|aa\s*rh?a\s*hai|aa\s*rahi|atak|ruk)|\b(fail|failed|error|issue|problem|declin)\w*\b[^]{0,60}\b(payment|pay|upi|gpay|phonepe|paytm|card|checkout|transaction)\b/i
 export const INVENTED_RETRY_RE = /\b\d+\s*(min|mint|minute|minutes|ghante|hour|hours)\w*\s*(wait|baad|ke\s*baad|ruk|later|after)|\b(wait|ruk|rukiye|thodi\s*der)\w*[^]{0,20}\b(karke|kar\s*ke|ke\s*baad|baad|then|and)\s*(dobara|phir|fir|again|retry|try)|\b(dobara|phir\s*se|fir\s*se|again)\s*(try|order|payment|pay|koshish|attempt)|\b(retry|try\s*again)\b/i
 
