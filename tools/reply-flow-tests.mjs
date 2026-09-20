@@ -6,7 +6,7 @@ import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, forma
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [] } = {}) {
+async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [], lastOutcome = null } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
   const restraintRequests = [], handled = []
   const timers = [], recoveryQueries = []
@@ -92,7 +92,7 @@ async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', re
       assert.ok(query.where.OR.some(clause => clause.deferReason?.in.includes('manual_reply')))
       assert.ok(query.select.deferReason)
       return history.slice().reverse()
-    }, findFirst: async () => recovery?.laterLog || null, create: async ({ data }) => { logs.push(data); return { id: 'log-test', ...data } } },
+    }, findFirst: async () => recovery?.laterLog || lastOutcome, create: async ({ data }) => { logs.push(data); return { id: 'log-test', ...data } } },
     settings: { update: async () => ({}), findUnique: async () => ({ isActive: recovery?.active !== false, replyModel: 'claude-opus-5', systemPrompt: 'test rules' }) },
     preAIFilter: { findMany: async () => keywordFilters },
     knowledgeChunk: { findFirst: async () => null, findMany: async () => [] },
@@ -154,6 +154,62 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['owner-addressed acknowledgements end without greeting or model spend', async () => {
+    for (const incomingText of ['Ok ketu ji', 'Okay Ketu', 'Theek hai ketu ji 🙏', 'done ketu ji']) {
+      const r = await runCase({ incomingText })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.restraintRequests.length, 0)
+      assert.equal(r.logs[0].deferReason, 'conversation_ender_deterministic')
+      assert.equal(r.handled.length, 1)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['owner-addressed acknowledgement keeps an unanswered handoff in Waiting', async () => {
+    const r = await runCase({ incomingText: 'Ok ketu ji', lastOutcome: { status: 'DEFERRED' } })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.handled.length, 0)
+    assert.equal(r.logs[0].deferReason, 'ender_over_pending_defer')
+  }],
+  ['owner-addressed greeting still opens the conversation', async () => {
+    const r = await runCase({ incomingText: 'Hi ketu ji' })
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.logs[0].deferReason, 'bare_greeting_deterministic')
+  }],
+  ['owner-addressed acknowledgement cannot consume an added buying question', async () => {
+    const r = await runCase({ incomingText: 'Ok ketu ji, do you sell 210gsm oversize?', reply: 'Yes, 210gsm oversize is in the catalogue.' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.handled.length, 0)
+    assert.doesNotMatch(r.logs.at(-1).deferReason || '', /ender|greeting/)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['owner-addressed question-marked completion keeps owner triage', async () => {
+    const r = await runCase({ incomingText: 'Done ketu ji?', reply: '[DEFER]' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.handled.length, 0)
+    assert.equal(r.pending.size, 1)
+    assert.equal(r.sent.length, 0)
+  }],
+  ['owner-addressed acknowledgement with media retains media triage', async () => {
+    const r = await runCase({ incomingMessages: [{ messageId: 'media-test', messageType: 'image', messageText: 'Ok ketu ji', hasMedia: true, mediaUrl: 'https://media.invalid/proof.jpg' }], invoiceKind: 'STALE', reply: '[DEFER]' })
+    assert.equal(r.handled.length, 0)
+    assert.ok(r.pending.size || r.logs.some(x => x.status === 'DEFERRED'))
+    assert.ok(r.logs.every(x => x.deferReason !== 'conversation_ender_deterministic'))
+  }],
+  ['owner-addressed real question preserves owner cooldown and reply cap', async () => {
+    const text = 'Ok ketu ji, do you sell 210gsm oversize?'
+    const cooldown = await runCase({ incomingText: text, cooldown: true })
+    assert.equal(cooldown.requests.length, 0)
+    assert.equal(cooldown.sent.length, 0)
+    assert.equal(cooldown.logs.at(-1).deferReason, 'cooldown')
+    const capped = await runCase({ buyerText: text, repliesToday: 25 })
+    assert.equal(capped.requests.length, 0)
+    assert.equal(capped.sent.length, 0)
+    assert.equal(capped.logs.at(-1).deferReason, 'daily_reply_cap')
+  }],
   ['bill retrieval after a complaint answers only the self-serve question', async () => {
     const history = [{ buyerMessage: 'Wrong size received', aiReply: 'Ketu will reply shortly sir', status: 'DEFERRED', createdAt: new Date(Date.now() - 3600000) }, { buyerMessage: '', aiReply: 'Please share your bill', status: 'SKIPPED', deferReason: 'manual_reply', createdAt: new Date(Date.now() - 1200000) }]
     const r = await runCase({ buyerText: 'Main invoice kahan se download karu?', reply: '[DEFER]', history })

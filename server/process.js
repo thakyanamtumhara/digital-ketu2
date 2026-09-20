@@ -691,6 +691,7 @@ export async function ketuManualReplyAgeMs(db, conversationId) {
 }
 export function isPureEnder(text) {
   if (!text || !text.trim() || /[?？؟]/u.test(text)) return false
+  if (/^(?:ok(?:ay|ey|k{1,2})?|done|(?:thik|theek)\s+hai)\s+ketu(?:\s+ji)?[\s.,!🙏👍]*$/iu.test(text.trim())) return true
   const stripped = text.toLowerCase().replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
   if (!stripped) return false
   return stripped.split(' ').every(t => ENDER_TOKENS.has(t))
@@ -1813,7 +1814,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // these; the cheaper backup models replied "Ketu will reply shortly" instead. Enforce it in code:
   // brain-independent, works on budget-cap too, and saves an AI call.) Thanks is handled separately
   // (gets "Welcome sir"); media/order-enders excluded (isPureEnder is text-only, all-ender tokens).
-  if (isPureEnder(mergedText)) {
+  if (isPureEnder(mergedText) && !messages.some(m => m.hasMedia || (m.messageType && m.messageType !== 'text'))) {
     // AN "OK" ON TOP OF AN UNANSWERED DEFER IS NOT A FINISHED CHAT (Ketu 2026-08-16, buyer
     // 9910938934/RAJ: clone sent "Ketu will reply shortly", buyer answered "Okay", and this
     // ender stamped waitingClearedAt one minute later — so the chat vanished from Waiting while
@@ -2596,7 +2597,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   // scheduler, once carried into this burst) collapse to one line before the greeting check.
   const greetingLines = [...new Set(mergedText.split('\n').map(s => s.trim()).filter(Boolean))]
   const greetingProbe = greetingLines.length === 1 ? greetingLines[0] : mergedText
-  if (!greetingBurstHasMedia && (
+  if (!greetingBurstHasMedia && !isPureEnder(greetingProbe.replace(/[?？؟]/gu, '')) && (
         (GREETING_TOKEN_RE.test(greetingProbe) && isGenericMessage(greetingProbe))
         || GREETING_PHRASE_RE.test(greetingProbe)
       )) {
