@@ -154,6 +154,29 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['custom-label refusal includes the existing independent referral', async () => {
+    const r = await runCase({ buyerText: 'Could I know minimum quantity for adding our brand labels?', reply: 'We do not do custom labels. See our plain tees.' })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /independent vendor/)
+    assert.match(r.sent[0].message, /https:\/\/wa\.me\/917808284808/)
+    assert.equal(r.pending.size, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['normal size-label answer stays intact', async () => {
+    const reply = 'Normal size labels sir, nothing special.'
+    const r = await runCase({ buyerText: 'What labels do your tees have?', reply })
+    assert.equal(r.sent[0].message, reply)
+  }],
+  ['custom-label mixed owner task remains deferred', async () => {
+    const r = await runCase({ buyerText: 'Can you add my brand labels? My paid order has the wrong address.', reply: '[DEFER]' })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 1)
+  }],
+  ['custom-label request respects manual cooldown', async () => {
+    const r = await runCase({ incomingText: 'Can you stitch my neck labels?', cooldown: true, reply: 'We do not stitch labels sir.' })
+    assert.equal(r.sent.length, 0)
+    assert.ok(r.logs.some(row => row.deferReason === 'cooldown'))
+  }],
   ['bare video transport placeholder reaches existing media handoff before silence', async () => {
     for (const messageText of ['[Video]', '  [video]  ', '']) {
       const r = await runCase({ incomingMessages: [{ messageId: 'video-test', messageType: 'video', messageText, hasMedia: true, mediaUrl: 'https://media.invalid/clip.mp4' }], gateVerdict: 'SILENT', invoiceKind: false })
