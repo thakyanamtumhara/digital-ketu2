@@ -27,6 +27,7 @@ import { isAppStoreLookupProblem, appDiscoveryReplyGuard } from './app-discovery
 import { multipartShippingGuard } from './multipart-shipping.js'
 import { customLabelReferralGuard } from './custom-label-referral.js'
 import { billRetrievalGuard } from './bill-retrieval.js'
+import { purchaseMinimumGuard } from './purchase-minimum.js'
 import { isGameEarningsFollowup } from './game-followup.js'
 import { isPrinterFulfilmentFollowup } from './printer-followup.js'
 import { isRecipientReceiptQuestion } from './receipt-question.js'
@@ -3812,6 +3813,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   let restockPointerHeld = false
   try {
     aiReply = canonicalizeCatalogLinks(aiReply, catalogProducts)
+    const purchaseMinimum = purchaseMinimumGuard({ buyerText: mergedText, reply: aiReply, imageUrl, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
+    if (purchaseMinimum) {
+      aiReply = purchaseMinimum
+      console.log(`[PurchaseMinimum] ${whatsappNumber} — requested quantity separated from bulk threshold`)
+    }
     const billLink = billRetrievalGuard({ buyerText: mergedText, reply: aiReply, history: conversationHistory, imageUrl, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
     if (billLink) {
       aiReply = billLink

@@ -2141,6 +2141,28 @@ const tests = [
     assert.equal(r.sent.length, 1, r.errors.join('\n'))
     assert.equal(r.sent[0].message, reply)
   }],
+  ['purchase quote does not turn requested quantity into a minimum', async () => {
+    const r = await runCase({ buyerText: 'What is the bulk price? I want to buy 30 pieces oversize in different sizes and colours', reply: '210gsm bulk rate ₹217/pc sir, 30 pcs minimum with all colours/sizes mix available 👉 https://sale91.com/catalog/p/oversize-210gsm' })
+    assert.equal(r.sent.length, 1, r.errors.join('\n'))
+    assert.match(r.sent[0].message, /₹217\/pc sir — no minimum order; bulk rate applies at 10\+ total pcs/)
+    assert.doesNotMatch(r.sent[0].message, /30 pcs minimum/)
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+  }],
+  ['correct bulk threshold stays unchanged', async () => {
+    const reply = '210gsm bulk rate ₹217/pc sir, 10+ total pcs 👉 https://sale91.com/catalog/p/oversize-210gsm'
+    const r = await runCase({ buyerText: 'What is the bulk price? I want to buy 30 pieces oversize', reply })
+    assert.equal(r.sent[0].message, reply)
+  }],
+  ['custom quantity handoff remains protected', async () => {
+    const r = await runCase({ buyerText: 'What is the bulk price? I want to buy 30 pieces oversize with custom fit', reply: '[DEFER]' })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 1)
+  }],
+  ['minimum correction still respects a manual intervention', async () => {
+    const r = await runCase({ cooldown: true, buyerText: 'What is the bulk price? I want to buy 30 pieces oversize', reply: '210gsm bulk rate ₹217/pc sir, 30 pcs minimum 👉 https://sale91.com/catalog/p/oversize-210gsm' })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.logs.at(-1).deferReason, 'superseded_by_intervention')
+  }],
   ['overload recovery retries the original buyer request', async () => {
     const r = await runCase({ failCalls: 2 })
     assert.equal(r.sent.length, 1, r.errors.join('\n'))
