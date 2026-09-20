@@ -22,6 +22,7 @@ import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting } f
 import { catalogRequestHasTimingQuestion } from './catalog-request.js'
 import { regularFitBlueHint, regularFitBlueGuard } from './regular-fit-blue.js'
 import { pendingProductChoiceGuard } from './product-choice.js'
+import { resolvedStockChoice, unavailableStockChoice } from './stock-choice.js'
 import { isAppStoreLookupProblem, appDiscoveryReplyGuard } from './app-discovery.js'
 import { multipartShippingGuard } from './multipart-shipping.js'
 import { customLabelReferralGuard } from './custom-label-referral.js'
@@ -3444,7 +3445,9 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   let unnamedCandidates = []
   let stockSnapshot = null
   const timingNow = Date.now()
-  if (STOCK_INTENT_RE.test(mergedText || '') || isStockArrivalQuestion(mergedText) || discontinuedSizeRequest(mergedText)) {
+  const stockChoice = resolvedStockChoice({ buyerText: mergedText, history: conversationHistory, imageUrl, now: timingNow })
+  const stockRequest = stockChoice || mergedText
+  if (stockChoice || STOCK_INTENT_RE.test(mergedText || '') || isStockArrivalQuestion(mergedText) || discontinuedSizeRequest(mergedText)) {
     try {
       stockSnapshot = await getStockSnapshot()
       const stockBlock = formatStockBlock(stockSnapshot, { timedFacts: await fetchTimedFacts(db), now: timingNow })
@@ -3452,9 +3455,10 @@ Reply with exactly one word: KETU or ASSISTANT.`,
         // 2026-09-05: colour/size named but no product → the per-product verdicts, resolved in code
         // (buyer 8595383520 "White and nevy 38 kab tak restock hoga?" was deferred with the block
         // present — Navy 38 is in stock in Bio and out in True Bio, and the model would not choose).
-        const unnamed = resolveUnnamedProduct(stockSnapshot, mergedText || '')
-        unnamedCandidates = unnamedProductCandidates(stockSnapshot, mergedText || '')
-        userPrompt = stockBlock + (unnamed ? '\n' + unnamed : '') + '\n\n' + userPrompt
+        const unnamed = resolveUnnamedProduct(stockSnapshot, stockRequest || '')
+        unnamedCandidates = unnamedProductCandidates(stockSnapshot, stockRequest || '')
+        const choiceContext = stockChoice ? `\nResolved stock question after the buyer selected a product: ${stockChoice}. Use the exact product, colour and size in the current stock block.` : ''
+        userPrompt = stockBlock + choiceContext + (unnamed ? '\n' + unnamed : '') + '\n\n' + userPrompt
         console.log(`[StockLookup] ${whatsappNumber} — injected live stock block for stock intent${unnamed ? ' + product-not-named resolver' : ''}`)
       }
     } catch (err) {
@@ -3848,7 +3852,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
       aiReply = discontinuedReply
       console.log(`[DiscontinuedSizeGuard] ${whatsappNumber} — applied size policy with current stock`)
     }
-    const stockAlertOffer = stockAlertOfferGuard({ buyerText: mergedText, history: conversationHistory, reply: aiReply, whatsappNumber, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
+    const stockAlertOffer = stockAlertOfferGuard({ buyerText: stockRequest, history: conversationHistory, reply: aiReply, whatsappNumber, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }), verifiedUnavailable: unavailableStockChoice({ request: stockChoice, snapshot: stockSnapshot }) })
     if (stockAlertOffer) {
       aiReply = stockAlertOffer
       if (stockAlertOffer.trim() === '[DEFER]') restockPointerHeld = true

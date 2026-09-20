@@ -154,6 +154,49 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['stock product selection loads current stock and completes first alert', async () => {
+    const history = [{ status: 'REPLIED', buyerMessage: 'Navy small kab update hoga', aiReply: 'Kaun sa product sir — oversize 240, 210 ya acid wash?', createdAt: new Date(Date.now() - 60000).toISOString() }]
+    const stockSnapshot = { fetchedAt: Date.now(), inStock: { 'Oversize 210gsm': { Navy: { S: 1, M: 1 } } }, oos: { 'Oversize 210gsm': { Navy: 'S' } }, coming: { 'Oversize 210gsm|Navy': { eta: 3, sizes: ['S'] } } }
+    const r = await runCase({ buyerText: '210 GSM', history, stockSnapshot, reply: 'Navy S is out of stock, arriving in 3 days.' })
+    assert.match(r.requests[0].messages[0].content, /LIVE STOCK/)
+    assert.match(r.requests[0].messages[0].content, /Resolved stock question.*Oversize 210gsm Navy S/)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /arriving in 3 days/)
+    assert.match(r.sent[0].message, /alert=1/)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['verified unavailable selection adds first alert even to ETA-only output', async () => {
+    const history = [{ status: 'REPLIED', buyerMessage: 'Navy small kab update hoga', aiReply: 'Kaun sa product sir — oversize 240, 210 ya acid wash?', createdAt: new Date(Date.now() - 60000).toISOString() }]
+    const stockSnapshot = { fetchedAt: Date.now(), inStock: { 'Oversize 210gsm': { Navy: { S: 1 } } }, oos: { 'Oversize 210gsm': { Navy: 'S' } }, coming: { 'Oversize 210gsm|Navy': { eta: 3, sizes: ['S'] } } }
+    const r = await runCase({ buyerText: '210 GSM', history, stockSnapshot, reply: '210gsm Navy S ~3 din mein aa jayega sir' })
+    assert.match(r.sent[0].message, /~3 din/)
+    assert.match(r.sent[0].message, /alert=1/)
+    assert.deepEqual(r.errors, [])
+    const control = await runCase({ buyerText: '210 GSM', history, stockSnapshot: { ...stockSnapshot, oos: {} }, reply: '210gsm Navy S ~3 din mein aa jayega sir' })
+    assert.doesNotMatch(control.sent[0].message, /alert=1/)
+  }],
+  ['stock selection preserves a current in-stock answer', async () => {
+    const history = [{ status: 'REPLIED', buyerMessage: 'Navy S stock kab aayega', aiReply: 'Which product sir — oversize 210 or 240?', createdAt: new Date(Date.now() - 60000).toISOString() }]
+    const reply = 'Navy S available hai sir.'
+    const r = await runCase({ buyerText: '210gsm', history, stockSnapshot: { inStock: { 'Oversize 210gsm': { Navy: { S: 1 } } }, oos: {}, coming: {} }, reply })
+    assert.match(r.requests[0].messages[0].content, /LIVE STOCK/)
+    assert.equal(r.sent[0].message, reply)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['stock selection does not fabricate data after lookup failure', async () => {
+    const history = [{ status: 'REPLIED', buyerMessage: 'Navy S stock kab aayega', aiReply: 'Which product sir — oversize 210 or 240?', createdAt: new Date(Date.now() - 60000).toISOString() }]
+    const r = await runCase({ buyerText: '210gsm', history, stockThrows: true, reply: '[DEFER]' })
+    assert.doesNotMatch(r.requests[0].messages[0].content, /LIVE STOCK|Resolved stock question/)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 1)
+  }],
+  ['standalone product and manual context do not inherit a stock selection', async () => {
+    for (const history of [[], [{ status: 'SKIPPED', deferReason: 'manual_reply', buyerMessage: 'Navy S stock kab aayega', aiReply: 'Which product sir — oversize 210 or 240?', createdAt: new Date(Date.now() - 60000).toISOString() }]]) {
+      const r = await runCase({ buyerText: '210gsm', history, stockSnapshot: { inStock: { 'Oversize 210gsm': { Navy: { S: 1 } } }, oos: {}, coming: {} }, reply: '[DEFER]' })
+      assert.doesNotMatch(r.requests[0].messages[0].content, /Resolved stock question/)
+      assert.equal(r.pending.size, 1)
+    }
+  }],
   ['custom-label refusal includes the existing independent referral', async () => {
     const r = await runCase({ buyerText: 'Could I know minimum quantity for adding our brand labels?', reply: 'We do not do custom labels. See our plain tees.' })
     assert.equal(r.sent.length, 1)

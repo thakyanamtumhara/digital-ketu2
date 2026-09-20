@@ -85,7 +85,7 @@ function withoutPointers(reply) {
   return kept.trim()
 }
 
-export function stockAlertOfferGuard({ buyerText, history = [], reply, whatsappNumber, english = false, now = Date.now() }) {
+export function stockAlertOfferGuard({ buyerText, history = [], reply, whatsappNumber, english = false, verifiedUnavailable = false, now = Date.now() }) {
   const response = String(reply || '').trim()
   if (!response || /^\[(?:DEFER|SKIP)\]$/i.test(response) || /\[SKIP\]/i.test(response) || PERMANENT.test(plain(response))) return null
   if (/\b(?:which|kaun\s*sa|kaunsa|konsa)\b/i.test(plain(response))) return null
@@ -105,7 +105,7 @@ export function stockAlertOfferGuard({ buyerText, history = [], reply, whatsappN
   const resend = RESEND.test(buyer) && /\b(?:link|alert|notify|notification)\b/i.test(buyer)
   if (!current || (!explicitStock && !TIMING.test(buyer) && !AVAILABILITY.test(buyer) && !MISSING.test(buyer) && !resend)) return null
   const content = plain(response)
-  const eligible = POINTER.test(content) || OUT.test(content) || NO_DATE.test(content)
+  const eligible = POINTER.test(content) || OUT.test(content) || NO_DATE.test(content) || (verifiedUnavailable && ETA.test(content))
   const offered = hasAlert(response)
   if (!eligible && !offered) return null
   const priorOffer = recent.some(({ row, scope: oldScope }) => (row.status === 'REPLIED' || row.deferReason === 'manual_reply') && sameScope(current, oldScope) && hasAlert(row.aiReply) && hasAlertLink(row.aiReply, true))
