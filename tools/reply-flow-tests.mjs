@@ -154,6 +154,33 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['bill retrieval after a complaint answers only the self-serve question', async () => {
+    const history = [{ buyerMessage: 'Wrong size received', aiReply: 'Ketu will reply shortly sir', status: 'DEFERRED', createdAt: new Date(Date.now() - 3600000) }, { buyerMessage: '', aiReply: 'Please share your bill', status: 'SKIPPED', deferReason: 'manual_reply', createdAt: new Date(Date.now() - 1200000) }]
+    const r = await runCase({ buyerText: 'Main invoice kahan se download karu?', reply: '[DEFER]', history })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /sale91\.com\/login/)
+    assert.equal(r.pending.size, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['bill retrieval leaves mixed complaint and repeated login failure deferred', async () => {
+    for (const buyerText of ['Where can I find my invoice and refund the missing item?', 'Login kiya phir bhi bill nahi mil raha']) {
+      const r = await runCase({ buyerText, reply: '[DEFER]' })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 1)
+    }
+  }],
+  ['bill retrieval keeps prior login guidance and partial handoffs', async () => {
+    const r = await runCase({ buyerText: 'Where can I find my bill?', reply: '[DEFER]', history: [{ buyerMessage: 'Invoice please', aiReply: 'See https://sale91.com/login', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 1)
+  }],
+  ['bill retrieval preserves cooldown and per-buyer cap', async () => {
+    for (const extra of [{ cooldown: true }, { repliesToday: 1000 }]) {
+      const r = await runCase({ incomingText: 'Where can I find my bill?', reply: '[DEFER]', ...extra })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.requests.length, 0)
+    }
+  }],
   ['stock product selection loads current stock and completes first alert', async () => {
     const history = [{ status: 'REPLIED', buyerMessage: 'Navy small kab update hoga', aiReply: 'Kaun sa product sir — oversize 240, 210 ya acid wash?', createdAt: new Date(Date.now() - 60000).toISOString() }]
     const stockSnapshot = { fetchedAt: Date.now(), inStock: { 'Oversize 210gsm': { Navy: { S: 1, M: 1 } } }, oos: { 'Oversize 210gsm': { Navy: 'S' } }, coming: { 'Oversize 210gsm|Navy': { eta: 3, sizes: ['S'] } } }
