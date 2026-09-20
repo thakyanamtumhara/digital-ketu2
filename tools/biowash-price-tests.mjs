@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { biowashRateSummaryGuard } from '../server/biowash-price.js'
 
 const products = [
-  { slug: 'biowash-round-neck', gsm: 180, bulkRange: [111, 121] },
-  { slug: 'true-biowash-round-neck', gsm: 180, bulkRange: [131, 141] },
+  { slug: 'biowash-round-neck', gsm: 180, bulkRange: [111, 121], sampleRange: [151, 151] },
+  { slug: 'true-biowash-round-neck', gsm: 180, bulkRange: [131, 141], sampleRange: [161, 171] },
 ]
 const base = { products, buyerText: 'Bhai biowash ka price kya hai?', reply: '180gsm Bio Rneck ₹111 hai bhai (10+ pcs pe) 👉 https://sale91.com/catalog/p/biowash-round-neck' }
 let checks = 0
@@ -24,4 +24,12 @@ for (const row of [{ buyerMessage: '44 chahiye' }, { buyerMessage: 'Black please
 eq(biowashRateSummaryGuard({ ...base, history: [{ deferReason: 'manual_reply', buyerMessage: 'Black 44', aiReply: 'Which product?' }] }) !== null, true)
 eq(biowashRateSummaryGuard({ ...base, history: [{ buyerMessage: 'All sizes same rate?' }, { buyerMessage: 'Can I order online?' }] }) !== null, true)
 for (const data of [[], [products[0], products[0]], [{ ...products[0], gsm: 210 }], [{ ...products[0], bulkRange: [121, 111] }], [{ ...products[0], bulkRange: [111, NaN] }], [{ ...products[0], bulkRange: [0, 121] }], [{ ...products[0], bulkRange: ['111', 121] }], [{ ...products[0], bulkRange: null }]]) eq(biowashRateSummaryGuard({ ...base, products: data }), null)
+const bulkSample = { products, english: true, buyerText: 'Please tell me the price of regular fit 180gsm biowash t-shirt', reply: 'Biowash Round Neck 180gsm — ₹111/pc bulk, ₹151 sample sir.\nhttps://sale91.com/catalog/p/biowash-round-neck\nBiowash Round Neck 👆' }
+eq(biowashRateSummaryGuard(bulkSample), 'Bio Rneck 180gsm ₹111–₹121 bulk (10+ total pcs, by colour/size); ₹151 sample sir 👉 https://sale91.com/catalog/p/biowash-round-neck')
+eq(biowashRateSummaryGuard({ ...bulkSample, buyerText: 'What is the price of True Biowash regular fit?', reply: 'True Bio 180gsm bulk ₹131/pc, sample ₹161 sir' }), 'True Bio Rneck 180gsm ₹131–₹141 bulk (10+ total pcs, by colour/size); ₹161–₹171 sample sir 👉 https://sale91.com/catalog/p/true-biowash-round-neck')
+eq(biowashRateSummaryGuard({ ...bulkSample, buyerText: 'Biowash price', reply: 'Bio Rneck bulk ₹111, sample ₹151 sir' }) !== null, true)
+for (const buyerText of ['Biowash sample price', 'Regular fit biowash price for 40 pcs', 'What is the price of black biowash tshirt', 'Biowash price and delivery?', 'Oversize biowash price']) eq(biowashRateSummaryGuard({ ...bulkSample, buyerText }), null)
+for (const reply of ['Bio Rneck ₹111–₹121 bulk, ₹151 sample sir', 'Bio Rneck ₹111 bulk, sample from ₹151 sir', 'Bio Rneck ₹111 bulk, ₹151 sample, 100% cotton', 'Bio Rneck ₹111 bulk, ₹151 sample, available now', 'Bio Rneck ₹111 bulk, ₹151 sample [DEFER]', 'Bio Rneck ₹111 bulk, True Bio ₹161 sample', 'Bio Rneck size 46 ₹121 bulk, ₹151 sample']) eq(biowashRateSummaryGuard({ ...bulkSample, reply }), null)
+for (const sampleRange of [undefined, null, [], [151, 0], [151, NaN], ['151', 161], [171, 151]]) eq(biowashRateSummaryGuard({ ...bulkSample, products: [{ ...products[0], sampleRange }] }), null)
+for (const history of [[{ buyerMessage: 'White please' }], [{ buyerMessage: '2 pieces' }], [{ deferReason: 'manual_reply', aiReply: 'Size 44' }]]) eq(biowashRateSummaryGuard({ ...bulkSample, history }), null)
 console.log(`${checks} biowash price checks passed`)

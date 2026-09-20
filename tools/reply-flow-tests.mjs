@@ -1110,6 +1110,23 @@ const tests = [
     assert.equal(deferred.pending.size, 1)
     assert.deepEqual(deferred.errors, [])
   }],
+  ['general biowash bulk and sample summary retains current bands through delivery', async () => {
+    const catalogData = { categories: [{ products: [{ name: 'Biowash Round Neck', slug: 'biowash-round-neck', gsm: 180, colors: ['Black'], sizes: ['38', '46'], rates: [{ colors: ['Black'], pricePerSize: { 38: 111, 46: 121 }, samplePrice: 151 }] }] }] }
+    const buyerText = 'Please tell me the price of regular fit 180gsm biowash t-shirt'
+    const reply = 'Biowash Round Neck 180gsm — ₹111/pc bulk, ₹151 sample sir.\nhttps://sale91.com/catalog/p/biowash-round-neck\nBiowash Round Neck 👆'
+    const r = await runCase({ buyerText, reply, catalogData, history: [{ buyerMessage: 'Where are you located?', aiReply: 'Delhi sir', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /₹111–₹121 bulk \(10\+ total pcs, by colour\/size\); ₹151 sample/)
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.deepEqual(r.errors, [])
+    const selected = await runCase({ buyerText, reply, catalogData, history: [{ buyerMessage: 'Black 46 please', createdAt: new Date(Date.now() - 60000) }] })
+    assert.equal(selected.sent[0].message, reply)
+    const held = await runCase({ buyerText, reply, catalogData, cooldown: true })
+    assert.equal(held.sent.length, 0)
+    assert.equal(held.logs.at(-1).deferReason, 'superseded_by_intervention')
+    const sample = await runCase({ buyerText: 'Biowash sample price?', reply: 'Bio Rneck sample ₹151 sir', catalogData })
+    assert.equal(sample.sent[0].message, 'Bio Rneck sample ₹151 sir')
+  }],
   ['app discovery wording distinguishes store listing before send', async () => {
     const r = await runCase({ buyerText: 'App Store mein aapka app nahi mil raha', reply: 'App nahi hai sir — website ko install kar lijiye https://sale91.com', gateVerdict: 'SILENT' })
     assert.equal(r.sent[0].message, 'Store par listing nahi hai sir — website ko install kar lijiye https://sale91.com')
