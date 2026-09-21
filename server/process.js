@@ -40,7 +40,6 @@ import { arrivalClockGuard } from './arrival-clock.js'
 import { restockPointerGuard } from './restock-pointer.js'
 import { isProspectiveStockWait } from './bill-history.js'
 import { stockAlertOfferGuard } from './stock-alert-offer.js'
-import { stockColourDenialGuard } from './stock-colour-denial.js'
 import { isSupersededLaunchCorrection } from './launch-knowledge.js'
 import { INVOICE_IMAGE_PROMPT, invoiceImageKind } from './invoice-image.js'
 import { canonicalizeStockAlertLinks } from './stock-alert-link.js'
@@ -3898,11 +3897,6 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     if (discontinuedReply) {
       aiReply = discontinuedReply
       console.log(`[DiscontinuedSizeGuard] ${whatsappNumber} — applied size policy with current stock`)
-    }
-    const stockColourReply = stockColourDenialGuard({ buyerText: mergedText, history: conversationHistory, reply: aiReply, snapshot: stockSnapshot, imageUrl, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
-    if (stockColourReply) {
-      aiReply = stockColourReply
-      console.log(`[StockColourDenial] ${whatsappNumber} — whole-colour denial corrected from current sizes`)
     }
     const stockAlertOffer = stockAlertOfferGuard({ buyerText: stockRequest, history: conversationHistory, reply: aiReply, whatsappNumber, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }), verifiedUnavailable: unavailableStockChoice({ request: stockChoice, snapshot: stockSnapshot }) })
     if (stockAlertOffer) {

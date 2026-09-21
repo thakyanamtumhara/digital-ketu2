@@ -154,21 +154,6 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
-  ['whole-colour stock denial preserves exact available sizes and neighbouring timing', async () => {
-    const now = Date.now()
-    const r = await runCase({ buyerText: 'Red aur Black restock kab hoga?', reply: 'Black M ~4 din. Red out hai — alert laga lijiye.', stockSnapshot: { fetchedAt: now, inStock: { 'Oversize 210gsm': { Red: { S: 10, M: 10, L: 10 }, Black: { S: 10 } } }, oos: { 'Oversize 210gsm': { Red: 'M', Black: 'M,L' } }, coming: {} }, history: [{ status: 'REPLIED', buyerMessage: 'Oversize 210gsm stock?', aiReply: 'Which colour?', createdAt: new Date(now - 60000).toISOString() }] })
-    assert.equal(r.sent.length, 1, r.errors.join('\n'))
-    assert.match(r.sent[0].text || r.sent[0].message || JSON.stringify(r.sent[0]), /Red S\/L available hai/)
-    assert.match(JSON.stringify(r.sent), /Black M ~4 din/)
-    assert.equal(r.pending.size, 0)
-  }],
-  ['size-specific unavailability keeps the main reply', async () => {
-    const now = Date.now()
-    const r = await runCase({ buyerText: 'Oversize 210gsm Red M restock?', reply: 'Red M out hai.', stockSnapshot: { fetchedAt: now, inStock: { 'Oversize 210gsm': { Red: { S: 10, M: 10 } } }, oos: { 'Oversize 210gsm': { Red: 'M' } }, coming: {} } })
-    assert.equal(r.sent.length, 1, r.errors.join('\n'))
-    assert.match(JSON.stringify(r.sent), /Red M out hai/)
-    assert.doesNotMatch(JSON.stringify(r.sent), /available hai/)
-  }],
   ['number-change notices skip paid welcomes while retaining source ids', async () => {
     for (const firstContact of [false, true]) {
       const r = await runCase({ firstContact, incomingText: '[System: User A changed from 910000000001 to 910000000002]' })
