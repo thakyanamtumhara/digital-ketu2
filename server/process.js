@@ -17,7 +17,7 @@ import { scopedTimingBlock } from './timing-scope.js'
 import { gsmAmbiguityHint, gsmPriceRangeGuard } from './gsm-hint.js'
 import { poloRateSummaryGuard } from './polo-price.js'
 import { hoodieRateSummaryGuard } from './hoodie-price.js'
-import { biowashRateSummaryGuard } from './biowash-price.js'
+import { biowashRateSummaryGuard, regularFitRateSummaryGuard } from './biowash-price.js'
 import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting } from './store-greeting.js'
 import { catalogRequestHasTimingQuestion, catalogRequestHasSampleQuestion } from './catalog-request.js'
 import { regularFitBlueHint, regularFitBlueGuard } from './regular-fit-blue.js'
@@ -3849,6 +3849,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     if (hoodiePriceReply) {
       aiReply = hoodiePriceReply
       console.log(`[HoodiePriceRange] ${whatsappNumber} — current catalogue ranges applied`)
+    }
+    const regularFitPriceReply = regularFitRateSummaryGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, imageUrl, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
+    if (regularFitPriceReply) {
+      aiReply = regularFitPriceReply
+      console.log(`[RegularFitPriceRange] ${whatsappNumber} — current catalogue ranges applied`)
     }
     const biowashPriceReply = biowashRateSummaryGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
     if (biowashPriceReply) {

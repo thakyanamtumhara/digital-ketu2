@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 
 const API = '/api'
-const APP_VERSION = '2026.09.21.1'
+const APP_VERSION = '2026.09.21.2'
 
 function App() {
   const [tab, setTab] = useState('live')

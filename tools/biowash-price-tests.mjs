@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { biowashRateSummaryGuard } from '../server/biowash-price.js'
+import { biowashRateSummaryGuard, regularFitRateSummaryGuard } from '../server/biowash-price.js'
 
 const products = [
   { slug: 'biowash-round-neck', gsm: 180, bulkRange: [111, 121], sampleRange: [151, 151] },
@@ -32,4 +32,21 @@ for (const buyerText of ['Biowash sample price', 'Regular fit biowash price for 
 for (const reply of ['Bio Rneck ₹111–₹121 bulk, ₹151 sample sir', 'Bio Rneck ₹111 bulk, sample from ₹151 sir', 'Bio Rneck ₹111 bulk, ₹151 sample, 100% cotton', 'Bio Rneck ₹111 bulk, ₹151 sample, available now', 'Bio Rneck ₹111 bulk, ₹151 sample [DEFER]', 'Bio Rneck ₹111 bulk, True Bio ₹161 sample', 'Bio Rneck size 46 ₹121 bulk, ₹151 sample']) eq(biowashRateSummaryGuard({ ...bulkSample, reply }), null)
 for (const sampleRange of [undefined, null, [], [151, 0], [151, NaN], ['151', 161], [171, 151]]) eq(biowashRateSummaryGuard({ ...bulkSample, products: [{ ...products[0], sampleRange }] }), null)
 for (const history of [[{ buyerMessage: 'White please' }], [{ buyerMessage: '2 pieces' }], [{ deferReason: 'manual_reply', aiReply: 'Size 44' }]]) eq(biowashRateSummaryGuard({ ...bulkSample, history }), null)
+const regular = { products: products.map(p => ({ ...p, fit: 'regular', colors: ['Black', 'Mustard Yellow', 'Sky'] })), buyerText: '180 gsm regular fit price?', reply: '180gsm regular fit mein True Bio ₹131 aur Bio ₹111 hai sir 👉 https://sale91.com/catalog/p/true-biowash-round-neck' }
+eq(regularFitRateSummaryGuard(regular), '180gsm regular fit: True Bio ₹131–₹141; Bio ₹111–₹121 bulk (10+ total pcs, colour/size ke hisaab se) sir 👉 https://sale91.com/catalog')
+eq(regularFitRateSummaryGuard({ ...regular, reply: '180gsm regular fit mein True Bio ₹131, Bio ₹111, Non-Bio ₹91 hai sir 👉 https://sale91.com/catalog' }), regularFitRateSummaryGuard(regular))
+eq(regularFitRateSummaryGuard({ ...regular, reply: 'Non Bio ₹91; Bio ₹111; True Bio ₹131 sir' }), regularFitRateSummaryGuard(regular))
+eq(regularFitRateSummaryGuard({ ...regular, products: [...regular.products, { slug: 'new-regular', gsm: 180, fit: 'regular', bulkRange: [151, 161] }] }), null)
+eq(regularFitRateSummaryGuard({ ...regular, english: true }).includes('by colour/size'), true)
+eq(regularFitRateSummaryGuard({ ...regular, products: regular.products.map(p => ({ ...p, bulkRange: [181, 191] })) }).includes('True Bio ₹181–₹191; Bio ₹181–₹191'), true)
+eq(regularFitRateSummaryGuard({ ...regular, products: regular.products.map(p => ({ ...p, bulkRange: [181, 181] })) }).includes('True Bio ₹181; Bio ₹181'), true)
+for (const buyerText of ['180gsm regular fit rates', 'What is the price of 180 gsm regular fit t-shirts?', '180gsm regular fit ka price kya hai']) eq(regularFitRateSummaryGuard({ ...regular, buyerText }) !== null, true)
+for (const buyerText of ['Regular fit price', '180gsm price', '180gsm regular fit sample price', '180gsm regular fit 44 price', '180gsm regular fit price for 10 pcs', '180gsm regular fit black price', '180gsm regular fit price and delivery', '180gsm regular fit price complaint', '180gsm oversize price', '180gsm regular fit True Bio price', '[Image] 180gsm regular fit price']) eq(regularFitRateSummaryGuard({ ...regular, buyerText }), null)
+for (const reply of ['True Bio ₹131–₹141; Bio ₹111–₹121 bulk', 'True Bio from ₹131 and Bio from ₹111', 'True Bio size 38 ₹131, Bio size 38 ₹111', 'True Bio ₹161 sample, Bio ₹151 sample', 'True Bio ₹131; Bio ₹111; sample available', 'True Bio ₹131; Bio ₹111, both in stock', 'True Bio ₹131; Bio ₹111, 100% cotton', 'True Bio ₹131; Bio ₹111 [DEFER]', 'True Bio ₹131; Bio ₹111, delivery tomorrow', 'True Bio ₹131; Non Bio ₹111', 'True Bio ₹131; Bio ₹111, https://example.com', 'True Bio ₹131; Bio ₹111, https://sale91.com/catalog/p/oversize-180gsm', '[DEFER]', 'True Bio ₹131 sir', 'Bio ₹111, Bio ₹121']) eq(regularFitRateSummaryGuard({ ...regular, reply }), null)
+for (const row of [{ buyerMessage: '44 chahiye' }, { buyerMessage: 'Mustard Yellow' }, { buyerMessage: 'Sky please' }, { buyerMessage: '2 samples' }, { buyerMessage: '6 pcs' }, { buyerMessage: 'True Bio' }, { buyerMessage: '[Image]' }, { deferReason: 'manual_reply', aiReply: 'Use size 46' }]) eq(regularFitRateSummaryGuard({ ...regular, history: [row] }), null)
+eq(regularFitRateSummaryGuard({ ...regular, history: [{ buyerMessage: regular.buyerText, deferReason: 'welcome_followup_scheduled' }] }) !== null, true)
+eq(regularFitRateSummaryGuard({ ...regular, history: [{ deferReason: 'manual_reply', buyerMessage: 'White 44', aiReply: 'Which product?' }] }) !== null, true)
+eq(regularFitRateSummaryGuard({ ...regular, imageUrl: 'https://media.invalid/photo.jpg' }), null)
+for (const change of [{ gsm: 200 }, { fit: 'oversize' }, { bulkRange: [0, 121] }, { bulkRange: [121, 111] }, { bulkRange: [111, NaN] }, { bulkRange: ['111', 121] }, { bulkRange: null }]) eq(regularFitRateSummaryGuard({ ...regular, products: [regular.products[0], { ...regular.products[1], ...change }] }), null)
+for (const data of [[], [regular.products[0]], [...regular.products, regular.products[0]]]) eq(regularFitRateSummaryGuard({ ...regular, products: data }), null)
 console.log(`${checks} biowash price checks passed`)

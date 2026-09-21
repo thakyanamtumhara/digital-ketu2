@@ -1282,6 +1282,46 @@ const tests = [
     assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
     assert.deepEqual(r.errors, [])
   }],
+  ['generic regular-fit two-product quote retains both live ranges through send', async () => {
+    const catalogData = { categories: [{ products: [
+      { name: 'Biowash Round Neck', slug: 'biowash-round-neck', gsm: 180, description: 'Regular Fit, cotton', colors: ['Black'], sizes: ['38', '46'], rates: [{ colors: ['Black'], pricePerSize: { 38: 111, 46: 121 }, samplePrice: 151 }] },
+      { name: 'True Biowash Round Neck', slug: 'true-biowash-round-neck', gsm: 180, description: 'Regular Fit, cotton', colors: ['Black'], sizes: ['38', '46'], rates: [{ colors: ['Black'], pricePerSize: { 38: 131, 46: 141 }, samplePrice: 161 }] },
+    ] }] }
+    const r = await runCase({ buyerText: '180gsm regular fit price?', reply: 'True Bio ₹131 aur Bio ₹111 hai sir', catalogData })
+    assert.match(r.sent[0].message, /True Bio ₹131–₹141; Bio ₹111–₹121/)
+    assert.match(r.sent[0].message, /10\+ total pcs/)
+    assert.match(r.sent[0].message, /colour\/size/)
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.equal(r.logs.at(-1).sentViaWwbun, true)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['generic regular-fit repair preserves selected variants, media and handoff', async () => {
+    const catalogData = { categories: [{ products: [
+      { name: 'Biowash Round Neck', slug: 'biowash-round-neck', gsm: 180, description: 'Regular Fit', colors: ['Black'], sizes: ['38', '46'], rates: [{ colors: ['Black'], pricePerSize: { 38: 111, 46: 121 }, samplePrice: 151 }] },
+      { name: 'True Biowash Round Neck', slug: 'true-biowash-round-neck', gsm: 180, description: 'Regular Fit', colors: ['Black'], sizes: ['38', '46'], rates: [{ colors: ['Black'], pricePerSize: { 38: 131, 46: 141 }, samplePrice: 161 }] },
+    ] }] }
+    const reply = 'True Bio ₹131 aur Bio ₹111 hai sir'
+    for (const extra of [{ buyerText: '180gsm regular fit black price?' }, { history: [{ buyerMessage: '38 size', createdAt: new Date(), status: 'REPLIED' }] }, { imageUrl: 'https://media.invalid/chart.jpg' }]) {
+      const r = await runCase({ buyerText: '180gsm regular fit price?', reply, catalogData, ...extra })
+      assert.equal(r.sent[0].message, reply)
+      assert.deepEqual(r.errors, [])
+    }
+    const defer = await runCase({ buyerText: '180gsm regular fit price?', reply: '[DEFER]', catalogData })
+    assert.equal(defer.pending.size, 1)
+    assert.equal(defer.sent.length, 0)
+    assert.deepEqual(defer.errors, [])
+  }],
+  ['generic regular-fit repair excludes an extra product outside the current fit and GSM', async () => {
+    const catalogData = { categories: [{ products: [
+      { name: 'Biowash Round Neck', slug: 'biowash-round-neck', gsm: 180, description: 'Regular Fit', colors: ['Black'], sizes: ['38', '46'], rates: [{ colors: ['Black'], pricePerSize: { 38: 111, 46: 121 }, samplePrice: 151 }] },
+      { name: 'True Biowash Round Neck', slug: 'true-biowash-round-neck', gsm: 180, description: 'Regular Fit', colors: ['Black'], sizes: ['38', '46'], rates: [{ colors: ['Black'], pricePerSize: { 38: 131, 46: 141 }, samplePrice: 161 }] },
+    ] }] }
+    const r = await runCase({ buyerText: '180gsm regular fit price?', reply: 'True Bio ₹131, Bio ₹111, Non-Bio ₹91 hai sir', catalogData })
+    assert.match(r.sent[0].message, /True Bio ₹131–₹141; Bio ₹111–₹121/)
+    assert.doesNotMatch(r.sent[0].message, /Non|₹91/)
+    assert.equal(r.logs.at(-1).aiReply, r.sent[0].message)
+    assert.deepEqual(r.errors, [])
+  }],
   ['generic biowash quote keeps live size bands through send and logging', async () => {
     const catalogData = { categories: [{ products: [{ name: 'Biowash Round Neck', slug: 'biowash-round-neck', gsm: 180, colors: ['Black'], sizes: ['38', '46'], rates: [{ colors: ['Black'], pricePerSize: { 38: 111, 46: 121 }, samplePrice: 151 }] }] }] }
     const r = await runCase({ buyerText: 'Bhai biowash ka price kya hai?', reply: 'Bio Rneck ₹111 hai bhai (10+ pcs pe)', catalogData })
