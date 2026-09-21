@@ -778,6 +778,49 @@ const tests = [
     assert.equal(r.logs.some(row => row.deferReason === 'catalog_request'), false)
     assert.deepEqual(r.errors, [])
   }],
+  ['catalogue shortcut preserves a separate sample request', async () => {
+    for (const incomingText of ['Catalog bhejo, polo sample mil sakta hai?', 'Send catalog. Can I get a sample?', 'Catalog please, sample ka price?', 'Catalog send, sample chahiye', 'Share catalogue, how do I order samples?']) {
+      const r = await runCase({ incomingText, keywordFilters: [{ name: 'catalog_request', matchType: 'partial', keywords: 'catalog', action: 'auto_reply', autoReplyText: 'catalog-only' }], reply: 'One piece can be ordered from the website sir: https://sale91.com' })
+      assert.equal(r.requests.length, 1, incomingText)
+      assert.equal(r.sent.length, 1, incomingText)
+      assert.match(r.sent[0].message, /One piece/)
+      assert.equal(r.logs.some(row => row.deferReason === 'catalog_request'), false)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['sample catalogue headings and URL words retain the catalogue shortcut', async () => {
+    for (const incomingText of ['Send sample catalog', 'Share catalog with sample prices', 'Send catalog https://example.invalid/sample-chahiye']) {
+      const r = await runCase({ incomingText, keywordFilters: [{ name: 'catalog_request', matchType: 'partial', keywords: 'catalog', action: 'auto_reply', autoReplyText: 'catalog-only' }] })
+      assert.equal(r.requests.length, 0, incomingText)
+      assert.equal(r.sent[0].message, 'catalog-only', incomingText)
+    }
+  }],
+  ['sample catalogue bypass preserves configured owner filters', async () => {
+    const r = await runCase({ incomingText: 'Catalog bhejo, sample chahiye, refund status?', keywordFilters: [{ name: 'owner_only', matchType: 'partial', keywords: 'refund', action: 'defer' }, { name: 'catalog_request', matchType: 'partial', keywords: 'catalog', action: 'auto_reply', autoReplyText: 'catalog-only' }] })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 1)
+  }],
+  ['sample catalogue bypass keeps model complaint handoff', async () => {
+    const r = await runCase({ incomingText: 'Send catalog, can I get a sample? My received shirt is damaged.', keywordFilters: [{ name: 'catalog_request', matchType: 'partial', keywords: 'catalog', action: 'auto_reply', autoReplyText: 'catalog-only' }], reply: '[DEFER]' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 1)
+  }],
+  ['sample catalogue bypass keeps manual cooldown and buyer cap', async () => {
+    for (const boundary of [{ cooldown: true }, { repliesToday: 100 }]) {
+      const r = await runCase({ incomingText: 'Send catalog, can I order samples?', keywordFilters: [{ name: 'catalog_request', matchType: 'partial', keywords: 'catalog', action: 'auto_reply', autoReplyText: 'catalog-only' }], ...boundary })
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.sent.length, 0)
+      assert.ok(r.logs.some(row => /cooldown|daily_reply_cap/.test(row.deferReason)))
+    }
+  }],
+  ['partial AI sample request does not enable the full model', async () => {
+    const r = await runCase({ incomingText: 'Catalog bhejo sample chahiye', active: false })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.logs.some(row => row.deferReason === 'catalog_request'), false)
+  }],
   ['catalogue shortcut keeps English and Hindi timing questions actionable', async () => {
     for (const text of ['Send catalog and how long does shipping take?', 'Catalog please, when will it arrive?', 'Delivery time and catalog please', 'कितने दिन में आएगा, catalog bhejo']) {
       const r = await runCase({ incomingText: text, keywordFilters: [{ name: 'catalog_request', matchType: 'partial', keywords: 'catalog', action: 'auto_reply', autoReplyText: 'catalog-only' }], reply: 'https://sale91.com/catalog [DEFER]' })
