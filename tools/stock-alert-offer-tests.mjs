@@ -12,6 +12,18 @@ const offered = call()
 const priorAlert = { ...first, aiReply: offered }
 const conditionalEcho = 'Date nahi bata sakta sir; alert laga diya hai to stock aate hi WhatsApp aa jayega'
 const cases = [
+  ['short Hinglish unavailability preserves the date and adds first alert', () => {
+    for (const phrase of ['abhi out hai', 'abhi bhi out hai', 'abhi out hain', 'abhi out h']) {
+      const reply = `240gsm Navy S ${phrase} sir, 3-5 din mein aa jayega`
+      assert.equal(call({ buyerText: '240gsm Navy S restock kab?', reply }), reply + '\nAlert laga lijiye sir, stock aane par WhatsApp aa jayega 👉 ' + url)
+    }
+  }],
+  ['short unavailability does not repeat a prior useful alert beside a date', () => assert.equal(call({ history: [priorAlert], reply: 'Off-white S abhi bhi out hai sir, 3 din mein aa jayega' }), null)],
+  ['short unavailability retains permanent-product exclusion', () => assert.equal(call({ reply: 'Off-white XS abhi out hai sir, dobara nahi aayega' }), null)],
+  ['short wording cannot convert order delivery to stock advice', () => assert.equal(call({ buyerText: 'Mera parcel kab aayega?', reply: 'Parcel abhi out hai delivery ke liye' }), null)],
+  ['short wording does not match in-stock, past, timeout or unresolved size replies', () => {
+    for (const reply of ['Navy S abhi in stock hai', 'Navy S pehle out tha, ab available hai', 'Page ka timeout hai', 'Kaunsa size abhi out hai sir?']) assert.equal(call({ reply }), null)
+  }],
   ['conditional alert reminder cannot repeat an exhausted date answer', () => assert.equal(call({ buyerText: 'Approx kab aayega, 2 week mein?', history: [priorAlert], reply: conditionalEcho }), '[DEFER]')],
   ['conditional notification spelling retains the same handoff', () => assert.equal(call({ history: [priorAlert], reply: conditionalEcho.replace('alert', 'notification').replace('hai to ', 'hai toh ') }), '[DEFER]')],
   ['equivalent keep-alert wording cannot renew the no-date loop', () => assert.equal(call({ history: [priorAlert], reply: 'Exact date nahi bata sakta sir, alert laga rakhiye, stock aate hi WhatsApp aa jayega' }), '[DEFER]')],

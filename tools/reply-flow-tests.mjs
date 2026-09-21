@@ -237,6 +237,27 @@ const tests = [
       assert.equal(r.requests.length, 0)
     }
   }],
+  ['short Hinglish stock unavailability completes the first alert through the reply path', async () => {
+    const reply = 'Navy S abhi bhi out hai sir, 3-5 din mein aa jayega'
+    const r = await runCase({ buyerText: '240gsm Navy S restock kab?', whatsappNumber: '919999999999', reply })
+    assert.equal(r.sent.length, 1)
+    assert.ok(r.sent[0].message.startsWith(reply))
+    assert.match(r.sent[0].message, /alert=1&ph=9999999999/)
+    assert.deepEqual(r.errors, [])
+    const history = [{ status: 'REPLIED', buyerMessage: '240gsm Navy S restock kab?', aiReply: r.sent[0].message, createdAt: new Date(Date.now() - 60000).toISOString() }]
+    const control = await runCase({ buyerText: '240gsm Navy S restock kab?', reply, history })
+    assert.equal(control.sent[0].message, reply)
+  }],
+  ['short stock wording preserves in-stock, owner handoff and cooldown paths', async () => {
+    const control = await runCase({ buyerText: '240gsm Navy S restock kab?', reply: 'Navy S available hai sir' })
+    assert.doesNotMatch(control.sent[0].message, /alert=1/)
+    const deferred = await runCase({ buyerText: '240gsm Navy S restock kab?', reply: '[DEFER]' })
+    assert.equal(deferred.sent.length, 0)
+    assert.equal(deferred.pending.size, 1)
+    const cooldown = await runCase({ incomingText: '240gsm Navy S restock kab?', cooldown: true, reply: 'Navy S abhi out hai sir' })
+    assert.equal(cooldown.sent.length, 0)
+    assert.equal(cooldown.requests.length, 0)
+  }],
   ['stock product selection loads current stock and completes first alert', async () => {
     const history = [{ status: 'REPLIED', buyerMessage: 'Navy small kab update hoga', aiReply: 'Kaun sa product sir — oversize 240, 210 ya acid wash?', createdAt: new Date(Date.now() - 60000).toISOString() }]
     const stockSnapshot = { fetchedAt: Date.now(), inStock: { 'Oversize 210gsm': { Navy: { S: 1, M: 1 } } }, oos: { 'Oversize 210gsm': { Navy: 'S' } }, coming: { 'Oversize 210gsm|Navy': { eta: 3, sizes: ['S'] } } }
