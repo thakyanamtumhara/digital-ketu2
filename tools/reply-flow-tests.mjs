@@ -284,6 +284,29 @@ const tests = [
       assert.equal(r.requests.length, 0)
     }
   }],
+  ['bill login uses the order email while preserving the rest of the answer', async () => {
+    const reply = 'Log in with the same phone number to download your invoice sir 👉 https://sale91.com/login'
+    const r = await runCase({ buyerText: 'I closed the page before saving my invoice', reply })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /email address you used when ordering to download your invoice/)
+    assert.doesNotMatch(r.sent[0].message, /same phone number/)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['bill login guard preserves ledger verification and partial handoffs', async () => {
+    const reply = 'Verify the same mobile number to download your bills 👉 https://www.bulkplaintshirt.com/ledger.html'
+    const r = await runCase({ buyerText: 'I need my full ledger', reply })
+    assert.equal(r.sent[0].message, reply)
+    const deferred = await runCase({ buyerText: 'I cannot log in', reply: '[DEFER]' })
+    assert.equal(deferred.sent.length, 0)
+    assert.equal(deferred.pending.size, 1)
+  }],
+  ['bill login correction keeps owner cooldown and reply cap', async () => {
+    for (const extra of [{ cooldown: true }, { repliesToday: 1000 }]) {
+      const r = await runCase({ incomingText: 'I closed the page before saving my invoice', reply: 'Log in with the same number for your bill 👉 https://sale91.com/login', ...extra })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.requests.length, 0)
+    }
+  }],
   ['short Hinglish stock unavailability completes the first alert through the reply path', async () => {
     const reply = 'Navy S abhi bhi out hai sir, 3-5 din mein aa jayega'
     const r = await runCase({ buyerText: '240gsm Navy S restock kab?', whatsappNumber: '919999999999', reply })

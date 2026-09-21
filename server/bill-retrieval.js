@@ -12,3 +12,14 @@ export function billRetrievalGuard({ buyerText, reply, history = [], imageUrl, e
     ? 'Log in to see and download your bills sir 👉 https://sale91.com/login'
     : 'Login karte hi aapke saare bills sync ho jayenge sir 👉 https://sale91.com/login'
 }
+
+export function billLoginIdentityGuard({ reply, imageUrl }) {
+  const text = String(reply || '')
+  if (imageUrl || text.length > 600 || /\[(?:DEFER|SKIP)\]|["“”]|\b(?:ledger|refund|otp|password|not|never|cannot|can't|don't)\b/i.test(text)) return null
+  if (!/\b(?:bills?|invoices?)\b/i.test(text)) return null
+  const links = text.match(/https?:\/\/[^\s<>]+/gi) || []
+  if (links.length !== 1 || !/^https:\/\/sale91\.com\/login\/?$/i.test(links[0])) return null
+  const wrongIdentity = /\b(log[ -]?in|sign[ -]?in)\s+(?:with|using)\s+(?:(?:the|your)\s+)?(?:same|registered)\s+(?:(?:mobile|phone|whatsapp)\s+)?number\b/gi
+  const corrected = text.replace(wrongIdentity, '$1 with the email address you used when ordering')
+  return corrected === text ? null : corrected
+}

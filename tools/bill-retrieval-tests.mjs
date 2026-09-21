@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { billRetrievalGuard } from '../server/bill-retrieval.js'
+import { billRetrievalGuard, billLoginIdentityGuard } from '../server/bill-retrieval.js'
 
 let checks = 0
 const guard = (buyerText, extra = {}) => billRetrievalGuard({ buyerText, reply: '[DEFER]', ...extra })
@@ -17,4 +17,34 @@ for (const extra of [{ reply: 'Already answered.' }, { reply: 'Part answered.\n[
 }
 assert.match(guard('Where can I find my bill?', { english: true }), /^Log in to see and download/)
 assert.match(guard('Mai bill kaha se nikalu', { history: [{ buyerMessage: 'Wrong size received', aiReply: 'Ketu will reply shortly sir' }, { deferReason: 'manual_reply', aiReply: 'Share your bill' }] }), /sale91\.com\/login/)
-console.log(`${checks + 2} bill retrieval checks passed`)
+checks += 2
+const loginReply = 'Log in with the same number to download your invoice sir 👉 https://sale91.com/login'
+for (const identity of ['log in with the same number', 'login using your registered mobile number', 'sign in with the same phone number', 'log-in using the same WhatsApp number']) {
+  const reply = `No problem sir. ${identity} and your bill will be there 👉 https://sale91.com/login`
+  const fixed = billLoginIdentityGuard({ reply })
+  assert.match(fixed, /with the email address you used when ordering/)
+  assert.match(fixed, /and your bill will be there/)
+  assert.equal(billLoginIdentityGuard({ reply: fixed }), null)
+  checks++
+}
+for (const reply of [
+  'Verify the same mobile number to download your bills 👉 https://www.bulkplaintshirt.com/ledger.html',
+  'Log in with the email address you used when ordering for your bill 👉 https://sale91.com/login',
+  'Log in to download your bill 👉 https://sale91.com/login',
+  'Call us on the same number about your bill 👉 https://sale91.com/login',
+  'Log in with the same number for your dashboard 👉 https://example.invalid/login',
+  loginReply + '\n[DEFER]', loginReply + '\n[SKIP]',
+  'Do not ' + loginReply, 'Never ' + loginReply,
+  `You said "${loginReply}"`,
+  loginReply.replace('/login', '/login-other'),
+  loginReply.replace('sale91.com', 'sale91.com.attacker.invalid'),
+  loginReply + '\nhttps://example.invalid',
+  loginReply.replace('invoice', 'ledger'),
+  loginReply + '\nReset your password.',
+  'x'.repeat(600) + loginReply,
+]) {
+  assert.equal(billLoginIdentityGuard({ reply }), null)
+  checks++
+}
+assert.equal(billLoginIdentityGuard({ reply: loginReply, imageUrl: 'https://media.invalid/proof.jpg' }), null)
+console.log(`${checks + 1} bill retrieval checks passed`)
