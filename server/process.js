@@ -1935,6 +1935,28 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     return
   }
 
+  const numberChangeNotice = messages.length > 0 && messages.every(m =>
+    m.messageType === 'text' && !m.hasMedia && !m.mediaUrl &&
+    /^\s*\[System: User [A-Z] changed from \+?\d{7,15} to \+?\d{7,15}\]\s*$/.test(m.messageText || '')
+  )
+  if (numberChangeNotice) {
+    let pending = pendingDefers.has(whatsappNumber) || carriedDeferByNumber.has(whatsappNumber)
+    if (!pending) {
+      try {
+        const lastOut = await db.messageLog.findFirst({
+          where: { conversationId: conversation.id, status: { in: ['REPLIED', 'DEFERRED'] } },
+          orderBy: { createdAt: 'desc' }, select: { status: true },
+        })
+        pending = lastOut?.status === 'DEFERRED'
+      } catch { pending = true }
+    }
+    await createLog(db, conversation.id, mergedText, messageIds, {
+      status: 'SKIPPED', deferReason: pending ? 'system_notice_over_pending_defer' : 'system_number_change',
+      processingMs: Date.now() - startTime,
+    })
+    return
+  }
+
   // --- Check: bare affirmation while KETU is personally handling this thread → stay silent ---
   // (Ketu 2026-07-21, buyer 7276733830: mid-way through his MANUAL delivery-complaint handling the
   // buyer sent a bare "Haa" — answering HIM — and the clone re-opened an add-item interrogation
@@ -4487,7 +4509,7 @@ export async function fetchTimedFacts(db) {
 }
 export const NO_REPLY_NEEDED_REASONS = new Set([
   'conversation_ender_deterministic', 'conversation_ended', 'ai_chose_silence', 'bare_ack_in_manual_flow',
-  'ig_zero_tier', 'automated_business_reply', 'unsupported_skipped', 'duplicate_resend_suppressed', 'cooldown_ender',
+  'ig_zero_tier', 'automated_business_reply', 'unsupported_skipped', 'duplicate_resend_suppressed', 'cooldown_ender', 'system_number_change',
 ])
 export async function notifySkippedViaWwbun(whatsappNumber, opts = {}) {
   if (!WWBUN_API_URL || !DIGITAL_KETU_SECRET) return

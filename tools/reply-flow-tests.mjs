@@ -154,6 +154,58 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['number-change notices skip paid welcomes while retaining source ids', async () => {
+    for (const firstContact of [false, true]) {
+      const r = await runCase({ firstContact, incomingText: '[System: User A changed from 910000000001 to 910000000002]' })
+      assert.equal(r.logs.at(-1).deferReason, 'system_number_change')
+      assert.ok(r.logs.at(-1).messageIds.includes('inbound-test'))
+      assert.equal(r.requests.length + r.restraintRequests.length + r.rewriteRequests.length, 0)
+      assert.equal(r.sent.length + r.timerDelays.length, 0)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['number-change notices cannot close an unanswered owner handoff', async () => {
+    const r = await runCase({ incomingText: '[System: User B changed from +910000000001 to +910000000002]', lastOutcome: { status: 'DEFERRED' } })
+    assert.equal(r.logs.at(-1).deferReason, 'system_notice_over_pending_defer')
+    assert.equal(r.handled.length + r.requests.length + r.sent.length + r.timerDelays.length, 0)
+    assert.match(source, /'system_number_change'/)
+    const reasons = source.match(/NO_REPLY_NEEDED_REASONS = new Set\(\[([\s\S]*?)\]\)/)[1]
+    assert.match(reasons, /'system_number_change'/)
+    assert.doesNotMatch(reasons, /system_notice_over_pending_defer/)
+  }],
+  ['questions beside number-change notices retain their answer path', async () => {
+    const notice = '[System: User A changed from 910000000001 to 910000000002]'
+    for (const incomingMessages of [
+      [{ messageId: 'ask-test', messageType: 'text', messageText: notice + ' How do I order?' }],
+      [{ messageId: 'notice-test', messageType: 'text', messageText: notice }, { messageId: 'ask-test', messageType: 'text', messageText: 'How do I order?' }],
+    ]) {
+      const r = await runCase({ incomingMessages, reply: 'Please order on the website sir.' })
+      assert.equal(r.requests.length, 1)
+      assert.equal(r.sent.length, 1)
+      assert.ok(r.logs.at(-1).messageIds.includes('ask-test'))
+      assert.ok(!r.logs.some(l => l.deferReason?.startsWith('system_')))
+    }
+  }],
+  ['number-change wording cannot hide media or a manual order modification', async () => {
+    const notice = '[System: User A changed from 910000000001 to 910000000002]'
+    for (const message of [
+      { messageType: 'image', messageText: notice, mediaUrl: 'https://media.invalid/photo.jpg' },
+      { messageType: 'text', messageText: notice, hasMedia: true },
+      { messageType: 'text', messageText: notice, mediaUrl: 'https://media.invalid/photo.jpg' },
+      { messageType: 'text', messageText: 'Please change my order phone number to 910000000002' },
+      { messageType: 'text', messageText: '[System: Please change my order number]' },
+    ]) {
+      const r = await runCase({ incomingMessages: [{ messageId: 'source-test', ...message }], reply: '[DEFER]', invoiceKind: 'NOT_INVOICE' })
+      assert.ok(!r.logs.some(l => l.deferReason?.startsWith('system_')))
+    }
+  }],
+  ['number-change notices preserve manual cooldown and partial mode', async () => {
+    const incomingText = '[System: User A changed from 910000000001 to 910000000002]'
+    const cooldown = await runCase({ incomingText, cooldown: true })
+    assert.equal(cooldown.logs.at(-1).deferReason, 'cooldown')
+    const partial = await runCase({ incomingText, active: false })
+    assert.ok(!partial.logs.some(l => l.deferReason?.startsWith('system_')))
+  }],
   ['short bill status requests reach triage instead of canned dispatch', async () => {
     for (const text of ['Update please', 'Status sir?', 'Tracking pls', 'Please update']) {
       for (const kind of ['document', 'image']) {
