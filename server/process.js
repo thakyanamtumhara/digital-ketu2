@@ -575,7 +575,8 @@ function billImageHasRealText(text) {
     .trim()
   if (!stripped) return false
   const filler = new Set(['ok','okay','okk','ji','sir','bhai','bhaiya','thanks','thank','you','done','hn','han','haan','yes','k','kk','please','pls'])
-  return stripped.split(' ').filter(w => w && !filler.has(w.toLowerCase())).length >= 2
+  const words = stripped.toLowerCase().split(' ').filter(w => w && !filler.has(w))
+  return words.length >= 2 || (words.length === 1 && /^(update|status|tracking)$/.test(words[0]))
 }
 
 function hasNonDispatchIntentText(text) {

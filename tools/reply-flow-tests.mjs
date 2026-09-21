@@ -154,6 +154,53 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['short bill status requests reach triage instead of canned dispatch', async () => {
+    for (const text of ['Update please', 'Status sir?', 'Tracking pls', 'Please update']) {
+      for (const kind of ['document', 'image']) {
+        const r = await runCase({ reply: '[DEFER]', incomingMessages: [
+          { messageId: 'bill-test', messageType: kind, messageText: kind === 'document' ? '[Document: BillNo_123_BulkPlainTshirt.com.pdf]' : '[Image]', mediaUrl: 'https://media.invalid/bill.jpg' },
+          { messageId: 'ask-test', messageType: 'text', messageText: text },
+        ] })
+        assert.equal(r.sent.length, 0)
+        assert.equal(r.requests.length, 1)
+        assert.equal(r.pending.size, 1)
+        assert.deepEqual(Array.from(r.pending.get('buyer-test').messages[0].messageIds), ['bill-test', 'ask-test'])
+        assert.equal(r.logs.some(log => log.deferReason === 'bill_document'), false)
+        assert.deepEqual(r.errors, [])
+      }
+    }
+  }],
+  ['short bill status requests retain partial-mode handoff', async () => {
+    for (const kind of ['document', 'image']) {
+      const r = await runCase({ active: false, incomingMessages: [
+        { messageId: 'bill-test', messageType: kind, messageText: kind === 'document' ? '[Document: BillNo_123_BulkPlainTshirt.com.pdf]' : '[Image]', mediaUrl: 'https://media.invalid/bill.jpg' },
+        { messageId: 'ask-test', messageType: 'text', messageText: 'Update please' },
+      ] })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'bill_with_nondispatch_text')
+    }
+  }],
+  ['fresh bill acknowledgements stay immediate beside harmless filler', async () => {
+    for (const text of ['', 'Ok sir', 'Thanks', 'Paid', 'Order kar diya']) {
+      const r = await runCase({ incomingText: '[Document: BillNo_123_BulkPlainTshirt.com.pdf] ' + text })
+      assert.equal(r.sent[0].message, 'Ok noted sir, dispatching ASAP 🚚')
+      assert.equal(r.logs.at(-1).deferReason, 'bill_document')
+      assert.equal(r.requests.length, 0)
+    }
+  }],
+  ['bill filename status words alone are not buyer questions', async () => {
+    const r = await runCase({ incomingText: '[Document: BillNo_123_status_update_BulkPlainTshirt.com.pdf]' })
+    assert.equal(r.logs.at(-1).deferReason, 'bill_document')
+    assert.equal(r.requests.length, 0)
+  }],
+  ['short bill status request preserves manual cooldown', async () => {
+    const r = await runCase({ cooldown: true, incomingText: '[Document: BillNo_123_BulkPlainTshirt.com.pdf] Update please' })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.logs.at(-1).status, 'COOLDOWN')
+  }],
   ['owner-addressed acknowledgements end without greeting or model spend', async () => {
     for (const incomingText of ['Ok ketu ji', 'Okay Ketu', 'Theek hai ketu ji 🙏', 'done ketu ji']) {
       const r = await runCase({ incomingText })
