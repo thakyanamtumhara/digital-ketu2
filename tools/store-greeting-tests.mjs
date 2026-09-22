@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting, isProjectServiceGreeting } from '../server/store-greeting.js'
+import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting, isProjectServiceGreeting, isSocialLinksGreeting } from '../server/store-greeting.js'
 
 const menu = '👋 Welcome to Example Clothing!\n👕 T-Shirts and custom prints\n🧥 Hoodies\n🏫 School Uniforms\n🎉 Festival & Event Wear\nBrowse our catalog and message us your requirements.\nExample Clothing — wear your style!'
 const messages = [{ messageType: 'text' }]
@@ -61,4 +61,18 @@ projectEq(project, false, [])
 for (const messageType of ['image', 'document', 'audio', 'video', 'reaction']) projectEq(project, false, [...messages, { messageType }])
 projectEq(project, false, [{ messageType: 'text', hasMedia: true }])
 projectEq(project, false, [{ messageType: 'text', mediaUrl: 'https://media.invalid/file' }])
+const socials = 'Ty for contacting for more info our socials\nInsta- https://www.instagram.com/example_shop/\nYoutube- https://www.youtube.com/results?search_query=example_shop\nGoogle- https://maps.app.goo.gl/ExampleMap\nWebsite- https://example-shop.my.canva.site/'
+function socialEq(text, expected, items = messages) { assert.equal(isSocialLinksGreeting(text, items), expected, text); checks++ }
+socialEq(socials, true)
+socialEq(socials.replaceAll('\n', '\r\n'), true)
+socialEq(socials.replaceAll('\n', ' '), true)
+for (const ask of ['Can I order one sample?', 'price', '240gsm', 'Black L', 'refund', 'मुझे चाहिए', '?', '？', '؟']) {
+  socialEq(socials + '\n' + ask, false)
+  socialEq(ask + '\n' + socials, false)
+}
+for (const value of ['>' + socials, '"' + socials + '"', socials.repeat(2), socials.replace('my.canva.site/', 'sale91.com/cart'), socials.replace('search_query=example_shop', 'search_query=example_shop&question=sample'), socials.replace('search_query=example_shop', 'search_query=I%20need%20shirts'), socials.replace('www.instagram.com/', 'www.instagram.com.example.net/'), socials.replace('our socials', 'my order'), socials + '?']) socialEq(value, false)
+socialEq(socials, false, [])
+for (const messageType of ['image', 'document', 'audio', 'video', 'reaction']) socialEq(socials, false, [...messages, { messageType }])
+socialEq(socials, false, [{ messageType: 'text', hasMedia: true }])
+socialEq(socials, false, [{ messageType: 'text', mediaUrl: 'https://media.invalid/file' }])
 console.log(`${checks} store-greeting checks passed`)

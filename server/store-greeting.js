@@ -1,6 +1,13 @@
 const BUYER_INTENT = /[?？؟]|\d+\s*(?:gsm|pcs?|pieces?)\b|\b(?:prices?|rates?|gsm|chahiye|chaiye|orders?|stock|sizes?|colou?rs?|samples?|bulk|hai|milega|kitna|kitne|send|bhej|buy|buying|purchase|need|want|require|interested|enquiry|inquiry|refund|return|complaint|payment|paid|invoice|delivery|dispatch|tracking|partnership|supplier|manufactur(?:e|er|ing)|black|white|navy|maroon|xxl|xl)\b|चाहिए|मिलेगा|कितन|कीमत|भेज|ऑर्डर/i
 const APPAREL = /\b(?:t[ -]?shirts?|tees?|hoodies?|polos?|uniforms?|sports\s*wear|festival\s*(?:and|&)\s*event\s*wear|custom\s*(?:clothing|designs?|prints?))\b/i
 
+export function isSocialLinksGreeting(text, messages = []) {
+  if (!messages.length || messages.some(m => m?.messageType !== 'text' || m.hasMedia || m.mediaUrl)) return false
+  const value = String(text || '').trim()
+  if (value.length > 900) return false
+  return /^Ty for contacting for more info our socials\s+Insta- https:\/\/www\.instagram\.com\/[a-z0-9_.]{1,80}\/?\s+Youtube- https:\/\/www\.youtube\.com\/results\?search_query=[a-z0-9_.-]{1,80}\s+Google- https:\/\/maps\.app\.goo\.gl\/[a-z0-9]{1,80}\s+Website- https:\/\/[a-z0-9-]{1,80}\.my\.canva\.site\/?$/i.test(value)
+}
+
 export function isProjectServiceGreeting(text, messages = []) {
   if (!messages.length || messages.some(m => m?.messageType !== 'text' || m.hasMedia || m.mediaUrl)) return false
   const value = String(text || '').trim().replace(/[’‘]/g, "'")
