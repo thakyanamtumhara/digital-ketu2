@@ -18,7 +18,7 @@ import { gsmAmbiguityHint, gsmPriceRangeGuard } from './gsm-hint.js'
 import { poloRateSummaryGuard } from './polo-price.js'
 import { hoodieRateSummaryGuard } from './hoodie-price.js'
 import { biowashRateSummaryGuard, regularFitRateSummaryGuard } from './biowash-price.js'
-import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting } from './store-greeting.js'
+import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting, isProjectServiceGreeting } from './store-greeting.js'
 import { catalogRequestHasTimingQuestion, catalogRequestHasSampleQuestion } from './catalog-request.js'
 import { regularFitBlueHint, regularFitBlueGuard } from './regular-fit-blue.js'
 import { pendingProductChoiceGuard } from './product-choice.js'
@@ -1939,7 +1939,8 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     m.messageType === 'text' && !m.hasMedia && !m.mediaUrl &&
     /^\s*\[System: User [A-Z] changed from \+?\d{7,15} to \+?\d{7,15}\]\s*$/.test(m.messageText || '')
   )
-  if (numberChangeNotice) {
+  const projectServiceGreeting = isProjectServiceGreeting(mergedText, messages)
+  if (numberChangeNotice || projectServiceGreeting) {
     let pending = pendingDefers.has(whatsappNumber) || carriedDeferByNumber.has(whatsappNumber)
     if (!pending) {
       try {
@@ -1951,7 +1952,9 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       } catch { pending = true }
     }
     await createLog(db, conversation.id, mergedText, messageIds, {
-      status: 'SKIPPED', deferReason: pending ? 'system_notice_over_pending_defer' : 'system_number_change',
+      status: 'SKIPPED', deferReason: projectServiceGreeting
+        ? (pending ? 'business_greeting_over_pending_defer' : 'automated_business_reply')
+        : (pending ? 'system_notice_over_pending_defer' : 'system_number_change'),
       processingMs: Date.now() - startTime,
     })
     return

@@ -1,6 +1,14 @@
 const BUYER_INTENT = /[?？؟]|\d+\s*(?:gsm|pcs?|pieces?)\b|\b(?:prices?|rates?|gsm|chahiye|chaiye|orders?|stock|sizes?|colou?rs?|samples?|bulk|hai|milega|kitna|kitne|send|bhej|buy|buying|purchase|need|want|require|interested|enquiry|inquiry|refund|return|complaint|payment|paid|invoice|delivery|dispatch|tracking|partnership|supplier|manufactur(?:e|er|ing)|black|white|navy|maroon|xxl|xl)\b|चाहिए|मिलेगा|कितन|कीमत|भेज|ऑर्डर/i
 const APPAREL = /\b(?:t[ -]?shirts?|tees?|hoodies?|polos?|uniforms?|sports\s*wear|festival\s*(?:and|&)\s*event\s*wear|custom\s*(?:clothing|designs?|prints?))\b/i
 
+export function isProjectServiceGreeting(text, messages = []) {
+  if (!messages.length || messages.some(m => m?.messageType !== 'text' || m.hasMedia || m.mediaUrl)) return false
+  const value = String(text || '').trim().replace(/[’‘]/g, "'")
+  if (value.length > 700) return false
+  const match = value.match(/^(?:👋\s*)?Hello\s*&\s*Welcome\s+to\s+([\p{Script=Latin}& .'-]{1,80})!\s*Thank\s+you\s+for\s+connecting\s+with\s+us\.\s*[\p{S}\s]*We're\s+happy\s+to\s+assist\s+you\s+with\s+your\s+project\.\s*Please\s+share\s+your\s+requirement,\s*size\s*&\s*location,\s*and\s+our\s+team\s+will\s+get\s+back\s+to\s+you\s+with\s+the\s+right\s+solution\.\s*Regards,\s*([\p{Script=Latin} .'-]{1,60})\r?\n\s*([\p{Script=Latin}& .'-]{1,80})\r?\n\s*Building\s+Smart\.\s*Building\s+Better\.\s*$/iu)
+  return !!match && match[1].trim().toLowerCase() === match[3].trim().toLowerCase() && !BUYER_INTENT.test(match[1] + ' ' + match[2]) && !APPAREL.test(match[1] + ' ' + match[2])
+}
+
 export function isPrintServiceGreeting(text, messages = []) {
   if (!messages.length || messages.some(m => m?.messageType !== 'text' || m.hasMedia || m.mediaUrl)) return false
   const value = String(text || '').replace(/\s+/g, ' ').trim()

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting } from '../server/store-greeting.js'
+import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting, isProjectServiceGreeting } from '../server/store-greeting.js'
 
 const menu = '👋 Welcome to Example Clothing!\n👕 T-Shirts and custom prints\n🧥 Hoodies\n🏫 School Uniforms\n🎉 Festival & Event Wear\nBrowse our catalog and message us your requirements.\nExample Clothing — wear your style!'
 const messages = [{ messageType: 'text' }]
@@ -46,4 +46,19 @@ printingEq(printing, false, [])
 for (const messageType of ['image', 'document', 'audio', 'video', 'reaction']) printingEq(printing, false, [...messages, { messageType }])
 printingEq(printing, false, [{ messageType: 'text', mediaUrl: 'https://media.invalid/file' }])
 printingEq(printing, false, [{ messageType: 'text', hasMedia: true }])
+const project = "👋 Hello & Welcome to Example Infrastructure!\n\nThank you for connecting with us. 🙏\nWe're happy to assist you with your project.\n\nPlease share your requirement, size & location, and our team will get back to you with the right solution.\n\nRegards,\nExample Person\nExample Infrastructure\nBuilding Smart. Building Better."
+function projectEq(text, expected, items = messages) { assert.equal(isProjectServiceGreeting(text, items), expected, text); checks++ }
+projectEq(project, true)
+projectEq(project.replaceAll("'", '’'), true)
+projectEq(project.replaceAll('\n', '\r\n'), true)
+projectEq(project.replaceAll('Example Infrastructure', 'Example Construction'), true)
+for (const ask of ['Can I order a sample?', 'I need 100 shirts', 'Price', 'Refund my payment', 'मुझे चाहिए', 'Available？', 'Available؟', '240gsm', 'S M L']) {
+  projectEq(project + '\n' + ask, false)
+  projectEq(ask + '\n' + project, false)
+}
+for (const text of [project + '?', '>' + project, project.repeat(3), project.replace('with the right solution.', 'with 100 shirts.'), project.replaceAll('Example Infrastructure', 'I need shirts'), project.replaceAll('Example Infrastructure', 'Example Hoodies'), project.replace('Example Person', 'Refund'), project.replace('Example Person', '100 shirts'), project.replace('Building Better.', 'Buy from you.'), project.replace('Example Person\nExample Infrastructure', 'Example Person\nDifferent Company')]) projectEq(text, false)
+projectEq(project, false, [])
+for (const messageType of ['image', 'document', 'audio', 'video', 'reaction']) projectEq(project, false, [...messages, { messageType }])
+projectEq(project, false, [{ messageType: 'text', hasMedia: true }])
+projectEq(project, false, [{ messageType: 'text', mediaUrl: 'https://media.invalid/file' }])
 console.log(`${checks} store-greeting checks passed`)
