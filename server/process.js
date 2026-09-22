@@ -436,7 +436,7 @@ async function isInvoiceImage(anthropic, mediaUrl, db = null) {
 
     const result = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 10,
+      max_tokens: 32,
       messages: [{
         role: 'user',
         content: [
@@ -1466,16 +1466,16 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       })
       return
     }
-    if (invoiceKind === 'STALE') {
+    if (invoiceKind === 'STALE' || invoiceKind === 'OLD') {
       // The bill is EVIDENCE, not an order: Ketu inspects defect/wrong-item photos personally.
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
         mergedText, messageIds, logData: {
-          status: 'DEFERRED', deferReason: 'bill_photographed_with_goods',
+          status: 'DEFERRED', deferReason: invoiceKind === 'OLD' ? 'old_bill_image' : 'bill_photographed_with_goods',
           processingMs: Date.now() - startTime,
         }, db,
       })
-      console.log(`[InvoiceDetect] ${whatsappNumber} — bill photographed with goods/packaging, deferring to Ketu (evidence, not a fresh order)`)
+      console.log(`[InvoiceDetect] ${whatsappNumber} — ${invoiceKind} bill evidence, deferring to Ketu without dispatch acknowledgement`)
       return
     }
     if (invoiceKind === 'FRESH') {
@@ -2070,16 +2070,16 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       })
       return
     }
-    if (invoiceKind === 'STALE') {
+    if (invoiceKind === 'STALE' || invoiceKind === 'OLD') {
       // The bill is EVIDENCE, not an order: Ketu inspects defect/wrong-item photos personally.
       scheduleDeferReply({
         whatsappNumber, deferMessage: settings.deferMessage, conversationId: conversation.id,
         mergedText, messageIds, logData: {
-          status: 'DEFERRED', deferReason: 'bill_photographed_with_goods',
+          status: 'DEFERRED', deferReason: invoiceKind === 'OLD' ? 'old_bill_image' : 'bill_photographed_with_goods',
           processingMs: Date.now() - startTime,
         }, db,
       })
-      console.log(`[InvoiceDetect] ${whatsappNumber} — bill photographed with goods/packaging, deferring to Ketu (evidence, not a fresh order)`)
+      console.log(`[InvoiceDetect] ${whatsappNumber} — ${invoiceKind} bill evidence, deferring to Ketu without dispatch acknowledgement`)
       return
     }
     if (invoiceKind === 'FRESH') {

@@ -7,7 +7,7 @@ const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
 async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, orderingTable = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [], lastOutcome = null } = {}) {
-  const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
+  const sent = [], logs = [], errors = [], requests = [], rewriteRequests = [], invoiceRequests = []
   const restraintRequests = [], handled = [], embeddingSearches = []
   const timers = [], recoveryQueries = []
   let clock = recovery?.now ?? Date.now()
@@ -109,7 +109,10 @@ async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', re
       restraintRequests.push(body)
       return { content: [{ type: 'text', text: gateVerdict }], usage: { input_tokens: 1, output_tokens: 1 } }
     }
-    if (Array.isArray(body.messages?.[0]?.content) && body.max_tokens === 10) return { content: [{ type: 'text', text: invoiceKind }], usage: { input_tokens: 1, output_tokens: 1 } }
+    if (Array.isArray(body.messages?.[0]?.content) && body.max_tokens === 32) {
+      invoiceRequests.push(body)
+      return { content: [{ type: 'text', text: invoiceKind === 'FRESH' ? 'FRESH|UNKNOWN' : invoiceKind }], usage: { input_tokens: 1, output_tokens: 1 } }
+    }
     if (typeof body.messages?.[0]?.content === 'string' && body.messages[0].content.startsWith('Rewrite this WhatsApp reply')) {
       rewriteRequests.push(body)
       if (rewriteThrows) throw Error('rewrite unavailable')
@@ -135,7 +138,7 @@ async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', re
   } else {
     await module.namespace.runAiFlow({ whatsappNumber, mergedText: buyerText, normalizedText: buyerText, imageUrl, conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
   }
-  return { sent, logs, errors, requests, rewriteRequests, restraintRequests, handled, embeddingSearches, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
+  return { sent, logs, errors, requests, rewriteRequests, invoiceRequests, restraintRequests, handled, embeddingSearches, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
 }
 
 const blueCatalog = { categories: [{ products: [{
@@ -155,6 +158,38 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['old dated scans hand off in full and partial mode', async () => {
+    for (const active of [true, false]) for (const kind of ['image', 'document']) {
+      const r = await runCase({ active, invoiceKind: 'FRESH|2020-01-15', incomingMessages: [{
+        messageId: 'old-scan-test', messageType: kind, messageText: kind === 'document' ? '[Document: archived-scan.png]' : '[Image]', mediaUrl: 'https://media.invalid/scan.png',
+      }] })
+      assert.equal(r.pending.get('buyer-test')?.messages[0].logData.deferReason, 'old_bill_image')
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.invoiceRequests.length, 1)
+      assert.equal(r.invoiceRequests[0].model, 'claude-haiku-4-5-20251001')
+      assert.equal(r.invoiceRequests[0].max_tokens, 32)
+    }
+  }],
+  ['recent dated scans and undated receipts keep the fresh acknowledgement', async () => {
+    const today = new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)
+    const yesterday = new Date(Date.now() + 330 * 60000 - 86400000).toISOString().slice(0, 10)
+    for (const active of [true, false]) for (const date of [today, yesterday, 'UNKNOWN']) {
+      const r = await runCase({ active, invoiceKind: 'FRESH|' + date, incomingMessages: [{ messageId: 'recent-scan-test', messageType: 'document', messageText: '[Document: scan.png]', mediaUrl: 'https://media.invalid/scan.png' }] })
+      assert.equal(r.logs.at(-1).deferReason, 'bill_document')
+      assert.equal(r.sent.length, 1)
+      assert.match(r.sent[0].message, /dispatching ASAP/)
+    }
+  }],
+  ['dated scans retain owner cooldown before image classification', async () => {
+    for (const active of [true, false]) {
+      const r = await runCase({ active, cooldown: true, invoiceKind: 'FRESH|2020-01-15', incomingMessages: [{ messageId: 'old-scan-test', messageType: 'document', messageText: '[Document: archived-scan.png]', mediaUrl: 'https://media.invalid/scan.png' }] })
+      assert.equal(r.logs.at(-1).status, 'COOLDOWN')
+      assert.equal(r.invoiceRequests.length, 0)
+      assert.equal(r.sent.length, 0)
+    }
+  }],
+
   ['social-link auto-greeting avoids paid welcome without clearing owner work', async () => {
     const template = 'Ty for contacting for more info our socials\nInsta- https://www.instagram.com/example_shop/\nYoutube- https://www.youtube.com/results?search_query=example_shop\nGoogle- https://maps.app.goo.gl/ExampleMap\nWebsite- https://example-shop.my.canva.site/'
     for (const firstContact of [false, true]) {
