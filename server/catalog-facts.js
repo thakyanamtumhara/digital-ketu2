@@ -74,6 +74,40 @@ export function appendSaleCatalog(facts, table) {
   return { block: facts.block + (lines.length ? '\n' + lines.sort().join('\n') : ''), products }
 }
 
+export function appendOrderingFamilies(facts, data, table) {
+  if (!Array.isArray(table) || !table[0] || !table[1] || !table[2]) return facts
+  const sameSet = (a, b) => a.length === b.length && a.every(x => b.includes(x))
+  const description = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().toLowerCase() : ''
+  const entries = data?.categories?.flatMap(c => c.products || []) || []
+  const resolved = []
+  for (const product of entries) {
+    if (!facts.products.some(p => p.slug === product.slug) || !description(product.description) || !Array.isArray(product.rates)) continue
+    const aliases = []
+    let complete = true
+    for (const rate of product.rates) {
+      if (!Array.isArray(rate.colors) || !rate.pricePerSize) { complete = false; break }
+      const matches = Object.entries(table[0]).filter(([name, colors]) => {
+        const meta = table[1][name]
+        if (!name || /[\r\n"<>]/.test(name) || name.startsWith('Sale: ') || !Array.isArray(meta) || !/^[a-z0-9]+(?:-\d+)?$/i.test(meta[0] || '')) return false
+        if (description(meta[1]) !== description(product.description) || table[2][name] !== rate.samplePrice) return false
+        if (!colors || typeof colors !== 'object' || !sameSet(Object.keys(colors), rate.colors)) return false
+        return rate.colors.every(color => colors[color] && sameSet(Object.keys(colors[color]), Object.keys(rate.pricePerSize)) && Object.entries(rate.pricePerSize).every(([size, price]) => validPrice(price) && colors[color][size] === price))
+      })
+      if (matches.length !== 1) { complete = false; break }
+      const name = matches[0][0]
+      aliases.push({ name, colors: [...rate.colors], family: table[1][name][0].replace(/-\d+$/, '') })
+    }
+    if (!complete || aliases.length < 2 || new Set(aliases.map(a => a.name)).size !== aliases.length || new Set(aliases.map(a => a.family)).size !== 1) continue
+    const colors = aliases.flatMap(a => a.colors)
+    if (new Set(colors).size !== colors.length || !sameSet(colors, product.colors || [])) continue
+    resolved.push({ slug: product.slug, title: product.name, aliases })
+  }
+  const unambiguous = resolved.filter(group => group.aliases.every(alias => resolved.filter(other => other.aliases.some(a => a.name === alias.name)).length === 1))
+  if (!unambiguous.length) return facts
+  const lines = unambiguous.map(group => `${group.aliases.map(a => `"${a.name}" (${a.colors.join('/')})`).join(' and ')} are colour-price groups of the SAME catalogue product and fit: ${group.title} → /catalog/p/${group.slug}. These bill/order names do not identify different fits. This verifies the name mapping only, not what was packed or any requested order change.`)
+  return { ...facts, block: facts.block + '\nVERIFIED BILL/ORDER NAME MAPPING (current ordering table and catalogue agree on family, description, every colour/size price and sample price):\n' + lines.join('\n') }
+}
+
 export function canonicalizeCatalogLinks(reply, products) {
   const current = new Set(products.map(p => p.slug).filter(Boolean))
   const replacements = { 'hoodie-320gsm-black': 'hoodie-320gsm', 'dropshoulder-hoodie-430gsm': 'hoodie-430gsm' }
@@ -94,12 +128,14 @@ export function createCatalogLoader({ fetcher = fetch, now = Date.now, ttlMs = 5
       source.searchParams.set('dk2', String(Math.floor(now() / ttlMs)))
       const response = await fetcher(source.href, { signal: AbortSignal.timeout(10000) })
       if (!response.ok) throw Error(`Live catalog HTTP ${response.status}`)
-      const mainFacts = buildCatalogFacts(await response.json())
+      const data = await response.json()
+      const mainFacts = buildCatalogFacts(data)
       const ordering = await fetcher(`https://www.bulkplaintshirt.com/pc.js?dk2=${Math.floor(now() / ttlMs)}`, { signal: AbortSignal.timeout(10000) })
       if (!ordering.ok) throw Error(`Ordering table HTTP ${ordering.status}`)
       const text = await ordering.text()
       if (text.indexOf('=') < 0) throw Error('Invalid ordering table assignment')
-      const facts = appendSaleCatalog(mainFacts, JSON.parse(text.slice(text.indexOf('=') + 1).replace(/;\s*$/, '')))
+      const table = JSON.parse(text.slice(text.indexOf('=') + 1).replace(/;\s*$/, ''))
+      const facts = appendSaleCatalog(appendOrderingFamilies(mainFacts, data, table), table)
       cached = facts
       fetchedAt = now()
       return facts

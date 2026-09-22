@@ -6,7 +6,7 @@ import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, forma
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [], lastOutcome = null } = {}) {
+async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, orderingTable = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [], lastOutcome = null } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
   const restraintRequests = [], handled = []
   const timers = [], recoveryQueries = []
@@ -37,6 +37,7 @@ async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', re
           ],
         }] }] }) }
       }
+      if (orderingTable && String(url).startsWith('https://www.bulkplaintshirt.com/pc.js?')) return { ok: true, text: async () => 'let tbl=' + JSON.stringify(orderingTable) }
       if (String(url).startsWith('https://www.bulkplaintshirt.com/pc.js?')) return { ok: true, text: async () => 'let tbl=[{"Sale: Example":{"Green":{"22":63}}},{"Sale: Example":["Example","Sale product"]},{"Sale: Example":91}]' }
       assert.equal(String(url), 'https://transport.invalid/api/messages/send-ai-reply' , 'unexpected network request')
       sent.push(JSON.parse(options.body))
@@ -741,6 +742,32 @@ const tests = [
     assert.equal(r.pending.size, 0)
     assert.equal(r.logs.some(log => log.deferReason === 'bill_document'), false)
     assert.deepEqual(r.errors, [])
+  }],
+  ['verified bill aliases reach the actual model request without changing owner routing', async () => {
+    const catalogData = { categories: [{ products: [{ name: 'Example Dropshoulder Hoodie', slug: 'example-hoodie', gsm: 430,
+      description: 'Dropshoulder hoodie, cotton blend', colors: ['Black', 'White'], sizes: ['M'],
+      rates: [{ colors: ['Black'], pricePerSize: { M: 301 }, samplePrice: 401 }, { colors: ['White'], pricePerSize: { M: 321 }, samplePrice: 421 }],
+    }] }] }
+    const orderingTable = [
+      { 'Drop Hoodie': { Black: { M: 301 } }, 'Hoodie-2': { White: { M: 321 } } },
+      { 'Drop Hoodie': ['Example', 'Dropshoulder hoodie, cotton blend'], 'Hoodie-2': ['Example-2', 'Dropshoulder hoodie, cotton blend'] },
+      { 'Drop Hoodie': 401, 'Hoodie-2': 421 },
+    ]
+    const r = await runCase({ catalogData, orderingTable, buyerText: 'Are Drop Hoodie and Hoodie-2 different fits?', imageUrl: 'https://media.invalid/bill.jpg', reply: 'Same product sir; the bill groups the colours separately.' })
+    assert.equal(r.requests.length, 1)
+    assert.match(JSON.stringify(r.requests[0].system), /SAME catalogue product and fit: Example Dropshoulder Hoodie/)
+    assert.ok(r.requests[0].messages.some(m => Array.isArray(m.content) && m.content.some(p => p.type === 'image')))
+    assert.equal(r.sent.length, 1)
+    assert.deepEqual(r.errors, [])
+    const held = await runCase({ catalogData, orderingTable, buyerText: 'Change my delivered order to the other hoodie.', reply: '[DEFER]' })
+    assert.equal(held.sent.length, 0)
+    assert.equal(held.pending.size, 1)
+    assert.deepEqual(held.errors, [])
+    orderingTable[1]['Hoodie-2'][1] = 'Regular fit hoodie, cotton blend'
+    const different = await runCase({ catalogData, orderingTable, buyerText: 'Are these two hoodie fits the same?', reply: '[DEFER]' })
+    assert.doesNotMatch(JSON.stringify(different.requests[0].system), /VERIFIED BILL/)
+    assert.equal(different.pending.size, 1)
+    assert.deepEqual(different.errors, [])
   }],
   ['store receipt template skips welcome while appended buyer questions remain actionable', async () => {
     const template = "Hi! Thank you for messaging Example Apparel\nWe've received your message and will get back to you as soon as possible.Feel free to send us a screenshot, product name, or size you're looking for!"

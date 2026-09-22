@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildCatalogFacts, createCatalogLoader, appendSaleCatalog, canonicalizeCatalogLinks } from '../server/catalog-facts.js'
+import { buildCatalogFacts, createCatalogLoader, appendSaleCatalog, appendOrderingFamilies, canonicalizeCatalogLinks } from '../server/catalog-facts.js'
 
 const product = {
   name: 'Example Hoodie', slug: 'example-hoodie', gsm: 320,
@@ -84,3 +84,48 @@ assert.equal(canonicalizeCatalogLinks('https://www.bulkplaintshirt.com/catalog/p
 for (const url of ['https://sale91.com/catalog/p/zip-hoodie', 'https://external.invalid/catalog/p/hoodie-320gsm-black', 'https://sale91.com/catalog/p/hoodie-320gsm-black-other']) assert.equal(canonicalizeCatalogLinks(url, products), url)
 assert.equal(canonicalizeCatalogLinks('https://sale91.com/catalog/p/hoodie-320gsm-black', []), 'https://sale91.com/catalog/p/hoodie-320gsm-black')
 console.log('PASS current sale prices and scoped retired-link redirects')
+
+const familyData = fixture()
+familyData.categories[0].products[0].description = 'Dropshoulder hoodie, cotton blend'
+const familyFacts = buildCatalogFacts(familyData)
+const familyTable = [
+  { 'Drop Hoodie': { Black: { M: 211, XXL: 223 } }, 'Hoodie-2': { White: { M: 239, XXL: 251 } } },
+  { 'Drop Hoodie': ['HoodExample', 'Dropshoulder hoodie, cotton blend'], 'Hoodie-2': ['HoodExample-2', 'Dropshoulder hoodie, cotton blend'] },
+  { 'Drop Hoodie': 277, 'Hoodie-2': 299 },
+]
+const mapped = appendOrderingFamilies(familyFacts, familyData, familyTable)
+assert.match(mapped.block, /"Drop Hoodie" \(Black\) and "Hoodie-2" \(White\).*SAME catalogue product and fit: Example Hoodie/)
+assert.match(mapped.block, /name mapping only, not what was packed or any requested order change/)
+assert.equal(mapped.products, familyFacts.products)
+assert.doesNotMatch(familyFacts.block, /VERIFIED BILL/)
+for (const mutate of [
+  t => { t[0]['Hoodie-2'].White.M++ },
+  t => { delete t[0]['Hoodie-2'].White.XXL },
+  t => { t[0]['Hoodie-2'].White.S = 239 },
+  t => { t[0]['Hoodie-2'].Navy = { M: 239, XXL: 251 } },
+  t => { t[1]['Hoodie-2'][0] = 'DifferentFamily-2' },
+  t => { t[1]['Hoodie-2'][1] = 'Regular fit hoodie, cotton blend' },
+  t => { t[1]['Hoodie-2'][1] = '' },
+  t => { t[2]['Hoodie-2']++ },
+  t => { delete t[0]['Hoodie-2'] },
+  t => { t[0]['Duplicate'] = structuredClone(t[0]['Hoodie-2']); t[1].Duplicate = [...t[1]['Hoodie-2']]; t[2].Duplicate = t[2]['Hoodie-2'] },
+]) {
+  const table = structuredClone(familyTable)
+  mutate(table)
+  assert.equal(appendOrderingFamilies(familyFacts, familyData, table).block, familyFacts.block)
+}
+const ambiguousData = structuredClone(familyData)
+ambiguousData.categories[0].products.push({ ...structuredClone(ambiguousData.categories[0].products[0]), name: 'Another Hoodie', slug: 'another-hoodie' })
+const ambiguousFacts = buildCatalogFacts(ambiguousData)
+assert.equal(appendOrderingFamilies(ambiguousFacts, ambiguousData, familyTable).block, ambiguousFacts.block)
+assert.equal(appendOrderingFamilies(familyFacts, familyData, []).block, familyFacts.block)
+const single = structuredClone(familyData)
+single.categories[0].products[0].colors = ['Black']
+single.categories[0].products[0].rates.pop()
+const singleFacts = buildCatalogFacts(single)
+assert.equal(appendOrderingFamilies(singleFacts, single, familyTable).block, singleFacts.block)
+const loadedFamily = createCatalogLoader({ fetcher: async url => new URL(url).pathname === '/pc.js'
+  ? { ok: true, text: async () => 'let tbl=' + JSON.stringify(familyTable) }
+  : { ok: true, json: async () => familyData } })
+assert.match((await loadedFamily()).block, /VERIFIED BILL\/ORDER NAME MAPPING/)
+console.log('PASS bill name family joins, all-rate matching, genuine different fits, ambiguous and changing source controls')
