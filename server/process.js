@@ -1,3 +1,4 @@
+import { loadImageBatch } from './image-batch.js'
 // Core message processing pipeline
 // Handles: merge → dedup → pre-AI filters → vector search → Claude → reply
 //
@@ -2138,7 +2139,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
       console.log(`[Full AI] ${whatsappNumber} — product photo (no caption), running AI with vision`)
       await runAiFlow({
         whatsappNumber, mergedText: '', quotedText, conversationId: conversation.id,
-        normalizedText: '', db, anthropic, settings, startTime, messageIds, imageUrl: productImageUrl,
+        normalizedText: '', db, anthropic, settings, startTime, messageIds, imageUrl: productImageUrl, imageMessages: messages.filter(message => message.messageType === 'image'),
       })
       return
     }
@@ -2659,7 +2660,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   // --- Run AI flow (vector search → Claude → reply) ---
-  await runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId: conversation.id, normalizedText, db, anthropic, settings, startTime, messageIds, imageUrl: productImageUrl })
+  await runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId: conversation.id, normalizedText, db, anthropic, settings, startTime, messageIds, imageUrl: productImageUrl, imageMessages: messages.filter(message => message.messageType === 'image') })
 
   } finally {
     // If there's a pending defer with no active timer (paused by new message arrival),
@@ -3025,10 +3026,11 @@ export function winterStockLine(now = new Date()) {
   return 'Winter stock September ke baad aayega sir 🙏'
 }
 
-async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId, normalizedText, db, anthropic, settings, startTime, messageIds, imageUrl = null }) {
+async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId, normalizedText, db, anthropic, settings, startTime, messageIds, imageUrl = null, imageMessages = [] }) {
   const isInstagram = String(whatsappNumber || '').startsWith('ig:')
   // --- Product-photo vision: load the image so Claude can SEE it (null if none/failed/unsupported) ---
   const imageBlock = imageUrl ? await fetchImageBlock(imageUrl) : null
+  let imageBlocks = imageBlock ? [imageBlock] : []
   if (imageUrl && !imageBlock && !(mergedText && mergedText.trim())) {
     // Image-only message but the photo couldn't be loaded → fall back to the old safe behaviour (defer).
     scheduleDeferReply({
@@ -3066,6 +3068,21 @@ async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationI
     })
     console.log(`[Restraint] ${whatsappNumber} — daily reply cap (${REPLY_DAILY_CAP}) hit, staying silent`)
     return
+  }
+
+  if (imageMessages.length > 1) {
+    const batch = await loadImageBatch({ messages: imageMessages, imageUrl, imageBlock, fetchImageBlock, downloadMedia: downloadMediaFromWwbun })
+    if (batch.reason) {
+      scheduleDeferReply({
+        whatsappNumber, deferMessage: settings.deferMessage, conversationId,
+        mergedText, messageIds, logData: {
+          status: 'DEFERRED', deferReason: batch.reason, processingMs: Date.now() - startTime, isMedia: true,
+        }, db,
+      })
+      return
+    }
+    imageBlocks = batch.blocks
+    console.log(`[VisionBatch] ${whatsappNumber} — attached ${imageBlocks.length} photos`)
   }
 
   // FORCE-REPLY PRE-GATE (audit 2026-07-16): the Haiku gate wrongly silenced real questions —
@@ -3650,7 +3667,10 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   // reply died with "replyModel is not defined" — the buyer saw the "DK2 is replying" badge and
   // then nothing, because the throw happened before any log row was written.
   const replyModel = resolveReplyModel(settings)
-  const userMessages = [{ role: 'user', content: imageBlock ? [imageBlock, { type: 'text', text: userPrompt }] : userPrompt }]
+  if (imageBlocks.length > 1) {
+    userPrompt = `The buyer attached ${imageBlocks.length} photos in this turn. Consider every photo and answer each requested item. Apply the existing photo, shade-uncertainty and owner-handoff rules to all of them.\n\n${userPrompt}`
+  }
+  const userMessages = [{ role: 'user', content: imageBlocks.length ? [...imageBlocks, { type: 'text', text: userPrompt }] : userPrompt }]
 
   try {
     // Buyer-reply brain — switchable from wwbun (Settings.replyModel), allow-listed to Opus-tier.

@@ -6,7 +6,7 @@ import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, forma
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, orderingTable = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [], lastOutcome = null } = {}) {
+async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, orderingTable = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, missingMediaUrls = [], gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [], lastOutcome = null } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = [], invoiceRequests = []
   const restraintRequests = [], handled = [], embeddingSearches = []
   const timers = [], recoveryQueries = []
@@ -24,7 +24,10 @@ async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', re
     clearTimeout() {},
     fetch: async (url, options) => {
       if (String(url) === 'https://transport.invalid/api/conversations/mark-handled') { handled.push(JSON.parse(options.body)); return { ok: true } }
-      if (String(url).startsWith('https://media.invalid/')) return { ok: mediaAvailable, status: mediaAvailable ? 200 : 404, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => new ArrayBuffer(4) }
+      if (String(url).startsWith('https://media.invalid/')) {
+        const available = mediaAvailable && !missingMediaUrls.includes(String(url))
+        return { ok: available, status: available ? 200 : 404, headers: { get: () => 'image/jpeg' }, arrayBuffer: async () => Buffer.from(String(url)) }
+      }
       if (String(url).startsWith('https://www.bulkplaintshirt.com/catalog/products.json?')) {
         if (catalogUnavailable) throw Error('catalog unavailable')
         if (catalogData) return { ok: true, json: async () => catalogData }
@@ -158,6 +161,83 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['multiple product photos all reach the main request in source order', async () => {
+    for (const count of [2, 4]) {
+      const incomingMessages = Array.from({ length: count }, (_, i) => ({ messageId: 'image-' + i, messageType: 'image', messageText: '[Image]', mediaUrl: `https://media.invalid/photo-${i}.jpg` }))
+      incomingMessages.push({ messageId: 'ask', messageType: 'text', messageText: 'Can I get plain shirts in these colours?' })
+      const r = await runCase({ incomingMessages, invoiceKind: 'NOT_INVOICE', reply: 'Please compare the shades with our photos sir.' })
+      assert.equal(r.requests.length, 1)
+      const images = r.requests[0].messages[0].content.filter(block => block.type === 'image')
+      assert.equal(images.length, count)
+      assert.deepEqual(Array.from(images, block => Buffer.from(block.source.data, 'base64').toString()), incomingMessages.slice(0, count).map(message => message.mediaUrl))
+      assert.match(r.requests[0].messages[0].content.at(-1).text, new RegExp(`attached ${count} photos`))
+      assert.equal(r.sent.length, 1)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['provider retry retains every photo in the request', async () => {
+    const incomingMessages = ['a', 'b'].map(id => ({ messageId: id, messageType: 'image', messageText: 'Which shades match?', mediaUrl: `https://media.invalid/${id}.jpg` }))
+    const r = await runCase({ incomingMessages, invoiceKind: 'NOT_INVOICE', failCalls: 1 })
+    assert.equal(r.requests.length, 2)
+    for (const request of r.requests) assert.equal(request.messages[0].content.filter(block => block.type === 'image').length, 2)
+    assert.equal(r.sent.length, 1)
+  }],
+  ['a single product photo keeps one image and the existing prompt', async () => {
+    const r = await runCase({ incomingMessages: [{ messageId: 'image', messageType: 'image', messageText: 'Which colour is this?', mediaUrl: 'https://media.invalid/single.jpg' }], invoiceKind: 'NOT_INVOICE' })
+    assert.equal(r.requests[0].messages[0].content.filter(block => block.type === 'image').length, 1)
+    assert.doesNotMatch(r.requests[0].messages[0].content.at(-1).text, /Consider every photo/)
+  }],
+  ['a missing batch photo hands off without a partly blind main call', async () => {
+    for (const missing of ['https://media.invalid/a.jpg', 'https://media.invalid/b.jpg']) {
+      const r = await runCase({ incomingMessages: [
+        { messageId: 'a', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/a.jpg' },
+        { messageId: 'b', messageType: 'image', messageText: 'Can I get these colours?', mediaUrl: 'https://media.invalid/b.jpg' },
+      ], invoiceKind: 'NOT_INVOICE', missingMediaUrls: [missing] })
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.sent.length, 0)
+      const pending = r.pending.get('buyer-test').messages[0]
+      assert.equal(pending.logData.deferReason, 'image_batch_incomplete')
+      assert.deepEqual(Array.from(pending.messageIds), ['a', 'b'])
+    }
+  }],
+  ['an unresolvable batch photo stays visible to the owner', async () => {
+    const r = await runCase({ incomingMessages: [
+      { messageId: 'a', messageType: 'image', messageText: '[Image]' },
+      { messageId: 'b', messageType: 'image', messageText: 'Can I get these colours?', mediaUrl: 'https://media.invalid/b.jpg' },
+    ], invoiceKind: 'NOT_INVOICE' })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'image_batch_incomplete')
+  }],
+  ['over-limit image batches hand off with every source ID', async () => {
+    const incomingMessages = Array.from({ length: 5 }, (_, i) => ({ messageId: 'image-' + i, messageType: 'image', messageText: 'Can I get these colours?', mediaUrl: `https://media.invalid/${i}.jpg` }))
+    const r = await runCase({ incomingMessages, invoiceKind: 'NOT_INVOICE' })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'image_batch_limit')
+    assert.equal(r.pending.get('buyer-test').messages[0].messageIds.length, 5)
+  }],
+  ['captionless product batches reach vision despite a silent text gate', async () => {
+    const incomingMessages = ['a', 'b'].map(id => ({ messageId: id, messageType: 'image', messageText: '[Image]', mediaUrl: `https://media.invalid/${id}.jpg` }))
+    const r = await runCase({ incomingMessages, invoiceKind: 'NOT_INVOICE', gateVerdict: 'SILENT' })
+    assert.equal(r.requests[0].messages[0].content.filter(block => block.type === 'image').length, 2)
+  }],
+  ['multiple-photo changes preserve invoice evidence and tracking handoffs', async () => {
+    const incomingMessages = ['a', 'b'].map(id => ({ messageId: id, messageType: 'image', messageText: '[Image]', mediaUrl: `https://media.invalid/${id}.jpg` }))
+    for (const invoiceKind of ['FRESH', 'STALE', 'TRACKING', 'PAYMENT']) {
+      const r = await runCase({ incomingMessages, invoiceKind })
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 1)
+    }
+  }],
+  ['multiple-photo changes preserve cooldown partial mode and daily cap', async () => {
+    const incomingMessages = ['a', 'b'].map(id => ({ messageId: id, messageType: 'image', messageText: 'Do you sell this shade?', mediaUrl: `https://media.invalid/${id}.jpg` }))
+    for (const options of [{ cooldown: true }, { active: false }, { repliesToday: 25 }]) {
+      const r = await runCase({ incomingMessages, invoiceKind: 'NOT_INVOICE', ...options })
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.sent.length, 0)
+    }
+  }],
+
   ['website discount trouble uses the existing video instead of per-size mechanics', async () => {
     const r = await runCase({ buyerText: 'The website gives no discount of 4 rupees when I order 20pcs and 5pcs. True bio rneck', reply: 'Discount applies from the website in multiples of 10 per size sir — 10, 20, 30 and so on.' })
     assert.equal(r.sent.length, 1)
