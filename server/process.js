@@ -42,6 +42,7 @@ import { restockPointerGuard } from './restock-pointer.js'
 import { isProspectiveStockWait } from './bill-history.js'
 import { stockAlertOfferGuard } from './stock-alert-offer.js'
 import { discountTroubleVideoGuard } from './discount-trouble-video.js'
+import { stockMaintenanceGuard } from './stock-maintenance.js'
 import { isSupersededLaunchCorrection } from './launch-knowledge.js'
 import { INVOICE_IMAGE_PROMPT, invoiceImageKind } from './invoice-image.js'
 import { canonicalizeStockAlertLinks } from './stock-alert-link.js'
@@ -4005,6 +4006,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     if (discountVideo) {
       aiReply = discountVideo
       console.log(`[DiscountTroubleVideo] ${whatsappNumber} — website discount help restored`)
+    }
+    const stockMaintenance = stockMaintenanceGuard({ buyerText: mergedText, reply: aiReply, imageUrl })
+    if (stockMaintenance) {
+      aiReply = stockMaintenance
+      console.log(`[StockMaintenance] ${whatsappNumber} — unsupported maintenance promise acknowledged`)
     }
     aiReply = canonicalizeStockAlertLinks(aiReply, whatsappNumber)
   } catch (guardErr) {

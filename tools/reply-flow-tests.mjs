@@ -161,6 +161,30 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['a stock maintenance request cannot create an unsupported supply promise', async () => {
+    for (const reply of ['Ok sir, regular tees ka stock rakhenge 👍', 'Ok sir, regular tees ka stock rakhenge, sab sizes available hain abhi 👉 https://sale91.com/catalog/p/example', 'Stock rakhenge, aap order kar lijiye 👉 https://sale91.com/catalog/p/example', 'Stock rakhne ki koshish karenge sir']) {
+    const r = await runCase({ incomingText: 'Demand badh gayi hai, regular tees ka stock available rakhna please', reply })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent[0].message, 'Noted sir 🙏')
+    assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['stock maintenance guard preserves current answers and unresolved owner work', async () => {
+    for (const [buyerText, reply] of [['Black M stock available hai?', 'Black M abhi available hai sir'], ['Mere liye stock rakhna please', '[DEFER]'], ['Stock rakhna please, rate bhi batao', 'Current prices website par hain sir']]) {
+      const r = await runCase({ buyerText, reply })
+      assert.deepEqual(r.errors, [])
+      if (reply === '[DEFER]') assert.equal(r.pending.size, 1)
+      else assert.equal(r.sent[0].message, reply)
+    }
+  }],
+  ['stock maintenance repair retains the manual cooldown and reply cap', async () => {
+    for (const extra of [{ cooldown: true }, { repliesToday: 80 }]) {
+      const r = await runCase({ incomingText: 'Regular tees ka stock rakhna please', reply: 'Stock rakhenge sir', ...extra })
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.requests.length, 0)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
   ['multiple product photos all reach the main request in source order', async () => {
     for (const count of [2, 4]) {
       const incomingMessages = Array.from({ length: count }, (_, i) => ({ messageId: 'image-' + i, messageType: 'image', messageText: '[Image]', mediaUrl: `https://media.invalid/photo-${i}.jpg` }))
