@@ -2286,6 +2286,25 @@ const tests = [
     assert.equal(r.requests.length, 1)
     assert.equal(r.sent[0].message, 'See these colours in the catalogue sir.')
   }],
+  ['garment photos without an invoice preserve the printed-polo purchase question', async () => {
+    const r = await runCase({ invoiceKind: 'NO', reply: 'We sell blank polos sir. For printing, please speak to the printer.', incomingMessages: [
+      { messageId: 'front-test', messageType: 'image', messageText: 'What would these cost for 27 pieces?', mediaUrl: 'https://media.invalid/polo-front.jpg' },
+      { messageId: 'back-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/polo-back.jpg' },
+    ] })
+    assert.equal(r.pending.size, 0)
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.requests[0].messages[0].content.filter(block => block.type === 'image').length, 2)
+    assert.match(r.sent[0].message, /blank polos/)
+    assert.equal(r.logs.at(-1).status, 'REPLIED')
+  }],
+  ['a garment complaint without an invoice can still hand off through the reply model', async () => {
+    const r = await runCase({ invoiceKind: 'NO', reply: '[DEFER]', incomingMessages: [
+      { messageId: 'damage-test', messageType: 'image', messageText: 'This shirt arrived with a torn seam. Please replace it.', mediaUrl: 'https://media.invalid/damaged-shirt.jpg' },
+    ] })
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.pending.get('buyer-test').messages[0].logData.deferReason, 'claude_deferred')
+  }],
   ['manual cooldown stays ahead of the invoice companion-photo guard', async () => {
     const r = await runCase({ cooldown: true, incomingMessages: [
       { messageId: 'invoice-test', messageType: 'image', messageText: '[Image]', mediaUrl: 'https://media.invalid/invoice.jpg' },

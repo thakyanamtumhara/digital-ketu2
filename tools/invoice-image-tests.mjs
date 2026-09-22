@@ -8,6 +8,14 @@ function check(answer, expected, at = now) {
   checks++
 }
 for (const kind of ['TRACKING', 'PAYMENT', 'STALE']) check(` ${kind.toLowerCase()}\n`, kind)
+for (const kind of ['TRACKING', 'PAYMENT', 'STALE']) {
+  check(`${kind}\n\nThe document has the corresponding evidence.`, kind)
+  check(`${kind}\r\nExplanation truncated`, kind)
+  check(`${kind} or NO`, false)
+  check(`Probably ${kind}`, false)
+}
+check('FRESH|UNKNOWN\nExplanation', false)
+check('FRESH|2026-09-22\nExplanation', false)
 check('FRESH|UNKNOWN', 'FRESH')
 check(' fresh|2026-09-22 \n', 'FRESH')
 check('FRESH|2026-09-21', 'FRESH')
