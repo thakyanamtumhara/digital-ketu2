@@ -3282,7 +3282,9 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   // users who set the old field, then to a safe 0.55 default if neither is configured.
   const confidenceThreshold = Number(settings.confidenceThreshold ?? settings.deferThreshold ?? 0.55)
 
+  const embeddingCache = new Map()
   const allVectorResults = await vectorSearch(db, anthropic, mergedText, {
+    embeddingCache,
     limit: 10,  // fetch extra so corrections can be boosted into top 5
     minSimilarity: 0.0,
     // CATALOG excluded 2026-07-09: every product's facts are now injected deterministically as the
@@ -3338,6 +3340,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   }
   // Personality DNA: find 3 similar real Om-buyer conversations to use as style examples
   const stylePairResults = await vectorSearch(db, anthropic, mergedText, {
+    embeddingCache,
     limit: 3,
     minSimilarity: 0.3,
     sources: ['STYLE_PAIR', 'PREMIUM_PAIR'],

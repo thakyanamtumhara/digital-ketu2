@@ -8,7 +8,7 @@ const source = await readFile(processUrl, 'utf8')
 
 async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, orderingTable = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [], lastOutcome = null } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = []
-  const restraintRequests = [], handled = []
+  const restraintRequests = [], handled = [], embeddingSearches = []
   const timers = [], recoveryQueries = []
   let clock = recovery?.now ?? Date.now()
   class TestDate extends Date {
@@ -45,7 +45,7 @@ async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', re
     },
   })
   const stubs = {
-    './embeddings.js': { vectorSearch: async (_db, _ai, _text, opts) => opts.sources?.includes('STYLE_PAIR') ? [] : knowledge },
+    './embeddings.js': { vectorSearch: async (_db, _ai, text, opts) => { embeddingSearches.push({ text, cache: opts.embeddingCache, sources: opts.sources }); return opts.sources?.includes('STYLE_PAIR') ? [] : knowledge } },
     './transcribe.js': { transcribeAudio() {}, isTranscriptionConfigured: () => false, getTranscriptionProvider() {} },
     './ig-gate.js': { evaluateIgGate() {} },
     './order-lookup.js': { lookupOrdersByPhone: async () => [], formatOrderLookupBlock: () => '', getBuyerProfile: async () => null, formatBuyerProfileBlock: () => '' },
@@ -135,7 +135,7 @@ async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', re
   } else {
     await module.namespace.runAiFlow({ whatsappNumber, mergedText: buyerText, normalizedText: buyerText, imageUrl, conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
   }
-  return { sent, logs, errors, requests, rewriteRequests, restraintRequests, handled, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
+  return { sent, logs, errors, requests, rewriteRequests, restraintRequests, handled, embeddingSearches, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
 }
 
 const blueCatalog = { categories: [{ products: [{
@@ -155,6 +155,20 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['knowledge and style retrieval share an embedding only within the current turn', async () => {
+    const first = await runCase()
+    const second = await runCase()
+    for (const result of [first, second]) {
+      assert.equal(result.embeddingSearches.length, 2)
+      assert.equal(result.embeddingSearches[0].text, result.embeddingSearches[1].text)
+      assert.ok(result.embeddingSearches[0].cache)
+      assert.equal(typeof result.embeddingSearches[0].cache.get, 'function')
+      assert.equal(result.embeddingSearches[0].cache, result.embeddingSearches[1].cache)
+      assert.equal(result.sent.length, 1)
+      assert.deepEqual(result.errors, [])
+    }
+    assert.notEqual(first.embeddingSearches[0].cache, second.embeddingSearches[0].cache)
+  }],
   ['number-change notices skip paid welcomes while retaining source ids', async () => {
     for (const firstContact of [false, true]) {
       const r = await runCase({ firstContact, incomingText: '[System: User A changed from 910000000001 to 910000000002]' })

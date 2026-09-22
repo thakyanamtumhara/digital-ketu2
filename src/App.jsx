@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { usdToInrRate } from '../shared/cost.mjs'
 
 const API = '/api'
-const APP_VERSION = '2026.09.22.1'
+const APP_VERSION = '2026.09.22.2'
 
 function App() {
   const [tab, setTab] = useState('live')
@@ -250,6 +251,7 @@ function App() {
   }
 
   if (!settings) return <div style={styles.loading}>Loading...</div>
+  const exchangeRate = usdToInrRate(settings)
 
   return (
     <div style={styles.container}>
@@ -311,8 +313,8 @@ function App() {
 
       {/* Tab Content */}
       <main style={styles.main}>
-        {tab === 'live' && <LiveMonitor logs={logs} expandedLog={expandedLog} setExpandedLog={setExpandedLog} />}
-        {tab === 'analytics' && <Analytics analytics={analytics} period={period} setPeriod={setPeriod} />}
+        {tab === 'live' && <LiveMonitor logs={logs} expandedLog={expandedLog} setExpandedLog={setExpandedLog} exchangeRate={exchangeRate} />}
+        {tab === 'analytics' && <Analytics analytics={analytics} period={period} setPeriod={setPeriod} exchangeRate={exchangeRate} />}
         {tab === 'defer' && <DeferManager list={deferList} onDelete={deleteDefer} settings={settings} updateSetting={updateSetting} />}
         {tab === 'filters' && <PreAIFilters stats={filterStats} period={filterPeriod} setPeriod={setFilterPeriod} onRefresh={() => { fetchFilterStats(); fetchDbFilters() }} dbFilters={dbFilters} />}
         {tab === 'pipeline' && <PipelineGraph knowledgeStats={knowledgeStats} filterStats={filterStats} settings={settings} />}
@@ -330,13 +332,13 @@ function App() {
 // ===========================================
 
 function DailyBudgetBar({ settings }) {
-  const spentInr = (settings.dailySpentUsd * 85).toFixed(0)
+  const spentInr = (settings.dailySpentUsd * usdToInrRate(settings)).toFixed(0)
   const pct = Math.min(100, (spentInr / settings.dailyBudgetInr) * 100)
   const isWarning = pct >= 80
   return (
     <div style={styles.budgetBar}>
       <div style={styles.budgetLabel}>
-        Daily: Rs.{spentInr} / Rs.{settings.dailyBudgetInr} ({pct.toFixed(0)}%)
+        Reply budget: Rs.{spentInr} / Rs.{settings.dailyBudgetInr} ({pct.toFixed(0)}%)
       </div>
       <div style={styles.budgetTrack}>
         <div style={{ ...styles.budgetFill, width: `${pct}%`, background: isWarning ? '#f59e0b' : '#3b82f6' }} />
@@ -345,7 +347,7 @@ function DailyBudgetBar({ settings }) {
   )
 }
 
-function LiveMonitor({ logs, expandedLog, setExpandedLog }) {
+function LiveMonitor({ logs, expandedLog, setExpandedLog, exchangeRate }) {
   const [editingId, setEditingId] = useState(null)
   const [editDraft, setEditDraft] = useState('')
   const [editSaving, setEditSaving] = useState(false)
@@ -391,7 +393,7 @@ function LiveMonitor({ logs, expandedLog, setExpandedLog }) {
             </div>
             <div style={styles.logMeta}>
               {log.totalTokens && <span>{log.totalTokens} tok</span>}
-              {log.costUsd != null && <span> / Rs.{(log.costUsd * 85).toFixed(2)}</span>}
+              {log.costUsd != null && <span> / Rs.{(log.costUsd * exchangeRate).toFixed(2)}</span>}
               {log.processingMs && <span> / {log.processingMs}ms</span>}
               <span style={styles.logTime}>{new Date(log.createdAt).toLocaleTimeString('en-IN')}</span>
             </div>
@@ -422,14 +424,14 @@ function LiveMonitor({ logs, expandedLog, setExpandedLog }) {
               </div>
             )}
           </div>
-          {expandedLog === log.id && <ProcessPipeline log={log} />}
+          {expandedLog === log.id && <ProcessPipeline log={log} exchangeRate={exchangeRate} />}
         </div>
       ))}
     </div>
   )
 }
 
-function ProcessPipeline({ log }) {
+function ProcessPipeline({ log, exchangeRate }) {
   const [showPrompt, setShowPrompt] = useState(null) // 'system' | 'user' | null
   const [showSection, setShowSection] = useState({})
   const toggleSec = (key) => setShowSection(prev => ({ ...prev, [key]: !prev[key] }))
@@ -437,7 +439,7 @@ function ProcessPipeline({ log }) {
   const chunks = log.knowledgeChunks || []
   const catalogChunks = chunks.filter(c => c.source === 'CATALOG')
   const otherChunks = chunks.filter(c => c.source !== 'CATALOG')
-  const costInr = log.costUsd ? (log.costUsd * 85).toFixed(2) : null
+  const costInr = log.costUsd != null ? (log.costUsd * exchangeRate).toFixed(2) : null
 
   // Extract style examples from system prompt
   const hasStyleExamples = prompt.system && prompt.system.includes('STYLE EXAMPLES')
@@ -895,7 +897,7 @@ function KnowledgeBasePanel({ stats, chunks, source, page, search, onSourceChang
   )
 }
 
-function Analytics({ analytics, period, setPeriod }) {
+function Analytics({ analytics, period, setPeriod, exchangeRate }) {
   if (!analytics) return <p style={styles.empty}>Loading analytics...</p>
   return (
     <div>
@@ -912,12 +914,13 @@ function Analytics({ analytics, period, setPeriod }) {
         <StatCard label="Deferred" value={analytics.totalDeferred} />
         <StatCard label="Skipped" value={analytics.totalSkipped} />
         <StatCard label="Total Tokens" value={analytics.tokens.total.toLocaleString()} />
-        <StatCard label="Total Cost" value={`Rs.${(analytics.tokens.totalCostUsd * 85).toFixed(2)}`} />
+        <StatCard label="Logged AI cost" value={Number.isFinite(analytics.loggedCost?.inr) ? `Rs.${analytics.loggedCost.inr.toFixed(2)}` : 'Unavailable'} />
         <StatCard label="Avg Tokens/Reply" value={analytics.tokens.avgTokensPerReply} />
-        <StatCard label="Avg Cost/Reply" value={`Rs.${((analytics.tokens.avgCostPerReply || 0) * 85).toFixed(2)}`} />
+        <StatCard label="Avg paid reply" value={`Rs.${((analytics.tokens.avgCostPerReply || 0) * exchangeRate).toFixed(2)}`} />
         <StatCard label="Avg Processing" value={`${analytics.tokens.avgProcessingMs}ms`} />
         <StatCard label="Intervention Rate" value={analytics.interventionRate} />
       </div>
+      <p style={{ color: '#94a3b8', fontSize: 12 }}>Logged AI cost covers message logs only. Excludes jobs, transcription, embeddings and operator costs.</p>
     </div>
   )
 }
@@ -1209,6 +1212,7 @@ function PipelineGraph({ knowledgeStats, filterStats, settings }) {
 }
 
 function SettingsPanel({ settings, updateSetting, onDownload }) {
+  const exchangeRate = usdToInrRate(settings)
   return (
     <div>
       <h2 style={styles.sectionTitle}>Settings</h2>
@@ -1218,7 +1222,7 @@ function SettingsPanel({ settings, updateSetting, onDownload }) {
         <SettingRow label="Daily Budget (INR)" type="number" value={settings.dailyBudgetInr} onChange={v => updateSetting('dailyBudgetInr', Number(v))} />
         <SettingRow label="Message Merge Window (ms)" type="number" value={settings.mergeWindowMs} onChange={v => updateSetting('mergeWindowMs', Number(v))} />
         <SettingRow label="Cooldown Minutes" type="number" value={settings.cooldownMinutes} onChange={v => updateSetting('cooldownMinutes', Number(v))} />
-        <SettingRow label="Learning Budget (INR)" type="number" value={Math.round((settings.learningDailyBudgetUsd || 0) * 85)} onChange={v => updateSetting('learningDailyBudgetUsd', Number(v) / 85)} />
+        <SettingRow label="Learning Budget (INR)" type="number" value={Math.round((settings.learningDailyBudgetUsd || 0) * exchangeRate)} onChange={v => updateSetting('learningDailyBudgetUsd', Number(v) / exchangeRate)} />
         <SettingRow label="Schedule Enabled" type="toggle" value={settings.scheduleEnabled} onChange={v => updateSetting('scheduleEnabled', v)} />
         {settings.scheduleEnabled && (
           <>
@@ -1782,8 +1786,9 @@ function _PulledPairsPanelRemoved() {
 function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, onBacklog, backlogProgress, onHistoryPull, historyPullProgress }) {
   if (!stats) return <div style={{ padding: 20, color: '#94a3b8' }}>Loading learning stats...</div>
 
-  const costInr = (stats.dailyCost.spent * 85).toFixed(1)
-  const budgetInr = (stats.dailyCost.budget * 85).toFixed(0)
+  const exchangeRate = usdToInrRate(settings)
+  const costInr = (stats.dailyCost.spent * exchangeRate).toFixed(1)
+  const budgetInr = (stats.dailyCost.budget * exchangeRate).toFixed(0)
 
   return (
     <div style={{ padding: 16 }}>
@@ -1981,7 +1986,7 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
             <div style={{ display: 'flex', gap: 16, color: '#94a3b8', fontSize: 12 }}>
               <span>Reviewed: {backlogProgress.totalReviewed}</span>
               <span>Corrections: {backlogProgress.totalCorrections}</span>
-              <span>Cost: Rs {((backlogProgress.totalCostUsd || 0) * 85).toFixed(1)}</span>
+              <span>Cost: Rs {((backlogProgress.totalCostUsd || 0) * exchangeRate).toFixed(1)}</span>
               {backlogProgress.batches && <span>Batches: {backlogProgress.batches}</span>}
             </div>
           </div>
@@ -2034,7 +2039,7 @@ function LearningPanel({ stats, settings, onRun, running, onToggle, onRefresh, o
               <span>Stored: {historyPullProgress.stored || 0}</span>
               <span>Reviewed: {historyPullProgress.totalReviewed || historyPullProgress.reviewed || 0}</span>
               <span>Corrections: {historyPullProgress.totalCorrections || historyPullProgress.corrections || 0}</span>
-              <span>Cost: Rs {((historyPullProgress.totalCostUsd || historyPullProgress.costUsd || 0) * 85).toFixed(1)}</span>
+              <span>Cost: Rs {((historyPullProgress.totalCostUsd || historyPullProgress.costUsd || 0) * exchangeRate).toFixed(1)}</span>
             </div>
             {historyPullProgress.categories && Object.keys(historyPullProgress.categories).length > 0 && (
               <div style={{ marginTop: 8 }}>

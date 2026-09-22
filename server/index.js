@@ -1,3 +1,5 @@
+import { usdToInrRate } from '../shared/cost.mjs'
+import { formatCloneDigest } from './clone-digest.js'
 import { Hono } from 'hono'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { cors } from 'hono/cors'
@@ -303,6 +305,7 @@ async function computeFidelity(days, maxGapMin = 25) {
   pairs.sort((a, b) => new Date(b.t) - new Date(a.t))
   return {
     days, paidReplies, interventions: pairs.length,
+    metric: 'owner_followup_signal', windowMinutes: maxGapMin, isAccuracyScore: false,
     interventionRatePct: paidReplies ? Math.round((pairs.length / paidReplies) * 1000) / 10 : 0,
     pairs,
     ackCount: acks.length, acks,   // he replied, but only to acknowledge — not a correction
@@ -320,8 +323,7 @@ app.get('/api/fidelity', async (c) => {
 
 // DAILY CLONE-FIDELITY DIGEST to Ketu's WhatsApp (2026-07-23, self-driving loop). Server-side so it
 // ALWAYS fires (independent of any Claude session): once per IST day at ~9am, WhatsApp Ketu the
-// last 24h fidelity % + the divergences (where he corrected the clone) so he never has to hunt for
-// bad replies. Skips silently if messaging isn't configured. lastFidelityDigestDay guards once/day.
+// Owner follow-up signals for review; absence of a follow-up is not a quality score.
 let lastFidelityDigestDay = null
 async function sendFidelityDigest(force = false) {
   const istNow = new Date(Date.now() + 5.5 * 3600 * 1000)
@@ -334,32 +336,9 @@ async function sendFidelityDigest(force = false) {
   try {
     const f = await computeFidelity(1)
     const rescuable = await computeRescuableDefers(1)
-    const fidelity = f.paidReplies ? (100 - f.interventionRatePct).toFixed(1) : '100'
-    let msg = `🤖 Digital Ketu — daily report\nClone fidelity (24h): ${fidelity}% — aap ne ${f.interventions}/${f.paidReplies} replies pe step-in kiya.`
-    if (f.ackCount) msg += `\n(+${f.ackCount} baar sirf "ok/haan" bola — wo correction nahi, count nahi kiya.)`
-    if (f.pairs.length === 0) {
-      msg += `\n\n✅ Koi divergence nahi — clone ne sab aap jaisa handle kiya 🎉`
-    } else {
-      msg += `\n\nJahan clone aap jaisa nahi bola (${f.pairs.length}):`
-      for (const p of f.pairs.slice(0, 6)) {
-        msg += `\n\n• Buyer: ${p.buyer.slice(0, 70)}\n  Clone: ${p.ai.slice(0, 70)}\n  Aap: ${p.ketu.slice(0, 70)}`
-      }
-      if (f.pairs.length > 6) msg += `\n\n…+${f.pairs.length - 6} aur.`
-    }
-    // SECOND failure mode (added 2026-08-27). The digest only ever reported cases where Ketu
-    // CORRECTED a reply. The bigger bucket is the opposite: chats the clone handed to him that it
-    // could have answered — every manual audit has found these, but he never saw them daily.
-    // Proxy: a defer/silence in the window that Ketu then answered himself with a SHORT line
-    // (canned-length), which is exactly what "the clone already had this answer" looks like.
-    if (rescuable.count) {
-      msg += `\n\n📥 Jo clone ne aapko bheja, par khud handle kar sakta tha (${rescuable.count}):`
-      for (const p of rescuable.items.slice(0, 5)) {
-        msg += `\n\n• Buyer: ${p.buyer.slice(0, 70)}\n  Aap: ${p.ketu.slice(0, 70)}`
-      }
-      if (rescuable.count > 5) msg += `\n\n…+${rescuable.count - 5} aur.`
-    }
+    const msg = formatCloneDigest(f, rescuable)
     await notifyOwner(msg)
-    console.log(`[FidelityDigest] sent — ${fidelity}% fidelity, ${f.interventions} divergences`)
+    console.log(`[FidelityDigest] sent — ${f.interventions} follow-up signals across ${f.paidReplies} paid replies`)
   } catch (err) {
     console.error('[FidelityDigest] failed:', err.message)
   }
@@ -459,7 +438,7 @@ app.post('/api/fidelity/send-digest', async (c) => { await sendFidelityDigest(tr
 // undercounts true spend (cache keep-alive pings and gate costs on replied turns increment
 // dailySpentUsd without their own log rows) but tracks the trend faithfully.
 app.get('/api/monthly-spend', async (c) => {
-  const USD_INR = 85
+  const USD_INR = usdToInrRate(await getSettings())
   const istNow = new Date(Date.now() + 5.5 * 3600 * 1000)
   const y = istNow.getUTCFullYear(), m = istNow.getUTCMonth() // current IST month
   // IST month start = UTC month start minus 5h30 offset
@@ -472,6 +451,7 @@ app.get('/api/monthly-spend', async (c) => {
   ])
   const label = d => new Date(d.getTime() + 5.5 * 3600 * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
   return c.json({
+    usdToInr: USD_INR, scope: 'message_logs_only',
     prevMonth: { label: label(prevStart), inr: Math.round((prev._sum.costUsd || 0) * USD_INR), messages: prev._count._all },
     currentMonth: { label: label(curStart), inr: Math.round((cur._sum.costUsd || 0) * USD_INR), messages: cur._count._all },
   })
@@ -2021,7 +2001,7 @@ app.get('/api/analytics', async (c) => {
     since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
   }
 
-  const [totalMessages, totalReplied, repliedWithCost, totalDeferred, totalSkipped, tokenStats, igPaidCount, igCostAgg] = await Promise.all([
+  const [totalMessages, totalReplied, repliedWithCost, totalDeferred, totalSkipped, tokenStats, igPaidCount, igCostAgg, loggedCostStats, loggedPaidRows] = await Promise.all([
     db.messageLog.count({ where: { createdAt: { gte: since } } }),
     db.messageLog.count({ where: { createdAt: { gte: since }, status: 'REPLIED' } }),
     // REAL paid AI replies only (cost > 0) — excludes the free hardcoded auto-replies (bill->dispatch, welcome)
@@ -2048,13 +2028,18 @@ app.get('/api/analytics', async (c) => {
       },
       _sum: { costUsd: true },
     }),
+    db.messageLog.aggregate({ where: { createdAt: { gte: since } }, _sum: { costUsd: true } }),
+    db.messageLog.count({ where: { createdAt: { gte: since }, costUsd: { gt: 0 } } }),
   ])
 
   const settings = await getSettings()
+  const rate = usdToInrRate(settings)
 
   return c.json({
     period,
     since,
+    usdToInr: rate,
+    loggedCost: { usd: loggedCostStats._sum.costUsd || 0, inr: (loggedCostStats._sum.costUsd || 0) * rate, paidRows: loggedPaidRows, scope: 'message_logs_only' },
     totalMessages,
     totalReplied,
     repliedWithCost,
@@ -2069,16 +2054,17 @@ app.get('/api/analytics', async (c) => {
       total: tokenStats._sum.totalTokens || 0,
       totalCostUsd: tokenStats._sum.costUsd || 0,
       avgTokensPerReply: Math.round(tokenStats._avg.totalTokens || 0),
-      avgCostPerReply: tokenStats._avg.costUsd || 0,
+      avgCostPerReply: repliedWithCost > 0 ? (tokenStats._sum.costUsd || 0) / repliedWithCost : 0,
       maxCostPerReply: tokenStats._max.costUsd || 0,
       avgProcessingMs: Math.round(tokenStats._avg.processingMs || 0),
     },
     dailyBudget: {
       limitInr: settings.dailyBudgetInr,
+      scope: 'reply_counter_excludes_background_jobs',
       spentUsd: settings.dailySpentUsd,
-      spentInr: settings.dailySpentUsd * 85, // approximate USD to INR
+      spentInr: settings.dailySpentUsd * rate,
       percentUsed: settings.dailyBudgetInr > 0
-        ? (((settings.dailySpentUsd * 85) / settings.dailyBudgetInr) * 100).toFixed(1) + '%'
+        ? (((settings.dailySpentUsd * rate) / settings.dailyBudgetInr) * 100).toFixed(1) + '%'
         : '0%',
     },
     // Instagram DM bridge sub-stats (additive — the wwbun rate strip depends on the fields above)
@@ -2314,7 +2300,7 @@ app.get('/api/filters/stats', async (c) => {
       name: 'Daily Budget Limit',
       description: `Stop AI when daily spend reaches Rs ${settings.dailyBudgetInr}`,
       type: 'system',
-      currentState: `Rs ${(settings.dailySpentUsd * 85).toFixed(0)} / Rs ${settings.dailyBudgetInr}`,
+      currentState: `Rs ${(settings.dailySpentUsd * usdToInrRate(settings)).toFixed(0)} / Rs ${settings.dailyBudgetInr}`,
       tokens: 0,
       triggered: dailyLimit,
       action: 'Skip silently',
@@ -3591,7 +3577,7 @@ setInterval(cacheKeepAlive, 5 * 60 * 1000)
 // blips) and, when it crosses the ceiling, WhatsApp Ketu directly (max once / 12h) + expose it on
 // /api/ai-status for the operator banner. Pure monitoring — ZERO effect on replies.
 const COST_ALARM_CEILING_INR = Number(process.env.COST_ALARM_CEILING_INR || 4.5)
-const COST_ALARM_USD_TO_INR = 85
+const COST_ALARM_USD_TO_INR = usdToInrRate(null)
 let costAlarm = { avgInr: null, replies: 0, over: false, ceiling: COST_ALARM_CEILING_INR, lastAlertAt: 0, checkedAt: null }
 async function checkCostCeiling() {
   try {
@@ -3605,7 +3591,7 @@ async function checkCostCeiling() {
       return
     }
     const totalUsd = rows.reduce((s, r) => s + (Number(r.costUsd) || 0), 0)
-    const avgInr = (totalUsd / rows.length) * COST_ALARM_USD_TO_INR
+    const avgInr = (totalUsd / rows.length) * usdToInrRate(await getSettings())
     const over = avgInr > COST_ALARM_CEILING_INR
     costAlarm = { ...costAlarm, avgInr: +avgInr.toFixed(2), replies: rows.length, over, checkedAt: new Date().toISOString() }
     // Ketu muted the push on 18-Aug-2026 — it had been repeating every 12h and told him

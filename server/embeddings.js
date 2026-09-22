@@ -16,9 +16,9 @@ const VOYAGE_MODEL = 'voyage-3'  // 1024 dimensions, matches vector(1024) in sch
  * Generate embedding for a text string using Voyage AI
  * Falls back to basic word-hash if VOYAGE_API_KEY is not set
  */
-export async function getEmbedding(anthropic, text) {
+export async function getEmbedding(anthropic, text, { onProviderFallback } = {}) {
   if (VOYAGE_API_KEY) {
-    return getVoyageEmbedding(text)
+    return getVoyageEmbedding(text, onProviderFallback)
   }
   console.warn('[Embedding] VOYAGE_API_KEY not set — using basic word-hash (low quality)')
   return textToSimpleEmbedding(text)
@@ -27,8 +27,8 @@ export async function getEmbedding(anthropic, text) {
 /**
  * Generate real AI embedding using Voyage AI API
  */
-async function getVoyageEmbedding(text) {
-  const results = await getVoyageEmbeddingsBatch([text])
+async function getVoyageEmbedding(text, onProviderFallback) {
+  const results = await getVoyageEmbeddingsBatch([text], onProviderFallback)
   return results[0]
 }
 
@@ -40,7 +40,7 @@ export async function getVoyageBatch(texts) {
   return getVoyageEmbeddingsBatch(texts)
 }
 
-async function getVoyageEmbeddingsBatch(texts) {
+async function getVoyageEmbeddingsBatch(texts, onProviderFallback) {
   const BATCH_SIZE = 128
   const allResults = []
 
@@ -62,6 +62,7 @@ async function getVoyageEmbeddingsBatch(texts) {
     if (!response.ok) {
       const err = await response.text()
       console.error(`[Voyage AI] API error: ${response.status} — ${err}`)
+      onProviderFallback?.()
       // Fall back to hash-based for this batch
       for (const text of batch) {
         allResults.push(textToSimpleEmbedding(text))
@@ -111,6 +112,22 @@ function textToSimpleEmbedding(text) {
   return `[${Array.from(vec).join(',')}]`
 }
 
+async function getSearchEmbedding(anthropic, queryText, embeddingCache) {
+  if (!embeddingCache) return getEmbedding(anthropic, queryText)
+  if (embeddingCache.has(queryText)) return embeddingCache.get(queryText)
+  let reusable = true
+  const pending = getEmbedding(anthropic, queryText, { onProviderFallback: () => { reusable = false } })
+  embeddingCache.set(queryText, pending)
+  try {
+    const embedding = await pending
+    if ((!reusable || typeof embedding !== 'string') && embeddingCache.get(queryText) === pending) embeddingCache.delete(queryText)
+    return embedding
+  } catch (error) {
+    if (embeddingCache.get(queryText) === pending) embeddingCache.delete(queryText)
+    throw error
+  }
+}
+
 /**
  * Search knowledge base chunks by vector similarity
  * @param {Object} options
@@ -119,8 +136,8 @@ function textToSimpleEmbedding(text) {
  * @param {string[]} options.sources - Only search these ChunkSource types (e.g., ['CATALOG', 'SAVED_REPLY'])
  * @param {string[]} options.excludeSources - Exclude these ChunkSource types
  */
-export async function vectorSearch(db, anthropic, queryText, { limit = 5, minSimilarity = 0.0, sources = null, excludeSources = null } = {}) {
-  const embedding = await getEmbedding(anthropic, queryText)
+export async function vectorSearch(db, anthropic, queryText, { limit = 5, minSimilarity = 0.0, sources = null, excludeSources = null, embeddingCache = null } = {}) {
+  const embedding = await getSearchEmbedding(anthropic, queryText, embeddingCache)
 
   let results
   if (sources && sources.length > 0) {
