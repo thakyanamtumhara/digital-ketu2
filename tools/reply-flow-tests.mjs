@@ -158,6 +158,32 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['website discount trouble uses the existing video instead of per-size mechanics', async () => {
+    const r = await runCase({ buyerText: 'The website gives no discount of 4 rupees when I order 20pcs and 5pcs. True bio rneck', reply: 'Discount applies from the website in multiples of 10 per size sir — 10, 20, 30 and so on.' })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /dnFWXQW5yqk/)
+    assert.doesNotMatch(r.sent[0].message, /multiples|per size|1000/)
+    assert.equal(r.errors.length, 0)
+  }],
+  ['website discount guard preserves a mixed owner handoff', async () => {
+    const r = await runCase({ buyerText: 'The 4 rupee discount is not applying and I need my refund', reply: 'Please see the discount video. [DEFER]' })
+    assert.equal(r.pending.size, 1)
+    assert.doesNotMatch(r.sent.map(x => x.message).join(' '), /multiples|per size/)
+  }],
+  ['website discount video keeps coupon, mixed details and manual boundaries', async () => {
+    const mechanics = 'Discount applies in multiples of 10 per size sir.'
+    const buyerText = 'The 4 rupee discount is not applying'
+    const mixed = await runCase({ buyerText, reply: mechanics + ' The fabric is cotton.' })
+    assert.match(mixed.sent[0].message, /fabric is cotton/)
+    const coupon = await runCase({ buyerText: buyerText + ' to my coupon code', reply: '[DEFER]' })
+    assert.equal(coupon.pending.size, 1)
+    const small = await runCase({ buyerText: '20 pcs discount do', reply: 'Fixed price sir 🙏' })
+    assert.equal(small.sent[0].message, 'Fixed price sir 🙏')
+    for (const options of [{ cooldown: true }, { repliesToday: 25 }]) {
+      const r = await runCase({ buyerText, reply: mechanics, ...options })
+      assert.equal(r.sent.length, 0)
+    }
+  }],
   ['old dated scans hand off in full and partial mode', async () => {
     for (const active of [true, false]) for (const kind of ['image', 'document']) {
       const r = await runCase({ active, invoiceKind: 'FRESH|2020-01-15', incomingMessages: [{

@@ -40,6 +40,7 @@ import { arrivalClockGuard } from './arrival-clock.js'
 import { restockPointerGuard } from './restock-pointer.js'
 import { isProspectiveStockWait } from './bill-history.js'
 import { stockAlertOfferGuard } from './stock-alert-offer.js'
+import { discountTroubleVideoGuard } from './discount-trouble-video.js'
 import { isSupersededLaunchCorrection } from './launch-knowledge.js'
 import { INVOICE_IMAGE_PROMPT, invoiceImageKind } from './invoice-image.js'
 import { canonicalizeStockAlertLinks } from './stock-alert-link.js'
@@ -3979,6 +3980,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     if (shippingAnswer) {
       aiReply = shippingAnswer
       console.log(`[MultipartShipping] ${whatsappNumber} — added omitted shipping resource`)
+    }
+    const discountVideo = discountTroubleVideoGuard({ buyerText: mergedText, reply: aiReply, imageUrl, history: conversationHistory, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
+    if (discountVideo) {
+      aiReply = discountVideo
+      console.log(`[DiscountTroubleVideo] ${whatsappNumber} — website discount help restored`)
     }
     aiReply = canonicalizeStockAlertLinks(aiReply, whatsappNumber)
   } catch (guardErr) {
