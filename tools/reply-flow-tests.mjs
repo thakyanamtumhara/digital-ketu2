@@ -2825,6 +2825,40 @@ const tests = [
     assert.match(r.sent[0].message, /Fixed price/)
     assert.notEqual(r.logs.at(-1).deferReason, 'cart_block_order_intent')
   }],
+  ['shared-cart order edits reach existing clarification or owner triage', async () => {
+    const cart = 'Total 2 pcs · 1 kg\nOversize 210gsm\nBlue L:2\nRef: wo_example\n'
+    for (const question of ['Can I edit the order ?', 'Please modify my order', 'Order change karna hai', 'Can you cancel this order?', 'Order mein size badalna hai']) {
+      const r = await runCase({ incomingText: cart + question, reply: '[DEFER]' })
+      assert.equal(r.requests.length, 1, question)
+      assert.ok(r.requests[0].messages[0].content.includes(question), question)
+      assert.equal(r.sent.length, 0, question)
+      assert.equal(r.pending.size, 1, question)
+      assert.deepEqual(r.errors, [])
+    }
+    const r = await runCase({ incomingText: cart + 'Can I edit the order?', reply: 'What would you like to change in the order sir?' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent[0].message, 'What would you like to change in the order sir?')
+    assert.notEqual(r.logs.at(-1).deferReason, 'cart_block_order_intent')
+  }],
+  ['shared-cart edit routing preserves cooldown, partial mode and reply cap', async () => {
+    const incomingText = 'Total 2 pcs · 1 kg\nOversize 210gsm\nBlue L:2\nRef: wo_example\nCan I edit the order?'
+    const cool = await runCase({ incomingText, cooldown: true })
+    assert.equal(cool.requests.length, 0)
+    assert.equal(cool.logs.at(-1).status, 'COOLDOWN')
+    const partial = await runCase({ incomingText, active: false })
+    assert.equal(partial.requests.length, 0)
+    assert.equal(partial.sent.length, 0)
+    const capped = await runCase({ incomingText, repliesToday: 25 })
+    assert.equal(capped.requests.length, 0)
+    assert.equal(capped.logs.at(-1).deferReason, 'daily_reply_cap')
+  }],
+  ['ordinary shared carts preserve checkout even with unrelated edit wording', async () => {
+    for (const tail of ['Ye order karna hai', 'Send directly to my shop', 'Editor edition', 'Changed my mind, I want to place this order']) {
+      const r = await runCase({ incomingText: 'Total 2 pcs · 1 kg\nOversize 210gsm\nBlue L:2\nRef: wo_example\n' + tail })
+      assert.equal(r.requests.length, 0, tail)
+      assert.equal(r.logs.at(-1).deferReason, 'cart_block_order_intent', tail)
+    }
+  }],
   ['cart share asking about the visible discount keeps its question', async () => {
     const r = await runCase({ incomingText: 'Total 120 pcs · 38 kg\nOversize 240gsm\nBlack M:60, L:60\nRef: wo_example\nWhy is the discount not applying?', reply: 'Discount video sir 👉 https://youtube.com/shorts/dnFWXQW5yqk' })
     assert.equal(r.requests.length, 1)
