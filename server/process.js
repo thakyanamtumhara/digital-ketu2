@@ -18,7 +18,7 @@ import { getCatalogFacts, CATALOG_UNAVAILABLE, canonicalizeCatalogLinks } from '
 import { getStockSnapshot, formatStockBlock, resolveUnnamedProduct, unnamedProductCandidates, unnamedProductGuard } from './stock-lookup.js'
 import { scopedTimingBlock } from './timing-scope.js'
 import { gsmAmbiguityHint, gsmPriceRangeGuard } from './gsm-hint.js'
-import { poloRateSummaryGuard } from './polo-price.js'
+import { poloRateSummaryGuard, poloColourQuoteGuard } from './polo-price.js'
 import { hoodieRateSummaryGuard } from './hoodie-price.js'
 import { biowashRateSummaryGuard, regularFitRateSummaryGuard } from './biowash-price.js'
 import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting, isProjectServiceGreeting, isSocialLinksGreeting, isPrintCatalogueGreeting } from './store-greeting.js'
@@ -3871,6 +3871,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     if (poloPriceReply) {
       aiReply = poloPriceReply
       console.log(`[PoloPriceRange] ${whatsappNumber} — current catalogue ranges applied`)
+    }
+    const poloColourReply = poloColourQuoteGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, imageUrl, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
+    if (poloColourReply) {
+      aiReply = poloColourReply
+      console.log(`[PoloColourPriceRange] ${whatsappNumber} — selected colour size ranges applied`)
     }
     const hoodiePriceReply = hoodieRateSummaryGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
     if (hoodiePriceReply) {

@@ -48,7 +48,7 @@ export function buildCatalogFacts(data) {
     parts.push(`→ /catalog/p/${p.slug}`)
     lines.push(parts.join(' | '))
     const fit = /(?:^|[,;|])\s*regular[\s-]+fit(?=\s*(?:[,;|]|$))/i.test(p.description || '') ? 'regular' : null
-    products.push({ title: p.name, gsm: Number(p.gsm) || null, fit, colors: [...p.colors], bulk: Math.min(...bulk), sample: Math.min(...sample), bulkRange: [Math.min(...bulk), Math.max(...bulk)], sampleRange: [Math.min(...sample), Math.max(...sample)], slug: p.slug })
+    products.push({ title: p.name, gsm: Number(p.gsm) || null, fit, colors: [...p.colors], sizes: [...p.sizes], rates: p.rates.map(r => ({ colors: [...r.colors], pricePerSize: { ...r.pricePerSize } })), bulk: Math.min(...bulk), sample: Math.min(...sample), bulkRange: [Math.min(...bulk), Math.max(...bulk)], sampleRange: [Math.min(...sample), Math.max(...sample)], slug: p.slug })
   }
   return { block: HEADER + '\n' + lines.sort().join('\n'), products }
 }

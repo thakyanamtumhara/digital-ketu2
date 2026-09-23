@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { poloRateSummaryGuard } from '../server/polo-price.js'
+import { poloRateSummaryGuard, poloColourQuoteGuard } from '../server/polo-price.js'
 
 const products = [{ slug: 'cotton-polo', gsm: 220, bulkRange: [211, 223] }, { slug: 'premium-polo', gsm: 220, bulkRange: [267, 279] }]
 const base = { products, buyerText: 'polo', reply: 'Cotton Polo ₹211, Premium Polo ₹267 hai sir (10+ pcs pe) 👉 https://sale91.com/catalog' }
@@ -36,3 +36,24 @@ assert.equal(poloRateSummaryGuard({ ...base, history: [{ buyerMessage: 'mispaire
 for (const reply of ['Which polo do you need?', '[DEFER]', base.reply + ' [DEFER]', 'Cotton Polo ₹211; Premium Polo ₹267 sample', 'Cotton Polo starts at ₹211; Premium Polo starts at ₹267', 'Cotton Polo ₹211–₹223; Premium Polo ₹267–₹279', base.reply + ' fabric is cotton', 'Cotton Polo size 46 ₹223; Premium Polo size 46 ₹279', 'Cotton Polo ₹211; Premium Polo ₹267. Delivery tomorrow']) assert.equal(poloRateSummaryGuard({ ...base, reply }), null, reply)
 for (const invalid of [[], products.slice(1), [...products, products[0]], [{ ...products[0], bulkRange: [211, NaN] }, products[1]], [{ ...products[0], bulkRange: [223, 211] }, products[1]], [{ ...products[0], bulkRange: [211, null] }, products[1]]]) assert.equal(poloRateSummaryGuard({ ...base, products: invalid }), null)
 console.log('PASS polo summary ranges, fresh prices, selected variants, samples, mixed tasks, handoffs and invalid-source controls')
+
+const colourProducts = products.map((p, i) => ({ ...p, colors: ['Black', 'Navy'], sizes: ['36', '46'], rates: [{ colors: ['Black', 'Navy'], pricePerSize: { 36: p.bulkRange[0], 46: p.bulkRange[1] } }] }))
+const colourBase = { products: colourProducts, buyerText: 'Hi Blue polo t shirt required 60 pcs', reply: 'Hello sir 🙏 Polo comes in Navy blue. Cotton Polo ₹211, Premium Polo ₹267 (60 pcs = bulk rate).\n👉 https://sale91.com/catalog/p/cotton-polo\n👉 https://sale91.com/catalog/p/premium-polo', english: true }
+const colourOutput = poloColourQuoteGuard(colourBase)
+assert.match(colourOutput, /^Navy: Cotton Polo ₹211–₹223; Premium Polo ₹267–₹279 bulk \(10\+ total pcs, by size\)/)
+assert.match(poloColourQuoteGuard({ ...colourBase, reply: 'Hello sir 🙏 Polo comes in Navy Blue. Cotton Polo is ₹211/pc 👉 https://sale91.com/catalog/p/cotton-polo and Premium Polo is ₹267/pc 👉 https://sale91.com/catalog/p/premium-polo' }), /₹211–₹223; Premium Polo ₹267–₹279/)
+for (const buyerText of ['Navy polo price', 'Black polo rates please', 'I want navy blue polo 80 pieces', 'blue polo chahiye']) assert.ok(poloColourQuoteGuard({ ...colourBase, buyerText, reply: base.reply }))
+assert.match(poloColourQuoteGuard({ ...colourBase, english: false }), /by size/)
+assert.match(poloColourQuoteGuard({ ...colourBase, buyerText: 'blue polo chahiye 60 pcs', english: false }), /size ke hisaab se/)
+assert.equal(poloColourQuoteGuard({ ...colourBase, reply: colourOutput }), null)
+for (const buyerText of ['Blue polo size 46 price', 'Blue polo 8 pcs', 'Blue polo sample', 'Blue polo 40', 'Blue polo 60 pcs 20 pcs', 'Blue polo and hoodie', 'Blue polo delivery tomorrow', 'Blue polo refund', 'Blue polo embroidery', 'Blue polo stock available', '[Image] Blue polo', 'Red polo price', 'Royal blue polo price', 'Cotton polo blue rate']) assert.equal(poloColourQuoteGuard({ ...colourBase, buyerText }), null, buyerText)
+for (const reply of ['[DEFER]', colourBase.reply + ' [DEFER]', colourBase.reply + ' size 46 costs extra', colourBase.reply + ' sample ₹300', colourBase.reply + ' delivery tomorrow', colourBase.reply + ' all available', colourBase.reply.replace('₹211', '₹212'), colourBase.reply.replace('₹211', '₹211–₹223'), colourBase.reply.replace('₹211', 'starts at ₹211'), colourBase.reply + ' 5% GST', 'Cotton Polo ₹211 only', colourBase.reply.replace('60 pcs', '80 pcs')]) assert.equal(poloColourQuoteGuard({ ...colourBase, reply }), null, reply)
+for (const buyerMessage of ['Size 46', '46', '40', 'M please', 'A sample please', '2 pcs', '[Image]']) assert.equal(poloColourQuoteGuard({ ...colourBase, history: [{ buyerMessage }] }), null, buyerMessage)
+assert.ok(poloColourQuoteGuard({ ...colourBase, history: [{ buyerMessage: '40 pcs' }] }))
+assert.equal(poloColourQuoteGuard({ ...colourBase, history: [{ deferReason: 'manual_reply', aiReply: 'Size 46' }] }), null)
+assert.ok(poloColourQuoteGuard({ ...colourBase, history: [{ buyerMessage: 'Size 46', createdAt: new Date(Date.now() - 3 * 3600000).toISOString() }] }))
+assert.equal(poloColourQuoteGuard({ ...colourBase, imageUrl: 'https://media.invalid/polo.jpg' }), null)
+for (const bad of [[], colourProducts.slice(1), [...colourProducts, colourProducts[0]], colourProducts.map(p => ({ ...p, rates: [] })), colourProducts.map(p => ({ ...p, colors: [...p.colors, 'Royal Blue'] })), colourProducts.map(p => ({ ...p, rates: [...p.rates, p.rates[0]] })), colourProducts.map(p => ({ ...p, rates: [{ colors: p.colors, pricePerSize: { 36: 211 } }] })), colourProducts.map(p => ({ ...p, rates: [{ colors: p.colors, pricePerSize: { 36: 211, 46: NaN } }] }))]) assert.equal(poloColourQuoteGuard({ ...colourBase, products: bad }), null)
+const changed = colourProducts.map(p => ({ ...p, rates: p.rates.map(r => ({ ...r, pricePerSize: { 36: r.pricePerSize[36], 46: r.pricePerSize[46] + 7 } })) }))
+assert.match(poloColourQuoteGuard({ ...colourBase, products: changed }), /₹211–₹230; Premium Polo ₹267–₹286/)
+console.log('PASS selected-colour polo source ranges, quantity versus size, source changes and exception controls')

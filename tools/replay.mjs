@@ -12,7 +12,7 @@ import { scopedTimingBlock } from '../server/timing-scope.js'
 import { getPhotoIndex, formatPhotoBlock } from '../server/photo-links.js'
 import { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysGuard, bigBuyerDiscountGuard, formatConversationHistory } from '../server/process.js'
 import { gsmAmbiguityHint, gsmPriceRangeGuard } from '../server/gsm-hint.js'
-import { poloRateSummaryGuard } from '../server/polo-price.js'
+import { poloRateSummaryGuard, poloColourQuoteGuard } from '../server/polo-price.js'
 import { hoodieRateSummaryGuard } from '../server/hoodie-price.js'
 import { biowashRateSummaryGuard } from '../server/biowash-price.js'
 import { customLabelReferralGuard } from '../server/custom-label-referral.js'
@@ -141,6 +141,7 @@ export async function applyReplayGuards(pack, item, rawText) {
       txt = (!c.imageUrl && regularFitBlueGuard({ products: catalogProducts, buyerText: c.msg, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })), now: c.at ? Date.parse(c.at) : item.now, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) })) || txt
       txt = gsmPriceRangeGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, imageUrl: c.imageUrl, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
       txt = poloRateSummaryGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
+      txt = poloColourQuoteGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, imageUrl: c.imageUrl, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
       txt = hoodieRateSummaryGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
       txt = biowashRateSummaryGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
       txt = pendingProductChoiceGuard({ buyerText: c.msg, reply: txt, now: c.at ? Date.parse(c.at) : item.now, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) }) || txt

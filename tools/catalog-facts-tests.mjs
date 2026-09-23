@@ -21,6 +21,10 @@ assert.deepEqual(facts.products[0].sampleRange, [277, 299])
 assert.equal(facts.products[0].slug, 'example-hoodie')
 assert.equal(facts.products[0].fit, null)
 assert.deepEqual(facts.products[0].colors, ['Black', 'White'])
+assert.deepEqual(facts.products[0].sizes, product.sizes)
+assert.deepEqual(facts.products[0].rates, product.rates.map(r => ({ colors: r.colors, pricePerSize: r.pricePerSize })))
+facts.products[0].rates[0].pricePerSize.M = 999
+assert.equal(product.rates[0].pricePerSize.M, 211)
 for (const [description, expected] of [
   ['Regular Fit, True Biowash Round neck, 180gsm', 'regular'],
   ['Regular-fit; 100% cotton', 'regular'],

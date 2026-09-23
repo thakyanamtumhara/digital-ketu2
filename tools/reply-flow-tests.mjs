@@ -2843,6 +2843,23 @@ const tests = [
     assert.equal(r.sent.length, 0)
     assert.equal(r.logs.at(-1).deferReason, 'superseded_by_intervention')
   }],
+  ['selected polo colour quote retains the current size range in actual flow', async () => {
+    const catalogData = { categories: [{ products: [
+      { name: 'Cotton Polo', slug: 'cotton-polo', gsm: 220, colors: ['Navy'], sizes: ['36', '46'], rates: [{ colors: ['Navy'], pricePerSize: { 36: 211, 46: 223 }, samplePrice: 277 }] },
+      { name: 'Premium Polo', slug: 'premium-polo', gsm: 220, colors: ['Navy'], sizes: ['36', '46'], rates: [{ colors: ['Navy'], pricePerSize: { 36: 267, 46: 279 }, samplePrice: 311 }] },
+    ] }] }
+    const buyerText = 'Hi Blue polo t shirt required 60 pcs'
+    const reply = 'Hello sir 🙏 Polo comes in Navy blue. Cotton Polo ₹211, Premium Polo ₹267 (60 pcs = bulk rate).'
+    const r = await runCase({ selectedModel: 'claude-opus-5-5', catalogData, buyerText, reply })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /Navy: Cotton Polo ₹211–₹223; Premium Polo ₹267–₹279.*by size/)
+    assert.deepEqual(r.errors, [])
+    for (const extra of [{ buyerText: 'Blue polo size 46 rate' }, { buyerText: 'Blue polo sample rate' }, { imageUrl: 'https://media.invalid/polo.jpg' }, { reply: '[DEFER]' }, { cooldown: true }]) {
+      const control = await runCase({ catalogData, buyerText, reply, ...extra })
+      assert.ok(control.sent.every(x => !/₹211–₹223/.test(x.message)))
+      assert.deepEqual(control.errors, [])
+    }
+  }],
   ['overload recovery retries the original buyer request', async () => {
     const r = await runCase({ failCalls: 2 })
     assert.equal(r.sent.length, 1, r.errors.join('\n'))
