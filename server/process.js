@@ -21,7 +21,7 @@ import { gsmAmbiguityHint, gsmPriceRangeGuard } from './gsm-hint.js'
 import { poloRateSummaryGuard } from './polo-price.js'
 import { hoodieRateSummaryGuard } from './hoodie-price.js'
 import { biowashRateSummaryGuard, regularFitRateSummaryGuard } from './biowash-price.js'
-import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting, isProjectServiceGreeting, isSocialLinksGreeting } from './store-greeting.js'
+import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting, isProjectServiceGreeting, isSocialLinksGreeting, isPrintCatalogueGreeting } from './store-greeting.js'
 import { catalogRequestHasTimingQuestion, catalogRequestHasSampleQuestion } from './catalog-request.js'
 import { regularFitBlueHint, regularFitBlueGuard } from './regular-fit-blue.js'
 import { pendingProductChoiceGuard } from './product-choice.js'
@@ -1919,7 +1919,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
     m.messageType === 'text' && !m.hasMedia && !m.mediaUrl &&
     /^\s*\[System: User [A-Z] changed from \+?\d{7,15} to \+?\d{7,15}\]\s*$/.test(m.messageText || '')
   )
-  const serviceGreeting = isProjectServiceGreeting(mergedText, messages) || isSocialLinksGreeting(mergedText, messages)
+  const serviceGreeting = isProjectServiceGreeting(mergedText, messages) || isSocialLinksGreeting(mergedText, messages) || isPrintCatalogueGreeting(mergedText, messages)
   if (numberChangeNotice || serviceGreeting) {
     let pending = pendingDefers.has(whatsappNumber) || carriedDeferByNumber.has(whatsappNumber)
     if (!pending) {

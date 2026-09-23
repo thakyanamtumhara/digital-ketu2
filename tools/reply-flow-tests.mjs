@@ -462,6 +462,37 @@ const tests = [
     const partial = await runCase({ incomingText: template, active: false })
     assert.equal(partial.logs.at(-1).deferReason, 'partial_ai_only')
   }],
+  ['print catalogue greeting skips paid welcome but preserves real tasks and owner work', async () => {
+    const template = "Hey! 👋\nWelcome to Example Studio 💛\nWe print your mood, memories & story ✨\nClothing Catalog 👇\nhttps://tinyurl.com/example-clothes\nDiary Collection 👇\nhttps://tinyurl.com/example-diary\nPlace your order here 👇\nhttps://forms.gle/ExampleForm\nJust send your idea — we'll create it for you 🚀"
+    for (const firstContact of [false, true]) {
+      const r = await runCase({ incomingText: template, firstContact })
+      assert.equal(r.logs.at(-1).deferReason, 'automated_business_reply')
+      assert.ok(r.logs.at(-1).messageIds.includes('inbound-test'))
+      assert.equal(r.requests.length + r.restraintRequests.length + r.sent.length + r.timerDelays.length, 0)
+      assert.deepEqual(r.errors, [])
+    }
+    const held = await runCase({ incomingText: template, lastOutcome: { status: 'DEFERRED' } })
+    assert.equal(held.logs.at(-1).deferReason, 'business_greeting_over_pending_defer')
+    assert.equal(held.handled.length + held.requests.length + held.sent.length + held.timerDelays.length, 0)
+    for (const incomingMessages of [
+      [{ messageId: 'ask-test', messageType: 'text', messageText: template + '\nCan I order one plain sample?' }],
+      [{ messageId: 'template-test', messageType: 'text', messageText: template }, { messageId: 'ask-test', messageType: 'text', messageText: 'Can I order one plain sample?' }],
+    ]) {
+      const r = await runCase({ incomingMessages, reply: 'Yes sir, order one sample on the website.' })
+      assert.equal(r.requests.length, 1)
+      assert.equal(r.sent.length, 1)
+      assert.ok(!r.logs.some(l => l.deferReason === 'automated_business_reply'))
+      assert.deepEqual(r.errors, [])
+    }
+    const media = await runCase({ incomingMessages: [{ messageId: 'template-test', messageType: 'text', messageText: template }, { messageId: 'photo-test', messageType: 'image', mediaUrl: 'https://media.invalid/photo.jpg' }], invoiceKind: 'NO', reply: '[DEFER]' })
+    assert.equal(media.requests.length, 1)
+    assert.equal(media.pending.size, 1)
+    assert.ok(!media.logs.some(l => l.deferReason === 'automated_business_reply'))
+    const cooldown = await runCase({ incomingText: template, cooldown: true })
+    assert.equal(cooldown.logs.at(-1).deferReason, 'cooldown')
+    const partial = await runCase({ incomingText: template, active: false })
+    assert.equal(partial.logs.at(-1).deferReason, 'partial_ai_only')
+  }],
   ['knowledge and style retrieval share an embedding only within the current turn', async () => {
     const first = await runCase()
     const second = await runCase()

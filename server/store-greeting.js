@@ -1,6 +1,14 @@
 const BUYER_INTENT = /[?？؟]|\d+\s*(?:gsm|pcs?|pieces?)\b|\b(?:prices?|rates?|gsm|chahiye|chaiye|orders?|stock|sizes?|colou?rs?|samples?|bulk|hai|milega|kitna|kitne|send|bhej|buy|buying|purchase|need|want|require|interested|enquiry|inquiry|refund|return|complaint|payment|paid|invoice|delivery|dispatch|tracking|partnership|supplier|manufactur(?:e|er|ing)|black|white|navy|maroon|xxl|xl)\b|चाहिए|मिलेगा|कितन|कीमत|भेज|ऑर्डर/i
 const APPAREL = /\b(?:t[ -]?shirts?|tees?|hoodies?|polos?|uniforms?|sports\s*wear|festival\s*(?:and|&)\s*event\s*wear|custom\s*(?:clothing|designs?|prints?))\b/i
 
+export function isPrintCatalogueGreeting(text, messages = []) {
+  if (!messages.length || messages.some(m => m?.messageType !== 'text' || m.hasMedia || m.mediaUrl)) return false
+  const value = String(text || '').trim().replace(/[’‘]/g, "'")
+  if (value.length > 900) return false
+  const match = value.match(/^Hey!\s*👋\s*Welcome to ([\p{Script=Latin}& .'-]{1,60})\s*💛\s*We print your mood, memories & story\s*✨\s*Clothing Catalog\s*👇\s*https:\/\/tinyurl\.com\/[a-z0-9-]{1,60}\s*Diary Collection\s*👇\s*https:\/\/tinyurl\.com\/[a-z0-9-]{1,60}\s*Place your order here\s*👇\s*https:\/\/forms\.gle\/[a-z0-9]{1,60}\s*Just send your idea\s*—\s*we'll create it for you\s*🚀$/iu)
+  return !!match && !BUYER_INTENT.test(match[1])
+}
+
 export function isSocialLinksGreeting(text, messages = []) {
   if (!messages.length || messages.some(m => m?.messageType !== 'text' || m.hasMedia || m.mediaUrl)) return false
   const value = String(text || '').trim()

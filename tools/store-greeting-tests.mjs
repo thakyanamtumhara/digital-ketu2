@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting, isProjectServiceGreeting, isSocialLinksGreeting } from '../server/store-greeting.js'
+import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting, isProjectServiceGreeting, isSocialLinksGreeting, isPrintCatalogueGreeting } from '../server/store-greeting.js'
 
 const menu = '👋 Welcome to Example Clothing!\n👕 T-Shirts and custom prints\n🧥 Hoodies\n🏫 School Uniforms\n🎉 Festival & Event Wear\nBrowse our catalog and message us your requirements.\nExample Clothing — wear your style!'
 const messages = [{ messageType: 'text' }]
@@ -75,4 +75,19 @@ socialEq(socials, false, [])
 for (const messageType of ['image', 'document', 'audio', 'video', 'reaction']) socialEq(socials, false, [...messages, { messageType }])
 socialEq(socials, false, [{ messageType: 'text', hasMedia: true }])
 socialEq(socials, false, [{ messageType: 'text', mediaUrl: 'https://media.invalid/file' }])
+const printCatalogue = "Hey! 👋\nWelcome to Example Studio 💛\n\nWe print your mood, memories & story ✨\n\nClothing Catalog 👇\nhttps://tinyurl.com/example-clothes\n\nDiary Collection 👇\nhttps://tinyurl.com/example-diary\n\nPlace your order here 👇\nhttps://forms.gle/ExampleForm\n\nJust send your idea — we'll create it for you 🚀"
+function printCatalogueEq(text, expected, items = messages) { assert.equal(isPrintCatalogueGreeting(text, items), expected, text); checks++ }
+printCatalogueEq(printCatalogue, true)
+printCatalogueEq(printCatalogue.replaceAll("'", '’'), true)
+printCatalogueEq(printCatalogue.replaceAll('\n', '\r\n'), true)
+printCatalogueEq(printCatalogue.replaceAll('\n', ' '), true)
+for (const ask of ['Can I order one sample?', 'price', '240gsm', 'Black L', 'refund', 'मुझे चाहिए', '?', '？', '؟']) {
+  printCatalogueEq(printCatalogue + '\n' + ask, false)
+  printCatalogueEq(ask + '\n' + printCatalogue, false)
+}
+for (const value of ['>' + printCatalogue, '"' + printCatalogue + '"', printCatalogue.repeat(2), printCatalogue.replace('Example Studio', 'I need shirts'), printCatalogue.replace('Example Studio', '100 pieces'), printCatalogue.replace('forms.gle/', 'forms.gle.example.net/'), printCatalogue.replace('ExampleForm', 'ExampleForm?question=sample'), printCatalogue.replace('Diary Collection', 'Please send samples'), printCatalogue.replace('tinyurl.com/example-clothes', 'sale91.com/catalog'), printCatalogue.replace('your mood, memories & story', 'my order'), printCatalogue + '?']) printCatalogueEq(value, false)
+printCatalogueEq(printCatalogue, false, [])
+for (const messageType of ['image', 'document', 'audio', 'video', 'reaction']) printCatalogueEq(printCatalogue, false, [...messages, { messageType }])
+printCatalogueEq(printCatalogue, false, [{ messageType: 'text', hasMedia: true }])
+printCatalogueEq(printCatalogue, false, [{ messageType: 'text', mediaUrl: 'https://media.invalid/file' }])
 console.log(`${checks} store-greeting checks passed`)
