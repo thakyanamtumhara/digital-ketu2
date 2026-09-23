@@ -548,6 +548,55 @@ const tests = [
       assert.deepEqual(r.errors, [])
     }
   }],
+  ['native system number-change notices skip before provider calls and welcome timers', async () => {
+    for (const firstContact of [false, true]) {
+      const r = await runCase({ firstContact, incomingMessages: [{ messageId: 'native-notice-test', messageType: 'system', messageText: '[System: User A changed from 910000000001 to 910000000002]' }] })
+      assert.equal(r.logs.at(-1).deferReason, 'system_number_change')
+      assert.ok(r.logs.at(-1).messageIds.includes('native-notice-test'))
+      assert.equal(r.requests.length + r.restraintRequests.length + r.rewriteRequests.length, 0)
+      assert.equal(r.sent.length + r.timerDelays.length, 0)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['native system notices preserve unanswered handoffs', async () => {
+    const r = await runCase({ incomingMessages: [{ messageId: 'native-notice-test', messageType: 'system', messageText: '[System: User A changed from 910000000001 to 910000000002]' }], lastOutcome: { status: 'DEFERRED' } })
+    assert.equal(r.logs.at(-1).deferReason, 'system_notice_over_pending_defer')
+    assert.equal(r.handled.length + r.requests.length + r.sent.length + r.timerDelays.length, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['native system notices beside real questions retain the answer path', async () => {
+    const notice = { messageId: 'native-notice-test', messageType: 'system', messageText: '[System: User A changed from 910000000001 to 910000000002]' }
+    for (const incomingMessages of [
+      [{ ...notice, messageText: notice.messageText + ' How do I order?' }],
+      [notice, { messageId: 'ask-test', messageType: 'text', messageText: 'How do I order?' }],
+    ]) {
+      const r = await runCase({ incomingMessages, reply: 'Please order on the website sir.' })
+      assert.equal(r.requests.length, 1)
+      assert.equal(r.sent.length, 1)
+      assert.ok(!r.logs.some(l => l.deferReason?.startsWith('system_')))
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['native system wording cannot hide attachments or unrelated notices', async () => {
+    const notice = { messageId: 'native-notice-test', messageType: 'system', messageText: '[System: User A changed from 910000000001 to 910000000002]' }
+    for (const message of [
+      { ...notice, hasMedia: true },
+      { ...notice, mediaUrl: 'https://media.invalid/photo.jpg' },
+      { ...notice, messageText: '[System: Please change my order phone number]' },
+      { ...notice, messageText: '[System: Security code changed]' },
+    ]) {
+      const r = await runCase({ incomingMessages: [message], reply: '[DEFER]', invoiceKind: 'NOT_INVOICE' })
+      assert.ok(!r.logs.some(l => l.deferReason?.startsWith('system_')))
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['native system notices retain cooldown and partial-mode boundaries', async () => {
+    const incomingMessages = [{ messageId: 'native-notice-test', messageType: 'system', messageText: '[System: User A changed from 910000000001 to 910000000002]' }]
+    const cooldown = await runCase({ incomingMessages, cooldown: true })
+    assert.equal(cooldown.logs.at(-1).deferReason, 'cooldown')
+    const partial = await runCase({ incomingMessages, active: false })
+    assert.ok(!partial.logs.some(l => l.deferReason?.startsWith('system_')))
+  }],
   ['number-change notices cannot close an unanswered owner handoff', async () => {
     const r = await runCase({ incomingText: '[System: User B changed from +910000000001 to +910000000002]', lastOutcome: { status: 'DEFERRED' } })
     assert.equal(r.logs.at(-1).deferReason, 'system_notice_over_pending_defer')

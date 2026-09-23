@@ -1916,7 +1916,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   const numberChangeNotice = messages.length > 0 && messages.every(m =>
-    m.messageType === 'text' && !m.hasMedia && !m.mediaUrl &&
+    ['text', 'system'].includes(m.messageType) && !m.hasMedia && !m.mediaUrl &&
     /^\s*\[System: User [A-Z] changed from \+?\d{7,15} to \+?\d{7,15}\]\s*$/.test(m.messageText || '')
   )
   const serviceGreeting = isProjectServiceGreeting(mergedText, messages) || isSocialLinksGreeting(mergedText, messages) || isPrintCatalogueGreeting(mergedText, messages)
