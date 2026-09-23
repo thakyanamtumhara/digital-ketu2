@@ -78,6 +78,7 @@ export async function repairReplyLanguage({ anthropic, reply, ...context }) {
   if (!target || /^\s*\[(?:DEFER|SKIP)\]\s*$/.test(String(reply))) return result
   result.target = target
   result.attempted = true
+  result.requestedModel = 'claude-haiku-4-5-20251001'
   try {
     const instruction = target === 'english'
       ? 'natural ENGLISH ONLY — no Hindi/Hinglish words (hai, nahi, kar lijiye, milega, etc.)'
@@ -86,6 +87,8 @@ export async function repairReplyLanguage({ anthropic, reply, ...context }) {
       model: 'claude-haiku-4-5-20251001', max_tokens: 300,
       messages: [{ role: 'user', content: `Rewrite this WhatsApp reply in ${instruction}. Same meaning, same terse length. Keep product names, sizes, "sir", links, emojis and ₹ prices unchanged. Keep the business name TSHIRT WALA GODAM unchanged; it is a name, not prose to translate. Output ONLY the rewritten message.\n\n${reply}` }],
     })
+    result.responseModel = response.model || null
+    result.responseId = response.id || null
     result.costUsd = ((response.usage?.input_tokens || 0) + (response.usage?.output_tokens || 0) * 5) / 1_000_000
     const rewritten = (response.content || []).filter(part => part.type === 'text').map(part => part.text).join('').trim()
     const correctLanguage = target === 'english' ? !containsHindi(rewritten) : containsHindi(rewritten)

@@ -5,6 +5,14 @@ Read `docs/clone-learning/WATCH.md` and the private `thakyanamtumhara/ai-memory`
 Read this before touching anything. It is written for whoever picks up the work next — a new
 session, a new model, a new person. Last updated 2026-09-02.
 
+## Reply model switching (23-Sep-2026)
+
+WWbun's model panel reads the provider catalogue and offers **Test & switch** for compatible models. Selection is persisted only after a real API compatibility test. `/api/model` reports the selected model separately from the latest paid model reply's actual provider identity, including fallbacks and language rewrites. Unknown future models show estimated pricing; a successful compatibility test is not proof of clone quality. Current owner decisions and comparison evidence live in the private shared memory.
+
+`server/reply-models.js` defines request compatibility and per-model cost buckets. Opus 5.5 uses adaptive reasoning with low effort; only completed text blocks can reach a buyer. Hidden reasoning is billed but excluded from the visible-word rollback guard. The reply path reads the current selection immediately before calling the provider. In-flight requests can still finish on their earlier model. Opus 5 remains the recovery baseline.
+
+`tools/compare-reply-models.mjs` freezes complete inputs and records provider identities, usage, latency, raw text and guarded text. Its paid mode requires an explicit finite budget. Keep raw prompts/images outside the public repository and publish sanitized findings to private shared memory. Replay is a diagnostic subset, not proof of the full production routing or voice fidelity.
+
 ## What this is
 
 An AI clone of Ketu that answers buyers on WhatsApp and Instagram for a Delhi wholesale
@@ -177,7 +185,7 @@ coupon and photo cases are still open (see below).
 | `node tools/stock-block.mjs` | Print the live stock block exactly as the model sees it |
 | `node tools/guard-tests.mjs` | Regression: canned dispatch-ack guards |
 | `node tools/clock-scrub-tests.mjs` | Regression: dispatch clock-hour scrub |
-| `node tools/replay.mjs tools/cases/<file>.json --prompt local` | Replay a case file against the prompt you are ABOUT to ship, on production Opus 5 (**costs money**: ~₹60 cache write + ~₹3.5/case). `--prompt live` = what is live now. `--dump <dir>` writes the exact prompts without calling the API (free proxy runs). |
+| `node tools/replay.mjs tools/cases/<file>.json --prompt local` | Replay a case file against the prompt you are ABOUT to ship, on the currently selected production model (**costs money**; cold-cache and reasoning usage vary by model). `--prompt live` = what is live now. `--dump <dir>` writes the exact prompts without calling the API (free proxy runs). |
 | `node tools/winter-line-tests.mjs` | Regression: the date-computed ❄️ winter-stock line + its trigger regex |
 
 `replay.mjs` reads the key from `~/.dk2_anthropic_key` (chmod 600; Ketu pastes it from Railway →

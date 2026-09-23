@@ -1,3 +1,5 @@
+import { resolveReplyModel, REPLY_MODEL_INFO, replyModelParams, responseText, modelUsageCost, baseModelId, validReplyModelId } from './reply-models.js'
+export { resolveReplyModel, REPLY_MODEL_INFO } from './reply-models.js'
 import { loadImageBatch } from './image-batch.js'
 // Core message processing pipeline
 // Handles: merge → dedup → pre-AI filters → vector search → Claude → reply
@@ -1050,39 +1052,14 @@ NEVER quote, compute, or promise a specific discounted per-pc price or total —
 // index.js reads this to know whether the 1h static-prompt cache is still warm and worth
 // extending with a cheap ping (cache read ≈ ₹1.5) instead of letting it expire and making the
 // next buyer pay a cold 2x re-write (≈ ₹25-33; those spikes were 35% of the daily bill, 2026-07-02).
-export const cacheTouch = { at: 0 }
-// Tracks when the OpenAI fallback last answered a buyer — so /api/ai-status can report "Claude down,
+export const cacheTouch = { at: 0, model: null }
+// Tracks when a Claude fallback last answered a buyer — so /api/ai-status can report "Claude down,
 // running on backup" honestly (the fallback logs REPLIED, which otherwise hides the outage). {at, model}
 export const fallbackState = { at: 0, model: null }
 
 // Claude pricing — Haiku 4.5 rates for the cheap binary classifiers + restraint gate
 const PRICE_PER_INPUT_TOKEN = 0.000001   // $1 per 1M input tokens
 const PRICE_PER_OUTPUT_TOKEN = 0.000005  // $5 per 1M output tokens
-// Sonnet 4.6 rates for the main buyer reply (smarter clone, better rule-following)
-const REPLY_PRICE_PER_INPUT_TOKEN = 0.000005   // $5 per 1M input tokens (Opus 4.8)
-const REPLY_PRICE_PER_OUTPUT_TOKEN = 0.000025  // $25 per 1M output tokens (Opus 4.8)
-
-// ── Switchable reply model ──────────────────────────────────────────────────
-// The buyer-reply brain is a Settings value Ketu flips from wwbun — so we can move
-// to a new Claude Opus the day it ships without a code deploy. ALLOW-list only Opus-tier
-// models (all $5/$25 — same cost, so the price constants above stay valid): a bad/garbage
-// model id can NEVER reach the reply path and kill the shop. Newer-model detection compares
-// against this list's newest entry vs Anthropic's live /v1/models.
-// ⚠️ Every model here is called with thinking:{type:'disabled'} — REQUIRED for Opus 5, which
-// thinks-on-by-default and would otherwise reply longer/chattier and drift from Ketu's terse
-// tuned voice (verified 2026-07-26: disabled=31tok terse, default-on=84tok chatty).
-const REPLY_MODEL_ALLOW = ['claude-opus-5', 'claude-opus-4-8', 'claude-opus-4-7']
-// Opus 5 is the trusted baseline (Ketu kept it 2026-07-27 after a clean overnight trial: avg 43
-// output-tok vs 4.8's 40, 96.5% fidelity, 0 leaks). Being the default means the self-protect guard no
-// longer watches it (a trusted model isn't guarded, same as 4.8 was) — the guard now protects the NEXT
-// experiment and reverts TO Opus 5. 4.8 / 4.7 stay selectable from wwbun.
-const REPLY_MODEL_DEFAULT = 'claude-opus-5'
-const REPLY_MODEL_LABELS = { 'claude-opus-5': 'Opus 5', 'claude-opus-4-8': 'Opus 4.8', 'claude-opus-4-7': 'Opus 4.7' }
-export function resolveReplyModel(settings) {
-  const m = settings && settings.replyModel
-  return REPLY_MODEL_ALLOW.includes(m) ? m : REPLY_MODEL_DEFAULT
-}
-export const REPLY_MODEL_INFO = { allow: REPLY_MODEL_ALLOW, default: REPLY_MODEL_DEFAULT, labels: REPLY_MODEL_LABELS }
 // 1-hour prompt-cache TTL (Anthropic beta). Genuine AI replies here cluster within an hour
 // (42/43 gaps <60min) but are often >5min apart, so a 1h cache hits far more than the default
 // 5-min. If the beta is ever rejected, this flips false and we fall back to the 5-min ephemeral
@@ -3661,21 +3638,35 @@ Reply with exactly one word: KETU or ASSISTANT.`,
 
   // --- Call Claude API ---
   let aiReply
-  let promptTokens, completionTokens, totalTokens, costUsd
-  let usedFallbackBrain = null  // set to the OpenAI model name when the fallback answered
-  // Declared OUT here, not inside the try: the brain label is read AFTER the try closes (the leak
-  // guard, the [DEFER] branch and the send). It was a const inside the try on 2026-08-07 and every
-  // reply died with "replyModel is not defined" — the buyer saw the "DK2 is replying" badge and
-  // then nothing, because the throw happened before any log row was written.
-  const replyModel = resolveReplyModel(settings)
+  let promptTokens = 0, completionTokens = 0, totalTokens = 0, costUsd = 0
+  let usedFallbackBrain = null
+  const currentModelSettings = await db.settings.findUnique({ where: { id: 'default' }, select: { replyModel: true } })
+  const replyModel = resolveReplyModel(currentModelSettings || settings)
+  const replyTrace = { requestedModel: replyModel, responseModel: null, responseId: null, fallback: false, outputSource: 'model', attempts: [], rewrite: null }
+  function acceptResponse(response, attemptedModel, oneHour = false) {
+    const actual = validReplyModelId(response?.model) ? response.model : null
+    const bill = modelUsageCost(actual || attemptedModel, response.usage, { oneHour })
+    promptTokens += bill.inputTokens + bill.cacheReadTokens + bill.cacheWrite5mTokens + bill.cacheWrite1hTokens
+    completionTokens += bill.outputTokens
+    totalTokens = promptTokens + completionTokens
+    costUsd += bill.costUsd
+    replyTrace.attempts.push({ requestedModel: attemptedModel, responseModel: actual, responseId: response.id || null,
+      stopReason: response.stop_reason || null, usage: response.usage, costUsd: bill.costUsd, estimated: bill.estimated })
+    const sameModel = /-\d{8}$/.test(attemptedModel) ? actual === attemptedModel : baseModelId(actual) === baseModelId(attemptedModel)
+    if (!actual || !sameModel) throw Object.assign(new Error('Reply provider returned a different or missing model identity'), { code: 'REPLY_MODEL_MISMATCH' })
+    const text = responseText(response)
+    replyTrace.responseModel = actual
+    replyTrace.responseId = response.id || null
+    replyTrace.fallback = baseModelId(actual) !== baseModelId(replyModel)
+    if (oneHour) { cacheTouch.at = Date.now(); cacheTouch.model = actual }
+    return text
+  }
   if (imageBlocks.length > 1) {
     userPrompt = `The buyer attached ${imageBlocks.length} photos in this turn. Consider every photo and answer each requested item. Apply the existing photo, shade-uncertainty and owner-handoff rules to all of them.\n\n${userPrompt}`
   }
   const userMessages = [{ role: 'user', content: imageBlocks.length ? [...imageBlocks, { type: 'text', text: userPrompt }] : userPrompt }]
 
   try {
-    // Buyer-reply brain — switchable from wwbun (Settings.replyModel), allow-listed to Opus-tier.
-    // thinking:disabled keeps EVERY model terse (mandatory on Opus 5, which thinks-on by default).
     let response
     let used1hCache = false
     // Try the 1-hour cache TTL first (bigger savings with spaced traffic); on error fall back to
@@ -3683,7 +3674,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     if (Date.now() >= extendedCacheTtlRetryAt) {
       try {
         response = await anthropic.messages.create(
-          { model: replyModel, max_tokens: 500, thinking: { type: 'disabled' }, system: buildSystemBlocks(true), messages: userMessages },
+          { ...replyModelParams(replyModel), system: buildSystemBlocks(true), messages: userMessages },
           { headers: { 'anthropic-beta': 'extended-cache-ttl-2025-04-11' } }
         )
         used1hCache = true
@@ -3694,26 +3685,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     }
     if (!response) {
       response = await anthropic.messages.create({
-        model: replyModel, max_tokens: 500, thinking: { type: 'disabled' }, system: buildSystemBlocks(false), messages: userMessages,
+        ...replyModelParams(replyModel), system: buildSystemBlocks(false), messages: userMessages,
       })
     }
 
-    aiReply = response.content[0].text
-    // With prompt caching the usage splits into fresh input, cache writes (1.25x) and cache reads (0.1x).
-    const u = response.usage
-    const freshInput = u.input_tokens || 0
-    const cacheWrite = u.cache_creation_input_tokens || 0
-    const cacheRead = u.cache_read_input_tokens || 0
-    promptTokens = freshInput + cacheWrite + cacheRead
-    completionTokens = u.output_tokens
-    totalTokens = promptTokens + completionTokens
-    // 1h cache writes cost 2x input; 5-min writes cost 1.25x. Reads are 0.1x either way.
-    const writeMultiplier = used1hCache ? 2.0 : 1.25
-    costUsd = (freshInput * REPLY_PRICE_PER_INPUT_TOKEN)
-      + (cacheWrite * REPLY_PRICE_PER_INPUT_TOKEN * writeMultiplier)
-      + (cacheRead * REPLY_PRICE_PER_INPUT_TOKEN * 0.10)
-      + (completionTokens * REPLY_PRICE_PER_OUTPUT_TOKEN)
-    if (used1hCache) cacheTouch.at = Date.now()  // 1h static-prompt cache is warm as of now
+    aiReply = acceptResponse(response, replyModel, used1hCache)
   } catch (err) {
     console.error(`[Claude Error] ${whatsappNumber}:`, err.message)
     const em = String(err?.message || '')
@@ -3730,8 +3706,8 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     // never a stand-in brain and never silence.
     const isTransient = /\b429\b|\b5\d\d\b|overloaded|rate.?limit|timeout|timed out|ECONNRESET|socket hang up/i.test(em)
     const isHardDown = /credit balance is too low|usage limit|billing|payment required|insufficient|authentication_error|invalid.{0,4}api.?key|\b401\b|\b402\b/i.test(em)
-    if (isTransient || isHardDown) {
-      const siblings = REPLY_MODEL_INFO.allow.filter(m => m !== replyModel)
+    if (isTransient || isHardDown || String(err.code || '').startsWith('REPLY_')) {
+      const siblings = ['claude-opus-5', 'claude-opus-4-8', 'claude-opus-4-7'].filter(m => baseModelId(m) !== baseModelId(replyModel))
       // Credits/auth failures hit every model, so don't waste a retry on the same one.
       // 2026-09-04: two buyers were held with "all_claude_models_failed: 529 Overloaded" inside one
       // afternoon — all three tiers were tried within ~4s, shorter than the overload burst. Spread
@@ -3743,20 +3719,13 @@ Reply with exactly one word: KETU or ASSISTANT.`,
         try {
           if (i > 0) await new Promise(r => setTimeout(r, RETRY_DELAYS_MS[i] ?? 3000))
           const alt = await anthropic.messages.create({
-            model: attempts[i], max_tokens: 500, thinking: { type: 'disabled' },
+            ...replyModelParams(attempts[i]),
             system: buildSystemBlocks(false), messages: userMessages,
           })
-          aiReply = alt.content[0].text
-          const au = alt.usage
-          const aFresh = au.input_tokens || 0, aWrite = au.cache_creation_input_tokens || 0, aRead = au.cache_read_input_tokens || 0
-          promptTokens = aFresh + aWrite + aRead
-          completionTokens = au.output_tokens
-          totalTokens = promptTokens + completionTokens
-          costUsd = (aFresh * REPLY_PRICE_PER_INPUT_TOKEN) + (aWrite * REPLY_PRICE_PER_INPUT_TOKEN * 1.25)
-            + (aRead * REPLY_PRICE_PER_INPUT_TOKEN * 0.10) + (completionTokens * REPLY_PRICE_PER_OUTPUT_TOKEN)
+          aiReply = acceptResponse(alt, attempts[i])
           if (attempts[i] !== replyModel) {
-            usedFallbackBrain = attempts[i]
-            fallbackState.at = Date.now(); fallbackState.model = attempts[i]
+            usedFallbackBrain = replyTrace.responseModel
+            fallbackState.at = Date.now(); fallbackState.model = replyTrace.responseModel
           }
           console.log(`[ClaudeRetry] ${whatsappNumber} — recovered on ${attempts[i]} (attempt ${i + 1}/${attempts.length})`)
         } catch (e2) {
@@ -3779,9 +3748,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
         whatsappNumber, deferMessage: settings.deferMessage, conversationId,
         mergedText, messageIds, logData: {
           status: 'DEFERRED', deferReason: `all_claude_models_failed: ${String(em || '').slice(0, 120)}`,
+          promptTokens, completionTokens, totalTokens, costUsd, promptSent: { modelUse: replyTrace },
           processingMs: Date.now() - startTime,
         }, db, brainLabel: modelLabel(usedFallbackBrain || replyModel),
       })
+      if (costUsd > 0) await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
       console.log(`[BrainDown] ${whatsappNumber} — every Claude tier failed; sent the holding line`)
       return
     }
@@ -3807,9 +3778,9 @@ Reply with exactly one word: KETU or ASSISTANT.`,
       whatsappNumber, deferMessage: settings.deferMessage, conversationId,
       mergedText, messageIds, logData: {
         status: 'DEFERRED', deferReason: 'reasoning_leak_blocked',
-        aiReply, promptTokens, completionTokens, totalTokens, costUsd,
+        aiReply, promptTokens, completionTokens, totalTokens, costUsd, promptSent: { modelUse: replyTrace },
         processingMs: Date.now() - startTime,
-      }, db, brainLabel: modelLabel(usedFallbackBrain || replyModel),
+      }, db, brainLabel: modelLabel(replyTrace.responseModel || usedFallbackBrain || replyModel),
     })
     await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
     return
@@ -3834,7 +3805,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
       whatsappNumber, deferMessage: settings.deferMessage, conversationId,
       mergedText, messageIds, logData: {
         status: 'DEFERRED', deferReason: 'media_reask_blocked',
-        aiReply, promptTokens, completionTokens, totalTokens, costUsd,
+        aiReply, promptTokens, completionTokens, totalTokens, costUsd, promptSent: { modelUse: replyTrace },
         processingMs: Date.now() - startTime,
       }, db,
     })
@@ -3847,7 +3818,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     await createLog(db, conversationId, mergedText, messageIds, {
       status: 'SKIPPED',
       deferReason: 'conversation_ended',
-      promptTokens, completionTokens, totalTokens, costUsd,
+      promptTokens, completionTokens, totalTokens, costUsd, promptSent: { modelUse: replyTrace },
       processingMs: Date.now() - startTime,
     })
     await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
@@ -4047,10 +4018,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
         ack = 'Ok sir, dispatching ASAP 🚚'
       }
       if (ack) {
+        replyTrace.outputSource = 'rule'
         const sendResult = await sendReplyViaWwbun(whatsappNumber, ack, 'Rule')
         await createLog(db, conversationId, mergedText, messageIds, {
           status: 'REPLIED', aiReply: ack, deferReason: 'dispatch_ack_defer_override',
-          promptTokens, completionTokens, totalTokens, costUsd,
+          promptTokens, completionTokens, totalTokens, costUsd, promptSent: { modelUse: replyTrace },
           processingMs: Date.now() - startTime,
           sentViaWwbun: !!sendResult, wwbunMessageId: sendResult?.messageId || null,
         })
@@ -4076,9 +4048,9 @@ Reply with exactly one word: KETU or ASSISTANT.`,
           status: 'DEFERRED', deferReason: postModelGuardFailed ? 'post_model_guard_failed' : (arrivalClockBlocked ? 'arrival_clock_blocked' : (couponCodeHeld ? 'coupon_code_handoff' : (restockPointerHeld ? 'restock_pointer_handoff' : (split.isPartial ? 'claude_partial_defer' : 'claude_deferred')))),
           // A partial's spend sits on its REPLIED row; zero here so messageLog sums do not double-count.
           promptTokens: split.isPartial ? 0 : promptTokens, completionTokens: split.isPartial ? 0 : completionTokens,
-          totalTokens: split.isPartial ? 0 : totalTokens, costUsd: split.isPartial ? 0 : costUsd,
+          totalTokens: split.isPartial ? 0 : totalTokens, costUsd: split.isPartial ? 0 : costUsd, promptSent: { modelUse: replyTrace },
           processingMs: Date.now() - startTime,
-        }, db, brainLabel: modelLabel(usedFallbackBrain || replyModel),
+        }, db, brainLabel: modelLabel(replyTrace.responseModel || usedFallbackBrain || replyModel),
         answered: split.isPartial ? split.text : null,
       })
       if (!split.isPartial) {
@@ -4097,6 +4069,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
       history: conversationHistory, preferredLanguage: preferredReplyLanguage,
     })
     costUsd += repaired.costUsd
+    if (repaired.attempted) replyTrace.rewrite = { requestedModel: repaired.requestedModel || null, responseModel: repaired.responseModel || null, responseId: repaired.responseId || null, changed: repaired.changed, costUsd: repaired.costUsd }
     aiReply = repaired.reply
     if (repaired.attempted) console.log(`[LanguageGate] ${whatsappNumber} — ${repaired.target}: ${repaired.changed ? 'rewrite OK' : 'rewrite unavailable or rejected; kept original'}`)
   } catch {
@@ -4122,7 +4095,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
       status: 'SKIPPED',
       deferReason: 'superseded_by_intervention',
       aiReply,
-      promptTokens, completionTokens, totalTokens, costUsd,
+      promptTokens, completionTokens, totalTokens, costUsd, promptSent: { modelUse: replyTrace },
       processingMs: Date.now() - startTime,
     })
     await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
@@ -4149,7 +4122,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
           status: 'SKIPPED',
           deferReason: 'ig_window_expired',
           aiReply,
-          promptTokens, completionTokens, totalTokens, costUsd,
+          promptTokens, completionTokens, totalTokens, costUsd, promptSent: { modelUse: replyTrace },
           processingMs: Date.now() - startTime,
         })
         await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: costUsd } } })
@@ -4179,7 +4152,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   // Tag the bubble with the brain that actually wrote this — the fallback tier if one was used,
   // otherwise the configured reply model.
   const sendCtx = {}
-  const sendResult = await sendReplyViaWwbun(whatsappNumber, aiReply, modelLabel(usedFallbackBrain || replyModel), sendCtx)
+  const sendResult = await sendReplyViaWwbun(whatsappNumber, aiReply, modelLabel(replyTrace.responseModel || usedFallbackBrain || replyModel), sendCtx)
 
   // --- Update daily spend ---
   // Counted even when the send was blocked: the Claude call already happened, so the money is
@@ -4197,12 +4170,12 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     aiReply,
     // 'claude_partial_answer' marks the answered half of a partial defer, so the defer batch's
     // repeat guard does not mistake it for a real answer to the held half (review 2026-09-02).
-    deferReason: sendCtx.blocked ? 'ai_disabled' : (partialDeferHeld ? 'claude_partial_answer' : (usedFallbackBrain ? `openai_fallback:${usedFallbackBrain}` : undefined)),
+    deferReason: sendCtx.blocked ? 'ai_disabled' : (partialDeferHeld ? 'claude_partial_answer' : (usedFallbackBrain ? `claude_fallback:${usedFallbackBrain}` : undefined)),
     knowledgeChunks: vectorResults.map(c => ({ title: c.title, source: c.source, similarity: Number(c.similarity).toFixed(3) })),
     similarityScore: bestSimilarity,
     catalogMatch: catalogMatches.length > 0 ? catalogMatches[0].metadata : null,
     promptTokens, completionTokens, totalTokens, costUsd,
-    promptSent: { system: systemPrompt, user: userPrompt },
+    promptSent: { system: systemPrompt, user: userPrompt, modelUse: replyTrace },
     sentViaWwbun: !!sendResult,
     wwbunMessageId: sendResult?.messageId || null,
     processingMs: Date.now() - startTime,
@@ -4451,7 +4424,7 @@ async function markHandledInWwbun(whatsappNumber) {
 // least I will know which model is replying"). Falls back to the configured reply model.
 export function modelLabel(modelId) {
   if (!modelId) return null
-  return REPLY_MODEL_INFO.labels[modelId] || String(modelId)
+  return REPLY_MODEL_INFO.labels[baseModelId(modelId)] || String(modelId)
 }
 
 // `ctx` is an optional out-param: on a deliberate block (the operator switched the bot off for

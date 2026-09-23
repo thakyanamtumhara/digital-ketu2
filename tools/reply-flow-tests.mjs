@@ -6,10 +6,10 @@ import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, forma
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, orderingTable = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, missingMediaUrls = [], gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [], lastOutcome = null } = {}) {
+async function runCase({ selectedModel = 'claude-opus-5', returnedModel = null, responseStop = 'end_turn', thinkingFirst = false, responseUsage = null, firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, orderingTable = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, missingMediaUrls = [], gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [], lastOutcome = null } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = [], invoiceRequests = []
   const restraintRequests = [], handled = [], embeddingSearches = []
-  const timers = [], recoveryQueries = []
+  const timers = [], recoveryQueries = [], spendUpdates = []
   let clock = recovery?.now ?? Date.now()
   class TestDate extends Date {
     constructor(...args) { super(...(args.length ? args : [clock])) }
@@ -97,7 +97,7 @@ async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', re
       assert.ok(query.select.deferReason)
       return history.slice().reverse()
     }, findFirst: async () => recovery?.laterLog || lastOutcome, create: async ({ data }) => { logs.push(data); return { id: 'log-test', ...data } } },
-    settings: { update: async () => ({}), findUnique: async () => ({ isActive: recovery?.active !== false, replyModel: 'claude-opus-5', systemPrompt: 'test rules' }) },
+    settings: { update: async args => { spendUpdates.push(args); return {} }, findUnique: async () => ({ isActive: recovery?.active !== false, replyModel: selectedModel, systemPrompt: 'test rules' }) },
     preAIFilter: { findMany: async () => keywordFilters },
     knowledgeChunk: { findFirst: async () => null, findMany: async () => [] },
     buyerMemory: { findUnique: async () => preferredLanguage ? { language: preferredLanguage } : null, upsert: async () => ({}) },
@@ -119,13 +119,13 @@ async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', re
     if (typeof body.messages?.[0]?.content === 'string' && body.messages[0].content.startsWith('Rewrite this WhatsApp reply')) {
       rewriteRequests.push(body)
       if (rewriteThrows) throw Error('rewrite unavailable')
-      return { content: [{ type: 'text', text: rewriteReply || '' }], usage: { input_tokens: 4, output_tokens: 4 } }
+      return { model: body.model, id: 'rewrite-response', stop_reason: 'end_turn', content: [{ type: 'text', text: rewriteReply || '' }], usage: { input_tokens: 4, output_tokens: 4 } }
     }
     if (body.model.includes('haiku')) return { content: [{ type: 'text', text: 'ASSISTANT' }], usage: { input_tokens: 1, output_tokens: 1 } }
     requests.push(body)
     calls++
     if (calls <= failCalls) throw Object.assign(Error('529 overloaded'), { status: 529 })
-    return { content: [{ type: 'text', text: reply }], usage: { input_tokens: 10, output_tokens: 8 } }
+    return { model: returnedModel || body.model, id: 'reply-response-' + calls, stop_reason: responseStop, content: [...(thinkingFirst ? [{ type: 'thinking', thinking: 'PRIVATE REASONING NEVER SEND' }] : []), { type: 'text', text: reply }], usage: responseUsage || { input_tokens: 10, output_tokens: 8 } }
   } } }
   if (recovery) {
     if (recovery.pending) module.namespace.pendingWelcomeFollowups.set('buyer-test', { timer: {}, mergedText: 'new question' })
@@ -141,7 +141,7 @@ async function runCase({ firstContact = false, whatsappNumber = 'buyer-test', re
   } else {
     await module.namespace.runAiFlow({ whatsappNumber, mergedText: buyerText, normalizedText: buyerText, imageUrl, conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
   }
-  return { sent, logs, errors, requests, rewriteRequests, invoiceRequests, restraintRequests, handled, embeddingSearches, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
+  return { sent, logs, errors, requests, rewriteRequests, invoiceRequests, restraintRequests, handled, embeddingSearches, spendUpdates, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
 }
 
 const blueCatalog = { categories: [{ products: [{
@@ -161,6 +161,82 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['Opus 5.5 mixed hoodie quote includes XXL scope while the complaint remains held', async () => {
+    const r = await runCase({ selectedModel: 'claude-opus-5-5', thinkingFirst: true,
+      buyerText: 'Not received yet. Please share hoodie price and photos.',
+      reply: 'Hoodie 320gsm (loopknit) Black ₹211, baaki colours ₹239 sir. Saare photos swipe karke dekh lijiye 👉 https://www.bulkplaintshirt.com/photos.html?p=hoodie-320gsm\n[DEFER]',
+      rewriteReply: 'Hoodie 320gsm (loopknit) ₹211–₹251 bulk (10+ total pcs, by colour/size) sir. Swipe through the photos 👉 https://www.bulkplaintshirt.com/photos.html?p=hoodie-320gsm' })
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /₹211–₹251/)
+    assert.match(r.sent[0].message, /photos\.html/)
+    assert.doesNotMatch(r.sent[0].message, /\[DEFER\]/)
+    assert.ok(r.pending.has('buyer-test'))
+    const row = r.logs.find(row => row.status === 'REPLIED')
+    assert.equal(row.deferReason, 'claude_partial_answer')
+    assert.equal(row.promptSent.modelUse.responseModel, 'claude-opus-5-5')
+    assert.deepEqual(r.errors, [])
+  }],
+  ['Opus 5.5 uses fresh selection and sends text after hidden reasoning with actual provenance', async () => {
+    const r = await runCase({ selectedModel: 'claude-opus-5-5', returnedModel: 'claude-opus-5-5-20260921', thinkingFirst: true,
+      responseUsage: { input_tokens: 100, output_tokens: 600, cache_creation_input_tokens: 300, cache_read_input_tokens: 200,
+        cache_creation: { ephemeral_1h_input_tokens: 300, ephemeral_5m_input_tokens: 0 } } })
+    assert.equal(r.requests[0].model, 'claude-opus-5-5')
+    assert.equal(r.requests[0].thinking.type, 'adaptive')
+    assert.equal(r.requests[0].output_config.effort, 'low')
+    assert.equal(r.requests[0].max_tokens, 4096)
+    assert.equal(r.sent[0].message, 'Address sir: Khanpur.')
+    assert.doesNotMatch(JSON.stringify(r.sent), /PRIVATE REASONING/)
+    const row = r.logs.find(row => row.status === 'REPLIED')
+    assert.equal(row.promptSent.modelUse.requestedModel, 'claude-opus-5-5')
+    assert.equal(row.promptSent.modelUse.responseModel, 'claude-opus-5-5-20260921')
+    assert.equal(row.promptSent.modelUse.responseId, 'reply-response-1')
+    assert.equal(row.promptSent.modelUse.fallback, false)
+    assert.equal(row.completionTokens, 600)
+    assert.ok(Math.abs(row.costUsd - 0.01484) < 1e-10)
+  }],
+  ['provider fallback records actual model and retains the selected model', async () => {
+    const r = await runCase({ selectedModel: 'claude-opus-5-5', failCalls: 3 })
+    assert.equal(r.requests.at(-1).model, 'claude-opus-5')
+    assert.equal(r.requests.at(-1).thinking.type, 'disabled')
+    const row = r.logs.find(row => row.status === 'REPLIED')
+    assert.equal(row.promptSent.modelUse.requestedModel, 'claude-opus-5-5')
+    assert.equal(row.promptSent.modelUse.responseModel, 'claude-opus-5')
+    assert.equal(row.promptSent.modelUse.fallback, true)
+    assert.equal(row.deferReason, 'claude_fallback:claude-opus-5')
+  }],
+  ['truncated, empty and mismatched replies never send and retain paid attempt spend', async () => {
+    for (const extra of [{ responseStop: 'max_tokens' }, { reply: '' }, { returnedModel: 'claude-opus-4-7-20260101' }]) {
+      const r = await runCase({ selectedModel: 'claude-opus-5-5', ...extra })
+      if (extra.returnedModel) {
+        // A mismatched dated response can match the final allowed base alias; earlier mismatches still cannot send.
+        assert.equal(r.sent.length, 1)
+        assert.equal(r.logs.find(row => row.status === 'REPLIED').promptSent.modelUse.responseModel, extra.returnedModel)
+      } else {
+        assert.equal(r.sent.filter(row => row.whatsappNumber !== 'owner-test').length, 0)
+        const row = r.pending.get('buyer-test').messages[0].logData
+        assert.ok(row.costUsd > 0)
+        assert.equal(row.promptSent.modelUse.attempts.length, 4)
+        const charged = r.spendUpdates.reduce((sum, update) => sum + (update.data.dailySpentUsd?.increment || 0), 0)
+        assert.ok(charged >= row.costUsd)
+        assert.equal(r.spendUpdates.filter(update => update.data.dailySpentUsd?.increment === row.costUsd).length, 1)
+      }
+    }
+  }],
+  ['paid skip, defer, leak and intervention paths retain actual model', async () => {
+    for (const extra of [{ reply: '[SKIP]' }, { reply: '[DEFER]' }, { reply: 'Let me reconsider the previous context' }, { cooldown: true }]) {
+      const r = await runCase({ selectedModel: 'claude-opus-5-5', ...extra })
+      const row = r.logs.find(row => row.costUsd > 0) || r.pending.get('buyer-test')?.messages[0]?.logData
+      assert.equal(row.promptSent.modelUse.responseModel, 'claude-opus-5-5')
+      assert.ok(row.costUsd > 0)
+    }
+  }],
+  ['language repairs expose the actual rewrite provider model without hidden content', async () => {
+    const r = await runCase({ selectedModel: 'claude-opus-5-5', buyerText: 'What is your shop address?', reply: 'Khanpur mein hai sir.', rewriteReply: 'It is in Khanpur sir.' })
+    const row = r.logs.find(row => row.status === 'REPLIED')
+    assert.equal(row.promptSent.modelUse.rewrite.responseModel, 'claude-haiku-4-5-20251001')
+    assert.equal(row.promptSent.modelUse.rewrite.responseId, 'rewrite-response')
+    assert.equal(row.promptSent.modelUse.rewrite.changed, true)
+  }],
   ['a stock maintenance request cannot create an unsupported supply promise', async () => {
     for (const reply of ['Ok sir, regular tees ka stock rakhenge 👍', 'Ok sir, regular tees ka stock rakhenge, sab sizes available hain abhi 👉 https://sale91.com/catalog/p/example', 'Stock rakhenge, aap order kar lijiye 👉 https://sale91.com/catalog/p/example', 'Stock rakhne ki koshish karenge sir']) {
     const r = await runCase({ incomingText: 'Demand badh gayi hai, regular tees ka stock available rakhna please', reply })

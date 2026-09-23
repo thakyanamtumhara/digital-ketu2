@@ -1,88 +1,31 @@
-// REPLAY HARNESS — the only honest pre-ship check for a rulebook change. COSTS KETU MONEY.
-//
-//   node tools/replay.mjs tools/cases/<file>.json [--prompt local|live] [--model claude-opus-5] [--runs 1] [--only id,id]
-//
-// Rebuilds the production request the way runAiFlow does: system = [static prompt (cached), catalog
-// block (cached)], user = [stock block / photo block / winter line when the case asks for them] +
-// RECENT CONVERSATION + BUYER'S NEW MESSAGE, called with thinking:disabled on the live reply model.
-// Not reproduced: vector-search style pairs / KNOWLEDGE BASE chunks (per-query, style-only) and
-// buyer profile / order lookup (need a real number). Good enough to catch a rule that does not fire.
-//
-// --prompt local  = DEFAULT_SYSTEM_PROMPT from the repo (what you are ABOUT to ship)
-// --prompt live   = /api/settings systemPrompt (what is live now; needs ~/.dk2_read_token)
-// Key: ~/.dk2_anthropic_key (600) or ANTHROPIC_API_KEY. Each case ≈ ₹3-4 warm, first call ≈ ₹55 (cache write).
-import { readFileSync, existsSync } from 'fs'
-import { homedir } from 'os'
-import { join } from 'path'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join, resolve, dirname, extname } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { createHash } from 'node:crypto'
+import { parseArgs } from 'node:util'
 import { canonicalizeStockAlertLinks } from '../server/stock-alert-link.js'
-
-const args = process.argv.slice(2)
-const file = args.find(a => !a.startsWith('--'))
-const opt = (k, d) => { const i = args.indexOf(`--${k}`); return i >= 0 ? args[i + 1] : d }
-if (!file) { console.error('usage: node tools/replay.mjs cases.json [--prompt local|live] [--model id] [--runs n] [--only a,b]'); process.exit(2) }
-const PROMPT_SRC = opt('prompt', 'local')
-const MODEL = opt('model', 'claude-opus-5')
-const RUNS = Number(opt('runs', 1))
-const ONLY = (opt('only', '') || '').split(',').filter(Boolean)
-
-const keyFile = join(homedir(), '.dk2_anthropic_key')
-const KEY = process.env.ANTHROPIC_API_KEY || (existsSync(keyFile) ? readFileSync(keyFile, 'utf8').trim() : '')
-if (!KEY) { console.error('no API key: put it in ~/.dk2_anthropic_key (chmod 600) or ANTHROPIC_API_KEY'); process.exit(2) }
-const READ = readFileSync(join(homedir(), '.dk2_read_token'), 'utf8').trim()
-const BASE = 'https://digital-ketu2-production.up.railway.app'
-const api = async p => (await fetch(`${BASE}${p}`, { headers: { 'X-DK-Read-Token': READ } })).json()
-
-// ---- system blocks, built like runAiFlow ----
-let staticPrompt
-if (PROMPT_SRC === 'live') {
-  staticPrompt = (await api('/api/settings')).systemPrompt
-} else {
-  const mod = await import('../server/process.js')
-  staticPrompt = mod.DEFAULT_SYSTEM_PROMPT
-}
-const guide = await api('/api/knowledge/chunks?source=STYLE_GUIDE&pageSize=5').catch(() => null)
-const styleGuide = ((guide && (guide.chunks || guide.items || [])) || []).find(c => c.sourceId === 'om_style_guide')
-if (styleGuide) staticPrompt += `\n\nOM'S COMMUNICATION STYLE:\n${styleGuide.content}`
-
-const { getCatalogFacts, canonicalizeCatalogLinks } = await import('../server/catalog-facts.js')
-const { block: catalogBlock, products: catalogProducts } = await getCatalogFacts()
-
-// ---- optional per-case blocks ----
-const { getStockSnapshot, formatStockBlock, resolveUnnamedProduct } = await import('../server/stock-lookup.js')
-const { scopedTimingBlock } = await import('../server/timing-scope.js')
-const { getPhotoIndex, formatPhotoBlock } = await import('../server/photo-links.js')
-const { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysGuard, bigBuyerDiscountGuard, formatConversationHistory } = await import('../server/process.js')
-const { gsmAmbiguityHint, gsmPriceRangeGuard } = await import('../server/gsm-hint.js')
-const { poloRateSummaryGuard } = await import('../server/polo-price.js')
-const { hoodieRateSummaryGuard } = await import('../server/hoodie-price.js')
-const { biowashRateSummaryGuard } = await import('../server/biowash-price.js')
-const { customLabelReferralGuard } = await import('../server/custom-label-referral.js')
-const { regularFitBlueHint, regularFitBlueGuard } = await import('../server/regular-fit-blue.js')
-const { pendingProductChoiceGuard } = await import('../server/product-choice.js')
-const { repairReplyLanguage, buyerUsesEnglish } = await import('../server/reply-language.js')
-const { arrivalClockGuard } = await import('../server/arrival-clock.js')
-const { couponCodeGuard } = await import('../server/coupon-code.js')
-const { restockPointerGuard } = await import('../server/restock-pointer.js')
-const { stockAlertOfferGuard } = await import('../server/stock-alert-offer.js')
-const { discontinuedSizeRequest, discontinuedSizeGuard } = await import('../server/discontinued-size.js')
-const rewriteClient = { messages: { create: async body => {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) throw Error(`Rewrite HTTP ${res.status}`)
-  return res.json()
-} } }
-let stockBlock = null, photoBlock = null, stockSnapshot = null
-const cases = JSON.parse(readFileSync(file, 'utf8')).filter(c => !ONLY.length || ONLY.includes(c.id))
-const tfRes = await api('/api/knowledge/chunks?source=TIMED_FACT&pageSize=8').catch(() => null)
-const timedFacts = ((tfRes && (tfRes.chunks || tfRes.items)) || []).map(c => ({ content: c.content })) // mirrors fetchTimedFacts (2026-09-08)
-if (cases.some(c => (c.stock || discontinuedSizeRequest(c.msg)) && !c.stockSnapshot)) { stockSnapshot = await getStockSnapshot(); stockBlock = formatStockBlock(stockSnapshot, { timedFacts }) }
-if (cases.some(c => c.photo)) photoBlock = formatPhotoBlock(await getPhotoIndex())
-
-function userPromptFor(c) {
-  const now = c.at ? Date.parse(c.at) : Date.now()
+import { replyModelParams, responseText, resolveReplyModel } from '../server/reply-models.js'
+import { getCatalogFacts, canonicalizeCatalogLinks } from '../server/catalog-facts.js'
+import { getStockSnapshot, formatStockBlock, resolveUnnamedProduct } from '../server/stock-lookup.js'
+import { scopedTimingBlock } from '../server/timing-scope.js'
+import { getPhotoIndex, formatPhotoBlock } from '../server/photo-links.js'
+import { winterStockLine, EXPORT_ASK_RE, EXPORT_HINT, istTimeBlock, deliveryDaysGuard, bigBuyerDiscountGuard, formatConversationHistory } from '../server/process.js'
+import { gsmAmbiguityHint, gsmPriceRangeGuard } from '../server/gsm-hint.js'
+import { poloRateSummaryGuard } from '../server/polo-price.js'
+import { hoodieRateSummaryGuard } from '../server/hoodie-price.js'
+import { biowashRateSummaryGuard } from '../server/biowash-price.js'
+import { customLabelReferralGuard } from '../server/custom-label-referral.js'
+import { regularFitBlueHint, regularFitBlueGuard } from '../server/regular-fit-blue.js'
+import { pendingProductChoiceGuard } from '../server/product-choice.js'
+import { repairReplyLanguage, buyerUsesEnglish } from '../server/reply-language.js'
+import { arrivalClockGuard } from '../server/arrival-clock.js'
+import { couponCodeGuard } from '../server/coupon-code.js'
+import { restockPointerGuard } from '../server/restock-pointer.js'
+import { stockAlertOfferGuard } from '../server/stock-alert-offer.js'
+import { discontinuedSizeRequest, discontinuedSizeGuard } from '../server/discontinued-size.js'
+function userPromptFor(c, { timedFacts, stockSnapshot, stockBlock, photoBlock, catalogProducts }) {
+  const now = c.at ? Date.parse(c.at) : Date.parse(c.at)
   const caseTimedFacts = c.timedFacts || timedFacts
   const caseSnapshot = c.stockSnapshot || stockSnapshot
   const caseStockBlock = caseSnapshot ? formatStockBlock(caseSnapshot, { timedFacts: caseTimedFacts, now }) : stockBlock
@@ -91,8 +34,8 @@ function userPromptFor(c) {
     p += formatConversationHistory(c.history.map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.deferred ? 'DEFERRED' : (h.manual || h.silent ? 'SKIPPED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : (h.silent ? 'ai_chose_silence' : null), createdAt: h.at })))
   }
   p += `BUYER'S NEW MESSAGE:\n${c.msg}\n\nReply as Ketu's assistant:`
-  p = istTimeBlock(c.at ? Date.parse(c.at) : Date.now()) + p // mirrors buildUserPrompt; case.at = ISO with +05:30 to pin a moment
-  if (c.winter) p = `❄️ WINTER STOCK LINE (the seasonal restock answer for hoodie / sweatshirt / zip-hoodie / any winter item, computed for today's date in Ketu's words — relay it for a winter restock-timing ask unless a ⏰ entry above or a 📦 LIVE STOCK DATA in-stock listing answers more specifically; never add a date of your own): "${winterStockLine()}"\n\n${p}`
+  p = istTimeBlock(c.at ? Date.parse(c.at) : Date.parse(c.at)) + p // mirrors buildUserPrompt; case.at = ISO with +05:30 to pin a moment
+  if (c.winter) p = `❄️ WINTER STOCK LINE (the seasonal restock answer for hoodie / sweatshirt / zip-hoodie / any winter item, computed for today's date in Ketu's words — relay it for a winter restock-timing ask unless a ⏰ entry above or a 📦 LIVE STOCK DATA in-stock listing answers more specifically; never add a date of your own): "${winterStockLine(new Date(c.at))}"\n\n${p}`
   if (c.photo && photoBlock) p = photoBlock + '\n\n' + p
   if ((c.stock || discontinuedSizeRequest(c.msg)) && caseStockBlock) {
     const unnamed = resolveUnnamedProduct(caseSnapshot, c.msg) // mirrors runAiFlow (2026-09-05)
@@ -109,59 +52,102 @@ function userPromptFor(c) {
   return p
 }
 
-// --dump <dir>: write system.txt + one user_<id>.txt per case and exit WITHOUT calling the API
-// (free proxy runs through the operator's own model, or inspection of exactly what the model sees).
-const DUMP = opt('dump', '')
-if (DUMP) {
-  const { mkdirSync, writeFileSync } = await import('fs')
-  mkdirSync(DUMP, { recursive: true })
-  writeFileSync(join(DUMP, 'system.txt'), staticPrompt + (catalogBlock ? '\n\n' + catalogBlock : ''))
-  for (const c of cases) writeFileSync(join(DUMP, `user_${c.id}.txt`), userPromptFor(c))
-  writeFileSync(join(DUMP, 'cases.json'), JSON.stringify(cases, null, 1))
-  console.log(`dumped system.txt (${staticPrompt.length + (catalogBlock || '').length} chars) + ${cases.length} user prompts → ${DUMP}`)
-  process.exit(0)
-}
 
-const PRICE = { 'claude-opus-5': [5, 25, 0.5, 10], 'claude-opus-4-8': [5, 25, 0.5, 10], 'claude-fable-5-1': [10, 50, 0.25, 20] }
-const [pIn, pOut, pRead, pWrite1h] = PRICE[MODEL] || [5, 25, 0.5, 10]
-let usd = 0, pass = 0, total = 0
-const results = []
-for (const c of cases) {
-  for (let r = 0; r < RUNS; r++) {
-    total++
-    const body = {
-      model: MODEL, max_tokens: 500,
-      system: [{ type: 'text', text: staticPrompt, cache_control: { type: 'ephemeral', ttl: '1h' } }].concat(catalogBlock ? [{ type: 'text', text: catalogBlock, cache_control: { type: 'ephemeral', ttl: '1h' } }] : []),
-      messages: [{ role: 'user', content: userPromptFor(c) }],
-    }
-    if (!/fable|mythos/.test(MODEL)) body.thinking = { type: 'disabled' }
-    else body.output_config = { effort: 'low' }
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'extended-cache-ttl-2025-04-11', 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    const j = await res.json()
-    if (j.error) { console.log(`\n❌ ${c.id} API ERROR ${j.error.message}`); continue }
-    let txt = (j.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ').trim()
-    const u = j.usage || {}
-    usd += ((u.input_tokens || 0) * pIn + (u.cache_read_input_tokens || 0) * pRead + (u.cache_creation_input_tokens || 0) * pWrite1h + (u.output_tokens || 0) * pOut) / 1e6
-    const fails = []
+export const sha256 = value => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex')
+export function privateDirectory(path) {
+  const absolute = resolve(path)
+  for (let p = absolute; ; p = dirname(p)) {
+    if (existsSync(join(p, '.git'))) throw Error('Raw replay output must remain outside every git repository')
+    if (p === dirname(p)) break
+  }
+  mkdirSync(absolute, { recursive: true, mode: 0o700 })
+  chmodSync(absolute, 0o700)
+  return absolute
+}
+export function savePrivate(path, data) {
+  privateDirectory(dirname(path))
+  writeFileSync(path, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 })
+  chmodSync(path, 0o600)
+}
+export function assertFreshReplayOutput(output) {
+  const path = join(output, 'calls.json')
+  if (existsSync(path) && JSON.parse(readFileSync(path, 'utf8')).length) throw Error('This output already contains paid/uncertain calls; use a new authorized budget, not a silent rerun')
+}
+function imageBlocksFor(c) {
+  if (c.imageUrl && !c.images?.length) throw Error(`Case ${c.id}: imageUrl alone is not inspected image evidence`)
+  return (c.images || []).map(image => {
+    if (image.reviewed !== true) throw Error(`Case ${c.id}: inspect image before replay`)
+    const data = readFileSync(image.path)
+    const mediaType = image.mediaType || ({ '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' })[extname(image.path).toLowerCase()]
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(mediaType) || !data.length) throw Error('Unsupported or empty replay image')
+    return { block: { type: 'image', source: { type: 'base64', media_type: mediaType, data: data.toString('base64') } }, evidence: { sourceId: image.sourceId || null, sha256: createHash('sha256').update(data).digest('hex'), bytes: data.length, mediaType, reviewed: true } }
+  })
+}
+export function freezeReplayInputs({ cases, staticPrompt, catalogBlock = '', catalogProducts = [], timedFacts = [], stockSnapshot = null, photoBlock = null, configuredModel, usdToInr = 88, now = Date.now(), source = {} }) {
+  if (!cases.length || new Set(cases.map(c => c.id)).size !== cases.length) throw Error('Replay requires nonempty unique case IDs')
+  const system = [{ type: 'text', text: staticPrompt, cache_control: { type: 'ephemeral', ttl: '1h' } }]
+  if (catalogBlock) system.push({ type: 'text', text: catalogBlock, cache_control: { type: 'ephemeral', ttl: '1h' } })
+  const facts = { catalogProducts, stockSnapshot, timedFacts, photoBlock }
+  const frozenCases = cases.map(original => {
+    const c = structuredClone(original), images = imageBlocksFor(c)
+    c.at ||= new Date(now).toISOString()
+    if (!Number.isFinite(Date.parse(c.at))) throw Error('Invalid case time')
+    if (images.length) c.imageUrl = 'inspected-local-image'
+    let user = userPromptFor(c, { ...facts, stockBlock: null })
+    if (images.length > 1) user = `The buyer attached ${images.length} photos in this turn. Consider every photo and answer each requested item. Apply the existing photo, shade-uncertainty and owner-handoff rules to all of them.\n\n${user}`
+    const messages = [{ role: 'user', content: images.length ? [...images.map(i => i.block), { type: 'text', text: user }] : user }]
+    return { id: c.id, case: c, now: Date.parse(c.at), messages, inputSha256: sha256({ system, messages }), imageEvidence: images.map(i => i.evidence), stockSource: c.stockSnapshot ? 'explicit_regression_fixture' : (c.stock ? 'captured_live_snapshot' : null) }
+  })
+  return structuredClone({ schemaVersion: 1, capturedAt: new Date(now).toISOString(), configuredModel, usdToInr, source, system, systemSha256: sha256(system), facts, cases: frozenCases, scope: 'Diagnostic regression requests; retrieval examples, buyer profile/order lookups, pre-model routing and the production partial-defer split before language repair are not reproduced. Postguards are a diagnostic subset. Not a population accuracy or voice-fidelity sample.' })
+}
+export async function prepareReplay(file, { promptSource = 'local', only = [], base = 'https://digital-ketu2-production.up.railway.app' } = {}) {
+  const read = readFileSync(join(homedir(), '.dk2_read_token'), 'utf8').trim()
+  const api = async path => {
+    const response = await fetch(base + path, { method: 'GET', headers: { 'X-DK-Read-Token': read }, signal: AbortSignal.timeout(30000) })
+    if (!response.ok) throw Error(`Read-only replay source unavailable (${response.status})`)
+    return response.json()
+  }
+  const [settings, guide, tfRes, catalog] = await Promise.all([
+    api('/api/settings'), api('/api/knowledge/chunks?source=STYLE_GUIDE&pageSize=5'),
+    api('/api/knowledge/chunks?source=TIMED_FACT&pageSize=8'), getCatalogFacts(),
+  ])
+  let staticPrompt = promptSource === 'live' ? settings.systemPrompt : (await import('../server/process.js')).DEFAULT_SYSTEM_PROMPT
+  const styleGuide = (guide.chunks || guide.items || []).find(c => c.sourceId === 'om_style_guide')
+  if (styleGuide) staticPrompt += `\n\nOM'S COMMUNICATION STYLE:\n${styleGuide.content}`
+  const cases = JSON.parse(readFileSync(file, 'utf8')).filter(c => !only.length || only.includes(c.id))
+  const timedFacts = (tfRes.chunks || tfRes.items || []).map(c => ({ content: c.content }))
+  const [stockSnapshot, photoBlock] = await Promise.all([
+    cases.some(c => (c.stock || discontinuedSizeRequest(c.msg)) && !c.stockSnapshot) ? getStockSnapshot() : null,
+    cases.some(c => c.photo) ? getPhotoIndex().then(formatPhotoBlock) : null,
+  ])
+  if (!catalog.block || !catalog.products?.length) throw Error('Current catalogue missing; replay refused')
+  return freezeReplayInputs({ cases, staticPrompt, catalogBlock: catalog.block, catalogProducts: catalog.products, timedFacts, stockSnapshot, photoBlock,
+    configuredModel: resolveReplyModel(settings), usdToInr: settings.usdToInr || 88,
+    source: { promptSource, staticPromptSha256: sha256(staticPrompt), catalogueSha256: sha256(catalog), styleGuideSha256: sha256(styleGuide?.content || ''), timedFactsSha256: sha256(timedFacts) } })
+}
+export function replayRequest(pack, item, model = pack.configuredModel) {
+  const body = { ...replyModelParams(model), system: structuredClone(pack.system), messages: structuredClone(item.messages) }
+  if (sha256({ system: body.system, messages: body.messages }) !== item.inputSha256) throw Error('Frozen replay inputs changed')
+  return body
+}
+export async function applyReplayGuards(pack, item, rawText) {
+  const c = item.case, catalogProducts = pack.facts.catalogProducts, stockSnapshot = pack.facts.stockSnapshot
+  let txt = rawText
     // Mirror the production post-model guards (2026-09-09) so a replay judges what the buyer would get.
     {
       txt = canonicalizeCatalogLinks(txt, catalogProducts)
       const gsmHistory = (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, deferReason: h.manual ? 'manual_reply' : null }))
       txt = customLabelReferralGuard({ buyerText: c.msg, reply: txt, imageUrl: c.imageUrl, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
-      txt = (!c.imageUrl && regularFitBlueGuard({ products: catalogProducts, buyerText: c.msg, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })), now: c.at ? Date.parse(c.at) : Date.now(), reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) })) || txt
+      txt = (!c.imageUrl && regularFitBlueGuard({ products: catalogProducts, buyerText: c.msg, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })), now: c.at ? Date.parse(c.at) : item.now, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) })) || txt
       txt = gsmPriceRangeGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, imageUrl: c.imageUrl, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
       txt = poloRateSummaryGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
       txt = hoodieRateSummaryGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
       txt = biowashRateSummaryGuard({ products: catalogProducts, buyerText: c.msg, history: gsmHistory, reply: txt, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }) }) || txt
-      txt = pendingProductChoiceGuard({ buyerText: c.msg, reply: txt, now: c.at ? Date.parse(c.at) : Date.now(), history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) }) || txt
-      const discontinuedReply = discontinuedSizeGuard({ buyerText: c.msg, reply: txt, snapshot: c.stockSnapshot || stockSnapshot, now: c.at ? Date.parse(c.at) : Date.now() })
+      txt = pendingProductChoiceGuard({ buyerText: c.msg, reply: txt, now: c.at ? Date.parse(c.at) : item.now, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) }) || txt
+      const discontinuedReply = discontinuedSizeGuard({ buyerText: c.msg, reply: txt, snapshot: c.stockSnapshot || stockSnapshot, now: c.at ? Date.parse(c.at) : item.now })
       if (discontinuedReply) { console.log('   Discontinued-size policy applied'); txt = discontinuedReply }
-      txt = stockAlertOfferGuard({ buyerText: c.msg, reply: txt, whatsappNumber: c.whatsappNumber, now: c.at ? Date.parse(c.at) : Date.now(), english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }), history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) }) || txt
-      const restockHandoff = restockPointerGuard({ buyerText: c.msg, reply: txt, now: c.at ? Date.parse(c.at) : Date.now(), history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) })
+      txt = stockAlertOfferGuard({ buyerText: c.msg, reply: txt, whatsappNumber: c.whatsappNumber, now: c.at ? Date.parse(c.at) : item.now, english: buyerUsesEnglish({ buyerText: c.msg, history: gsmHistory, preferredLanguage: c.preferredLanguage }), history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) }) || txt
+      const restockHandoff = restockPointerGuard({ buyerText: c.msg, reply: txt, now: c.at ? Date.parse(c.at) : item.now, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, status: h.manual ? 'SKIPPED' : (h.deferred ? 'DEFERRED' : 'REPLIED'), deferReason: h.manual ? 'manual_reply' : null, createdAt: h.at })) })
       if (restockHandoff) { console.log('   Restock-pointer guard retained an owner handoff'); txt = restockHandoff }
       const couponHandoff = couponCodeGuard({ buyerText: c.msg, reply: txt, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, aiReply: h.ai, deferReason: h.manual ? 'manual_reply' : null })) })
       if (couponHandoff) { console.log('   Coupon-code guard retained an owner handoff'); txt = couponHandoff }
@@ -175,25 +161,58 @@ for (const c of cases) {
     }
     txt = (await import('../server/multipart-shipping.js')).multipartShippingGuard({ buyerText: c.msg, reply: txt, imageUrl: c.imageUrl, english: buyerUsesEnglish({ buyerText: c.msg, history: (c.history || []).map(h => ({ buyerMessage: h.buyer, deferReason: h.manual ? 'manual_reply' : null })), preferredLanguage: c.preferredLanguage }) }) || txt
     txt = canonicalizeStockAlertLinks(txt, c.whatsappNumber)
-    if (!/^\s*\[(DEFER|SKIP)\]\s*$/.test(txt)) {
-      const repaired = await repairReplyLanguage({
-        anthropic: rewriteClient, reply: txt, buyerText: c.msg, preferredLanguage: c.preferredLanguage,
-        history: (c.history || []).map(h => ({ buyerMessage: h.buyer, deferReason: h.manual ? 'manual_reply' : null })),
-      })
-      usd += repaired.costUsd
-      txt = repaired.reply
-      if (repaired.attempted) console.log(`   Language repair: ${repaired.changed ? 'applied' : 'kept original'}`)
-    }
-    for (const m of (c.must || [])) if (!new RegExp(m, 'i').test(txt)) fails.push(`missing /${m}/`)
-    for (const m of (c.mustNot || [])) if (new RegExp(m, 'i').test(txt)) fails.push(`forbidden /${m}/`)
-    const ok = fails.length === 0
-    if (ok) pass++
-    results.push({ id: c.id, ok, reply: txt, fails })
-    console.log(`\n${ok ? '✅' : '❌'} ${c.id}${RUNS > 1 ? ` (run ${r + 1})` : ''}  [cache read ${u.cache_read_input_tokens || 0}, write ${u.cache_creation_input_tokens || 0}]`)
-    console.log('   buyer:', c.msg.slice(0, 120))
-    console.log('   reply:', txt.replace(/\n/g, ' ⏎ ').slice(0, 300))
-    if (!ok) console.log('   >>>', fails.join('; '))
-  }
+
+  return txt
 }
-console.log(`\n=== ${pass}/${total} passed · prompt=${PROMPT_SRC} · model=${MODEL} · cost $${usd.toFixed(3)} ≈ ₹${(usd * 88).toFixed(0)} ===`)
-process.exit(pass === total ? 0 : 1)
+export function gradeReplay(c, text) {
+  return [ ...(c.must || []).filter(m => !new RegExp(m, 'i').test(text)).map(m => `missing /${m}/`), ...(c.mustNot || []).filter(m => new RegExp(m, 'i').test(text)).map(m => `forbidden /${m}/`) ]
+}
+export async function runReplayCase(pack, item, model, client, { languageRepair = true } = {}) {
+  const start = client.records.length
+  const response = await client.messages.create(replayRequest(pack, item, model))
+  const main = client.records[start]
+  let rawText
+  try { rawText = responseText(response) } catch (error) {
+    return { id: item.id, model, inputSha256: item.inputSha256, ok: false, incomplete: true, fails: [error.code || 'REPLY_INCOMPLETE'], rawText: main.rawText, guardedText: null, finalText: null, calls: client.records.slice(start) }
+  }
+  const guardedText = await applyReplayGuards(pack, item, rawText)
+  let finalText = guardedText, repair = null
+  if (languageRepair && !/^\s*\[(DEFER|SKIP)\]\s*$/.test(guardedText)) {
+    const c = item.case
+    repair = await repairReplyLanguage({ anthropic: client, reply: guardedText, buyerText: c.msg, preferredLanguage: c.preferredLanguage,
+      history: (c.history || []).map(h => ({ buyerMessage: h.buyer, deferReason: h.manual ? 'manual_reply' : null })) })
+    finalText = repair.reply
+  }
+  const fails = gradeReplay(item.case, finalText)
+  return { id: item.id, model, inputSha256: item.inputSha256, ok: !fails.length, fails, rawText, rawFails: gradeReplay(item.case, rawText), guardedText, finalText, guardChanged: rawText !== guardedText, repair, calls: client.records.slice(start) }
+}
+export async function replayMain(argv = process.argv.slice(2)) {
+  const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { prompt: { type: 'string', default: 'local' }, model: { type: 'string' }, runs: { type: 'string', default: '1' }, only: { type: 'string' }, dump: { type: 'string' }, output: { type: 'string' }, 'budget-inr': { type: 'string', default: '300' } } })
+  if (!positionals[0]) throw Error('Usage: node tools/replay.mjs cases.json [--prompt local|live] [--model id] [--dump private-directory]')
+  const runs = Number(values.runs)
+  if (!Number.isInteger(runs) || runs < 1) throw Error('Invalid runs')
+  const pack = await prepareReplay(positionals[0], { promptSource: values.prompt, only: (values.only || '').split(',').filter(Boolean) })
+  const output = privateDirectory(values.dump || values.output || join(homedir(), '.local/state/dk2-watch/replays', new Date().toISOString().replaceAll(':', '-')))
+  assertFreshReplayOutput(output)
+  savePrivate(join(output, 'frozen-inputs.json'), pack)
+  if (values.dump) {
+    writeFileSync(join(output, 'system.txt'), pack.system.map(b => b.text).join('\n\n'), { mode: 0o600 })
+    for (const item of pack.cases) {
+      if (!/^[a-zA-Z0-9_.-]+$/.test(item.id)) throw Error('Case ID cannot be used as a dump filename')
+      const content = item.messages[0].content
+      writeFileSync(join(output, `user_${item.id}.txt`), typeof content === 'string' ? content : content.filter(b => b.type === 'text').map(b => b.text).join('\n'), { mode: 0o600 })
+    }
+    savePrivate(join(output, 'cases.json'), pack.cases.map(item => item.case))
+    console.log(JSON.stringify({ frozen: join(output, 'frozen-inputs.json'), cases: pack.cases.length, configuredModel: pack.configuredModel })); return }
+  const { createReplayClient } = await import('./compare-reply-models.mjs')
+  const key = process.env.ANTHROPIC_API_KEY || readFileSync(join(homedir(), '.dk2_anthropic_key'), 'utf8').trim()
+  const client = createReplayClient({ apiKey: key, budgetInr: Number(values['budget-inr']), exchangeRate: pack.usdToInr, onRecord: () => savePrivate(join(output, 'calls.json'), client.records) })
+  const results = []
+  try { for (const item of pack.cases) for (let r = 0; r < runs; r++) {
+    const result = await runReplayCase(pack, item, values.model || pack.configuredModel, client)
+    results.push({ run: r + 1, ...result }); savePrivate(join(output, 'results.json'), { results, costUsd: client.spentUsd })
+    console.log(JSON.stringify({ id: item.id, model: result.model, returnedModel: result.calls[0]?.returnedModel, ok: result.ok, costInr: client.spentUsd * pack.usdToInr }))
+  } } finally { savePrivate(join(output, 'results.json'), { results, costUsd: client.spentUsd, reservedUsd: client.reservedUsd, complete: results.length === pack.cases.length * runs }) }
+  if (results.some(r => !r.ok)) process.exitCode = 1
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) replayMain().catch(error => { console.error(error.code || error.message); process.exitCode = 1 })

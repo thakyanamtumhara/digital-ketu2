@@ -11,7 +11,7 @@ export function assessPulse(data, now = Date.now()) {
   const failed = logs.filter(row => row.status === 'FAILED')
   if (failed.length) add('failed-replies', `${failed.length} FAILED rows in the checked window`)
   if (logs.some(row => row.deferReason === 'post_model_guard_failed')) add('post-model-guard-failed', 'A reply guard threw; the buyer was deferred and the guard needs investigation')
-  if (logs.some(row => /openai_fallback:|all_claude_models_failed/.test(row.deferReason || ''))) add('provider-fallback', 'Primary model failed or backup model used')
+  if (logs.some(row => /(?:openai|claude)_fallback:|all_claude_models_failed/.test(row.deferReason || ''))) add('provider-fallback', 'Primary model failed or backup model used')
   if (logs.some(row => /budget_exceeded|daily_limit|budget_free_reply/.test(row.deferReason || ''))) add('budget-tripped', 'Reply budget blocked a buyer turn')
   let budget = null
   if (data.settings) {

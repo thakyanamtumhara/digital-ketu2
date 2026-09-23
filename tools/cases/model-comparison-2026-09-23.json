@@ -1,0 +1,213 @@
+[
+  {
+    "id": "regular-blue-family",
+    "msg": "180gsm regular fit blue colour milta hai?",
+    "must": [
+      "True[ -]?Bio",
+      "Navy",
+      "Royal Blue",
+      "Sky"
+    ],
+    "mustNot": [
+      "regular.?fit[^.!?]{0,30}(?:blue[^.!?]{0,15})?(?:nahi|not available|no blue)"
+    ],
+    "sourceCase": "tools/cases/regular-fit-blue-2026-09-16.json"
+  },
+  {
+    "id": "oversize-blue-control",
+    "msg": "180gsm oversize mein blue milta hai?",
+    "must": [
+      "Black",
+      "White"
+    ],
+    "mustNot": [
+      "oversize[^.!?]{0,25}(?:mein|in) Navy",
+      "Yes sir[^.!?]{0,30}Royal Blue"
+    ],
+    "sourceCase": "tools/cases/regular-fit-blue-2026-09-16.json"
+  },
+  {
+    "id": "first-oos-restock-offer",
+    "msg": "240 navy S,M kabtak milega?",
+    "whatsappNumber": "919999999999",
+    "at": "2026-09-15T13:00:00+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "inStock": {
+        "Oversize 240gsm": {
+          "Navy": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          },
+          "Off-white": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Navy": "S,M",
+          "Off-white": "S,M"
+        }
+      },
+      "coming": {},
+      "fetchedAt": 1789457400000
+    },
+    "timedFacts": [],
+    "must": [
+      "alert=1&ph=9999999999",
+      "WhatsApp"
+    ],
+    "mustNot": [
+      "Coming Soon tab check",
+      "\\b[1-9]\\d?\\s*(?:din|days|weeks)"
+    ],
+    "sourceCase": "tools/cases/stock-alert-offers-2026-09-15.json"
+  },
+  {
+    "id": "available-size-orders",
+    "msg": "240 navy L available hai?",
+    "whatsappNumber": "919999999999",
+    "at": "2026-09-15T13:00:00+05:30",
+    "stock": true,
+    "stockSnapshot": {
+      "inStock": {
+        "Oversize 240gsm": {
+          "Navy": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          },
+          "Off-white": {
+            "S": 1,
+            "M": 1,
+            "L": 1
+          }
+        }
+      },
+      "oos": {
+        "Oversize 240gsm": {
+          "Navy": "S,M",
+          "Off-white": "S,M"
+        }
+      },
+      "coming": {},
+      "fetchedAt": 1789457400000
+    },
+    "timedFacts": [],
+    "must": [
+      "available|stock mein hai",
+      "sale91.com/catalog/p/oversize-240gsm"
+    ],
+    "mustNot": [
+      "alert=1",
+      "out of stock"
+    ],
+    "sourceCase": "tools/cases/stock-alert-offers-2026-09-15.json"
+  },
+  {
+    "id": "hoodie-sample",
+    "msg": "Black hoodie 320gsm ke 2 sample ka per piece rate?",
+    "must": [
+      "₹\\d+|Rs",
+      "sample"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]",
+      "\\[SKIP\\]"
+    ],
+    "why": "A small sample order keeps sample pricing.",
+    "sourceCase": "tools/cases/watch-2026-09-14-hoodie-rate-scope.json"
+  },
+  {
+    "id": "biowash-selected-size",
+    "msg": "Biowash size 46, 20 pieces ka rate?",
+    "must": [
+      "46",
+      "₹\\d+|Rs"
+    ],
+    "mustNot": [
+      "\\[DEFER\\]",
+      "\\[SKIP\\]"
+    ],
+    "why": "A selected size retains its exact live bulk price.",
+    "sourceCase": "tools/cases/watch-2026-09-14-biowash-rate-scope.json"
+  },
+  {
+    "id": "partial-not-received-plus-price",
+    "why": "2026-09-01 buyer 9888371770 — clone answered the price and dropped 'Not received yet'; now: price + [DEFER] on its own line",
+    "history": [
+      {
+        "buyer": "Not received",
+        "ai": "Ketu will reply shortly sir 🙏",
+        "deferred": true
+      },
+      {
+        "buyer": "1 week hogea",
+        "ai": "Ketu will reply shortly sir 🙏",
+        "deferred": true
+      }
+    ],
+    "msg": "Not received Yet —- Terry cotton hoodie Price Share pics",
+    "photo": true,
+    "must": [
+      "hoodie",
+      "\\[DEFER\\]"
+    ],
+    "mustNot": [
+      "^\\[DEFER\\]$"
+    ],
+    "sourceCase": "tools/cases/partial-defer.json"
+  },
+  {
+    "id": "owner-payment-control",
+    "why": "Language repair must retain the owner-only banking handoff.",
+    "msg": "Direct bank transfer karna hai, apni bank details bhejo",
+    "must": [
+      "\\[DEFER\\]"
+    ],
+    "mustNot": [
+      "IFSC",
+      "account number"
+    ],
+    "sourceCase": "tools/cases/watch-2026-09-12-roman-hindi.json"
+  },
+  {
+    "id": "english-price-confirmation",
+    "msg": "12 tshirts at that rate, right?",
+    "history": [
+      {
+        "buyer": "Can you tell me the price of 180gsm oversized tees?",
+        "ai": "Current rates are in the catalogue sir."
+      }
+    ],
+    "mustNot": [
+      "\\b(hai|nahi|kijiye|lijiye|milega|mein)\\b",
+      "\\b(?:oversize|gsm)\\s+me\\b",
+      "\\[(DEFER|SKIP)\\]"
+    ],
+    "why": "A terse numeric confirmation in an English buying thread keeps English wording.",
+    "sourceCase": "tools/cases/watch-2026-09-14-product-me-language.json"
+  },
+  {
+    "id": "explicit-hindi-control",
+    "msg": "180gsm oversize price please",
+    "history": [
+      {
+        "buyer": "Hindi mein batao",
+        "ai": "Ji sir"
+      }
+    ],
+    "must": [
+      "\\b(hai|hain|mein|me|sirf|ka|ke|pe)\\b"
+    ],
+    "mustNot": [
+      "\\[(DEFER|SKIP)\\]"
+    ],
+    "why": "An explicit Hindi preference keeps its priority.",
+    "sourceCase": "tools/cases/watch-2026-09-14-product-me-language.json"
+  }
+]

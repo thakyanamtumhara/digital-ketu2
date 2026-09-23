@@ -1,5 +1,7 @@
 import { usdToInrRate } from '../shared/cost.mjs'
 import { formatCloneDigest } from './clone-digest.js'
+import { createModelControl, assessModelOutput } from './model-control.js'
+import { baseModelId, validReplyModelId, replyModelParams, modelUsageCost } from './reply-models.js'
 import { Hono } from 'hono'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { cors } from 'hono/cors'
@@ -357,15 +359,6 @@ setInterval(followupTick, 2 * 60 * 60 * 1000)
 // The FollowupDraft 3-day dup-guard makes boot-time scans safe to repeat.
 setTimeout(followupTick, 10 * 60 * 1000)
 
-// ── NON-BASELINE MODEL SELF-PROTECT GUARD (2026-07-26) ───────────────────────
-// When the buyer brain is switched OFF the tuned Opus 4.8 baseline (Ketu trying Opus 5), dk2 watches
-// its OWN replies and auto-reverts to 4.8 on a CLEAR failure — a reasoning leak into a buyer message,
-// or replies gone much longer than Ketu's terse style. Runs server-side so the shop is protected 24/7
-// with NO open Claude session / laptop (answers Ketu's "can I close it?" — yes). Conservative on
-// purpose: MILD chattiness is left running (that's Ketu's evaluation to make); only a clear failure
-// reverts, and once reverted it never re-enables Opus 5 on its own. Baseline captured 2026-07-26:
-// Opus 4.8 avg ~40 output-tokens / 74 chars (median 35/63, p90 75/154).
-const REPLY_MODEL_BASELINE_AVG_TOK = 43 // Opus 5 measured overnight (26-Jul); ≈4.8's 40 — the terse-reply yardstick a future experiment is judged against
 let opus5GuardBusy = false
 const opus5Guard = async () => {
   if (opus5GuardBusy) return
@@ -373,61 +366,40 @@ const opus5Guard = async () => {
   try {
     const settings = await db.settings.findUnique({ where: { id: 'default' } })
     const current = resolveReplyModel(settings)
-    if (current === REPLY_MODEL_INFO.default) return // on the tuned baseline → nothing to guard
-    // Look back to the SWITCH time (no 3h cap — a quiet night must still accumulate signal). Generous
-    // fallback if the timestamp is missing. replyModelSetAt already excludes older baseline replies.
-    const setAt = settings?.replyModelSetAt ? new Date(settings.replyModelSetAt).getTime() : (Date.now() - 12 * 3600 * 1000)
-    const since = new Date(setAt)
-
-    // SIGNAL 1 (primary, works even on low traffic) — the leak/ramble DEFERRAL spike. dk2's inline guard
-    // catches a leaking OR >120-word reply BEFORE it's sent and logs it DEFERRED/reasoning_leak_blocked.
-    // So the true "Opus 5 misbehaving" signal is a spike in THOSE deferrals, not the sent replies. On the
-    // tuned 4.8 baseline this is ~0/day, so a handful since the switch is clearly the new model failing.
-    const leakDeferrals = await db.messageLog.count({
-      where: { status: 'DEFERRED', deferReason: 'reasoning_leak_blocked', createdAt: { gte: since } },
+    if (baseModelId(current) === REPLY_MODEL_INFO.default) return
+    const since = settings?.replyModelSetAt || new Date(Date.now() - 12 * 3600 * 1000)
+    const canonical = current === baseModelId(current)
+    const rows = await db.$queryRaw`
+      SELECT status, "deferReason", "sentViaWwbun", "costUsd", "aiReply", "promptSent"->'modelUse' AS "modelUse"
+      FROM "MessageLog"
+      WHERE "createdAt" >= ${since}
+        AND (status = 'REPLIED' OR (status = 'DEFERRED' AND "deferReason" = 'reasoning_leak_blocked'))
+        AND "promptSent"->'modelUse'->>'responseModel' IS NOT NULL
+        AND ("promptSent"->'modelUse'->>'responseModel' = ${current}
+          OR (${canonical} AND regexp_replace("promptSent"->'modelUse'->>'responseModel', '-[0-9]{8}$', '') = ${current}))
+        AND "promptSent"->'modelUse'->>'outputSource' IS DISTINCT FROM 'rule'
+      ORDER BY "createdAt" DESC
+      LIMIT 200
+    `
+    const assessment = assessModelOutput(rows, current)
+    if (!assessment.revert) return
+    const changed = await db.settings.updateMany({
+      where: { id: 'default', replyModel: settings.replyModel, replyModelSetAt: settings.replyModelSetAt },
+      data: { replyModel: REPLY_MODEL_INFO.default, replyModelSetAt: new Date() },
     })
-
-    // SIGNAL 2 (secondary) — chattiness of GENUINE model replies. completionTokens>0 excludes the
-    // OpenAI-fallback rows (gpt-4o-mini logs REPLIED with 0 tokens during a Claude outage — they must
-    // never be judged as Opus 5, and their 0 tokens would otherwise mask real chattiness).
-    const genuineCount = await db.messageLog.count({
-      where: { status: 'REPLIED', costUsd: { gt: 0 }, completionTokens: { gt: 0 }, createdAt: { gte: since } },
-    })
-    const sample = await db.messageLog.findMany({
-      where: { status: 'REPLIED', costUsd: { gt: 0 }, completionTokens: { gt: 0 }, createdAt: { gte: since } },
-      orderBy: { createdAt: 'desc' }, take: 30,
-      select: { completionTokens: true },
-    })
-    const toks = sample.map(s => s.completionTokens || 0)
-    const avgTok = toks.length ? Math.round(toks.reduce((a, b) => a + b, 0) / toks.length) : 0
-    const longFrac = toks.length ? toks.filter(t => t > 200).length / toks.length : 0
-
-    // Conservative triggers — MILD chattiness is Ketu's call, only CLEAR failure reverts:
-    const leakFrac = (leakDeferrals + genuineCount) ? leakDeferrals / (leakDeferrals + genuineCount) : 0
-    const leakSpike = leakDeferrals >= 4 && leakFrac >= 0.2    // ≥4 leaks AND ≥20% of all AI outcomes (systematic, not a stray)
-    const chatty = sample.length >= 8 && avgTok >= 90          // sustained ~2.2x+ baseline length
-    const rambling = sample.length >= 12 && longFrac >= 0.5    // majority of a solid sample >200 tok
-    if (leakSpike || chatty || rambling) {
-      const reason = leakSpike
-        ? `${leakDeferrals} leaked/over-long replies blocked since switch (reasoning-leak deferrals)`
-        : chatty ? `too chatty (avg ${avgTok} output-tokens vs ${REPLY_MODEL_BASELINE_AVG_TOK} baseline, n=${sample.length})`
-          : `rambling (${Math.round(longFrac * 100)}% of ${sample.length} replies over 200 tokens)`
-      await db.settings.update({ where: { id: 'default' }, data: { replyModel: REPLY_MODEL_INFO.default, replyModelSetAt: new Date() } })
-      cachedSettings = null; settingsCacheExpiry = 0
-      forceCacheRewarm()
-      console.log(`[ModelGuard] AUTO-REVERT ${current} → ${REPLY_MODEL_INFO.default}: ${reason}`)
-      await notifyOwner(`🧠 ${current} ko wapas Opus 4.8 kar diya — ${leakSpike ? 'reply ke andar ki soch/bahut lambe reply block ho rahe the (' + leakDeferrals + ' baar)' : `reply zyada lambe ho rahe the (avg ${avgTok} tok vs ${REPLY_MODEL_BASELINE_AVG_TOK})`}. Shop safe, 4.8 pe chal raha hai. Subah detail dekh lena 🙏`).catch(() => {})
-    } else {
-      console.log(`[ModelGuard] ${current} holding fine: leakDeferrals=${leakDeferrals} replies=${sample.length} avgTok=${avgTok} (baseline ${REPLY_MODEL_BASELINE_AVG_TOK}) long>200=${Math.round(longFrac * 100)}%`)
-    }
+    if (changed.count !== 1) return
+    cachedSettings = null; settingsCacheExpiry = 0
+    forceCacheRewarm()
+    console.log(`[ModelGuard] AUTO-REVERT ${current} → ${REPLY_MODEL_INFO.default}: ${assessment.leakDeferrals} blocked replies, ${assessment.avgWords} visible words on average`)
+    await notifyOwner(`🧠 Switched back to ${REPLY_MODEL_INFO.labels[REPLY_MODEL_INFO.default]}: ${current} produced repeated blocked or unusually long replies. ${assessment.leakDeferrals} blocked; average ${assessment.avgWords} visible words across ${assessment.replies} recent replies.`).catch(() => {})
   } catch (e) {
     console.error('[ModelGuard] error:', e.message)
   } finally {
     opus5GuardBusy = false
   }
 }
-setInterval(opus5Guard, 30 * 60 * 1000) // every 30 min
-setTimeout(opus5Guard, 12 * 60 * 1000)  // first check ~12 min after boot (survives frequent deploys)
+setInterval(opus5Guard, 30 * 60 * 1000)
+setTimeout(opus5Guard, 12 * 60 * 1000)
 
 app.post('/api/fidelity/send-digest', async (c) => { await sendFidelityDigest(true); return c.json({ ok: true }) })
 
@@ -495,84 +467,24 @@ app.post('/api/followups/action', async (c) => {
   return c.json(await actOnDraft(db, id, action))
 })
 
-// ── REPLY-MODEL SWITCHER (2026-07-26, Ketu) ──────────────────────────────────
-// The buyer-reply brain is switchable from wwbun so Ketu can move to a new Claude Opus the day it
-// ships — he found out Opus 5 launched 2 days late. GET reports the current model, the allow-listed
-// options, and whether Anthropic's live /v1/models has something NEWER (drives the header badge, so he
-// never misses a launch again). POST switches (admin-gated, allow-list ONLY: a brand-new unlisted
-// model must be verified + enabled in code first — a careless tap can never point the shop at an
-// unvalidated/broken model). Switching is instant + reversible in one tap; every model runs
-// thinking:disabled to stay terse (mandatory on Opus 5, which thinks-on by default).
-let modelsListCache = { at: 0, ids: [] }
-// Scan the WHOLE Claude line, not just Opus — so a brand-new Fable / Mythos / Sonnet / a whole new
-// "mode" also lights the badge (Ketu 2026-07-27: "if any new model comes, will it always show?").
-// The SWITCH stays Opus-tier allow-listed (see POST) because non-Opus models aren't drop-in — e.g.
-// Fable 5 costs 2x and REJECTS thinking:disabled, so it'd break the terse reply path until adapted.
-// Detection ≠ enablement: a new model is SHOWN so Ketu knows, then Claude verifies + enables it.
-async function liveClaudeModelIds() {
-  if (Date.now() - modelsListCache.at < 2 * 3600 * 1000 && modelsListCache.ids.length) return modelsListCache.ids
-  try {
-    const ids = []
-    // NAME-BLIND (Ketu 2026-07-27: "a completely different new name — will we notice?"). Take EVERY id
-    // /v1/models returns for this account — no name pattern. That endpoint only lists models this key
-    // can actually use, so anything here not in KNOWN_MODELS is a genuinely new launch, whatever it's
-    // called (claude-nova, a new line, a rename). The only thing we can't see is a model Anthropic hasn't
-    // yet enabled for this account — but it couldn't be used until then anyway.
-    for await (const m of anthropic.models.list({ limit: 100 })) {
-      if (typeof m.id === 'string' && m.id) ids.push(m.id)
-    }
-    modelsListCache = { at: Date.now(), ids }
-    return ids
-  } catch (e) {
-    console.error('[Model] /v1/models fetch failed:', e.message)
-    return modelsListCache.ids // stale is fine; never break the panel over a models-list hiccup
-  }
-}
-// EVERY model that exists TODAY (any family) — so only a genuinely NEW launch shows as detected.
-// Update this when a model here is retired or a new one is added to the switch allow-list.
-const KNOWN_MODELS = new Set([
-  'claude-fable-5', 'claude-mythos-5', 'claude-mythos-preview',
-  'claude-opus-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-opus-4-0', 'claude-opus-4', 'claude-3-opus',
-  'claude-sonnet-5', 'claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-sonnet-4-0', 'claude-3-7-sonnet', 'claude-3-5-sonnet', 'claude-3-sonnet',
-  'claude-haiku-4-5', 'claude-3-5-haiku', 'claude-3-haiku',
-])
-// /v1/models returns some ids DATED (claude-opus-4-5-20251101) and some as bare aliases
-// (claude-opus-5). Strip a trailing -YYYYMMDD / @YYYYMMDD so both compare on the same base —
-// else old dated models leak into detectedNew as false "brand-new" launches.
-const baseId = id => String(id).replace(/[-@]\d{8}$/, '')
+const modelControl = createModelControl({
+  db, anthropic,
+  onSwitch() {
+    cachedSettings = null; settingsCacheExpiry = 0
+    forceCacheRewarm()
+  },
+})
 app.get('/api/model', async (c) => {
-  const settings = await getSettings()
-  const current = resolveReplyModel(settings)
-  const { allow, labels } = REPLY_MODEL_INFO
-  const curIdx = allow.indexOf(current)
-  const liveIds = await liveClaudeModelIds()
-  const liveBases = liveIds.map(baseId)
-  const available = allow.map((id, i) => ({
-    id, label: labels[id] || id, current: id === current,
-    newer: curIdx >= 0 && i < curIdx,               // earlier in the allow-list = newer than current
-    live: liveIds.length ? liveBases.includes(id) : true,
-  }))
-  const newerAvailable = available.filter(m => m.newer && m.live)
-  // ANY brand-new Claude model (any family) not yet known → surface so Ketu sees the launch and pings
-  // me to verify + enable it. This is how a future Fable/Mythos/Opus-5.1/new-mode model shows up.
-  const known = new Set([...allow, ...KNOWN_MODELS])
-  const detectedNew = [...new Set(liveIds.filter(id => !known.has(baseId(id))).map(baseId))]
-  return c.json({
-    current, currentLabel: labels[current] || current,
-    available, newerAvailable, detectedNew,
-    badge: newerAvailable.length > 0 || detectedNew.length > 0,
-  })
+  c.header('Cache-Control', 'no-store')
+  try { return c.json(await modelControl.state(c.req.query('refresh') === '1')) }
+  catch { return c.json({ error: 'Model status is unavailable. Your selection has not been changed.' }, 503) }
 })
 app.post('/api/model', async (c) => {
   const { model } = await c.req.json().catch(() => ({}))
-  if (!REPLY_MODEL_INFO.allow.includes(model)) {
-    return c.json({ error: 'model not allow-listed — a new model must be verified + enabled in code first', allow: REPLY_MODEL_INFO.allow }, 400)
+  try { return c.json(await modelControl.switchTo(model)) }
+  catch (error) {
+    return c.json({ error: error.status ? error.message : 'The switch could not be completed. Refresh the current model status.' }, error.status || 503)
   }
-  await db.settings.update({ where: { id: 'default' }, data: { replyModel: model, replyModelSetAt: new Date() } })
-  cachedSettings = null; settingsCacheExpiry = 0 // take effect on the very next reply, not up to 60s later
-  forceCacheRewarm()  // the old model's warm cache is useless to the new one — re-warm on the next tick
-  console.log(`[Model] reply brain switched → ${model}`)
-  return c.json({ ok: true, model, label: REPLY_MODEL_INFO.labels[model] || model })
 })
 
 // DEFER SCOREBOARD (2026-07-21, Ketu-approved): "the human requirement of Ketu will keep decreasing
@@ -672,14 +584,12 @@ app.get('/api/ai-status', async (c) => {
       }
       // probe.ok === true → API answering again → leave down=false (recovered)
     }
-    // FALLBACK-ACTIVE: if the OpenAI backup answered a buyer in the last 10 min, Claude/Anthropic is
-    // effectively down but the shop is still replying (on gpt-4o-mini). The reply-call failures are
-    // logged as REPLIED (fallback), so the FAILED-based down-detector above stays quiet — surface the
-    // true state here so the banner shows "on backup" instead of falsely reading all-clear.
     const onFallback = fallbackState.at > 0 && (Date.now() - fallbackState.at < 10 * 60 * 1000)
+    const fallbackModel = validReplyModelId(fallbackState.model) || /^gpt-[a-z0-9.-]+$/.test(fallbackState.model || '') ? fallbackState.model : null
     if (onFallback && !down) {
-      reason = `Claude (Anthropic) is down — running on the OpenAI backup brain (${fallbackState.model || 'gpt-4o-mini'}). Buyers ARE getting replies; top up Anthropic credits to restore full quality.`
-      detail = 'openai_fallback_active'
+      const provider = fallbackModel?.startsWith('claude-') ? 'Claude' : fallbackModel?.startsWith('gpt-') ? 'OpenAI' : 'another'
+      reason = `A recent reply attempt used ${provider} backup${fallbackModel ? ` (${fallbackModel})` : ''} while the selected model was unavailable.`
+      detail = provider === 'Claude' ? 'claude_fallback_active' : 'backup_model_active'
     }
     // BUDGET (2026-08-18): wwbun's header showed a rolling-24h sum of reply costs (₹562) while the
     // cap that actually pauses the AI is a since-05:30-IST counter that ALSO carries the restraint
@@ -704,7 +614,7 @@ app.get('/api/ai-status', async (c) => {
         resetsAtIst: '05:30',
       }
     } catch { /* budget is a nice-to-have; never break the status probe */ }
-    return c.json({ ok: !down, down, onFallback, brain: onFallback ? (fallbackState.model || 'openai-fallback') : 'claude', reason, detail, since, probed, lastPaidReplyAt: lastPaid?.createdAt || null, cost: { avgInr: costAlarm.avgInr, ceiling: costAlarm.ceiling, over: costAlarm.over, replies: costAlarm.replies }, budget, checkedAt: new Date().toISOString() })
+    return c.json({ ok: !down, down, onFallback, brain: onFallback ? (fallbackModel || 'unknown-backup') : 'claude', reason, detail, since, probed, lastPaidReplyAt: lastPaid?.createdAt || null, cost: { avgInr: costAlarm.avgInr, ceiling: costAlarm.ceiling, over: costAlarm.over, replies: costAlarm.replies }, budget, checkedAt: new Date().toISOString() })
   } catch (e) {
     return c.json({ ok: false, down: true, reason: `Status check failed: ${e.message}`, detail: 'status_error' })
   }
@@ -843,9 +753,16 @@ app.get('/api/settings', async (c) => {
 
 app.put('/api/settings', async (c) => {
   const body = await c.req.json()
+  if (body && (Object.hasOwn(body, 'replyModel') || Object.hasOwn(body, 'replyModelSetAt'))) {
+    const current = await db.settings.findUnique({ where: { id: 'default' }, select: { replyModel: true, replyModelSetAt: true } })
+    const sameTime = value => value == null ? null : new Date(value).getTime()
+    if ((Object.hasOwn(body, 'replyModel') && body.replyModel !== current?.replyModel)
+        || (Object.hasOwn(body, 'replyModelSetAt') && sameTime(body.replyModelSetAt) !== sameTime(current?.replyModelSetAt))) return c.json({ error: 'Use the verified model switch to change the reply model.' }, 400)
+  }
+  const { replyModel, replyModelSetAt, ...updates } = body
   const settings = await db.settings.update({
     where: { id: 'default' },
-    data: body,
+    data: updates,
   })
   // Invalidate cache so the new value takes effect immediately, not up to 60s later
   cachedSettings = null
@@ -3505,67 +3422,53 @@ app.get('/*', serveStatic({ path: './dist/index.html' }))
 // during traffic gaps, so the next buyer's reply pays a full 2x re-write (₹25-33). This pings the
 // API with the IDENTICAL static block + a 1-token user message when the cache is 50-58 min old
 // (a cache READ ≈ ₹1.5), refreshing the TTL. Chains only continue from real traffic (a ping also
-// counts as a touch), and only during IST business hours 07-23 — overnight the cache goes cold on
-// purpose (one morning write beats pinging all night). ZERO effect on reply behaviour: no rule,
-// model, or flow change — pure cache-economics.
-let lastPrewarmIstDay = ''
-// Called whenever the reply model changes: caches are model-scoped, so the previously-warm entry is
-// dead weight for the new model. Clearing both flags makes the next 5-min tick do one pre-warm write
-// for the NEW model, so buyers read from cache instead of each paying a cold write.
+// counts as a touch), around the clock. One cold pre-warm is allowed per model per IST day.
+let lastPrewarmKey = ''
+let cacheKeepAliveBusy = false
 function forceCacheRewarm() {
   cacheTouch.at = 0
-  lastPrewarmIstDay = ''
+  cacheTouch.model = null
+  lastPrewarmKey = ''
 }
 async function cacheKeepAlive() {
+  if (cacheKeepAliveBusy) return
+  cacheKeepAliveBusy = true
   try {
-    const istNow = new Date(Date.now() + 5.5 * 3600 * 1000)
-    // OVERNIGHT WARMTH (2026-08-18): this used to stop between 23:00 and 07:00 IST to save ping
-    // money. Measured over 4 days, that was a false economy — ALL SIX prompt-cache misses in the
-    // period landed between 00:32 and 06:28 IST, and a miss costs ~₹55 against ~₹3.83 for a warm
-    // reply (14x). Overnight is not idle either: ~10 buyers/night message in that window. Pings
-    // cost ~₹21/night versus ~₹83/night burnt on cold writes, so staying warm nets ~₹62/night
-    // (~₹1,900/month). Keep-alive now runs around the clock.
-    const age = Date.now() - cacheTouch.at
-    const warm = cacheTouch.at !== 0 && age <= 58 * 60 * 1000
-    const inMaintainWindow = warm && age >= 50 * 60 * 1000
-    // MORNING PRE-WARM: the first business-hour tick that finds the cache cold does ONE warm-up
-    // write, so the day's first buyers hit a warm cache — the unavoidable overnight cold-write lands
-    // HERE (on the keep-alive line) instead of on a real buyer's reply, where on a low-traffic
-    // morning it inflates the per-reply cost (6 replies + one ₹25-33 write ⇒ a fake ₹15/reply spike
-    // on the chart). Once per IST day; after this the 50-58min maintain cycle holds it warm.
-    const istDay = istNow.toISOString().slice(0, 10)
-    const needMorningPrewarm = !warm && lastPrewarmIstDay !== istDay
-    if (!inMaintainWindow && !needMorningPrewarm) return
-    if (needMorningPrewarm) lastPrewarmIstDay = istDay
     const settings = await getSettings()
+    const selected = await db.settings.findUnique({ where: { id: 'default' }, select: { replyModel: true } })
+    const model = resolveReplyModel(selected || settings)
+    const istDay = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10)
+    const key = `${istDay}:${model}`
+    const modelMatches = actual => model === baseModelId(model) ? baseModelId(actual) === model : actual === model
+    const age = Date.now() - cacheTouch.at
+    const warm = modelMatches(cacheTouch.model) && cacheTouch.at !== 0 && age <= 58 * 60 * 1000
+    const inMaintainWindow = warm && age >= 50 * 60 * 1000
+    const needPrewarm = !warm && lastPrewarmKey !== key
+    if (!inMaintainWindow && !needPrewarm) return
+    if (needPrewarm) lastPrewarmKey = key
     let staticPrompt = settings.systemPrompt || DEFAULT_SYSTEM_PROMPT
     const styleGuideChunk = await db.knowledgeChunk.findFirst({
       where: { source: 'STYLE_GUIDE', sourceId: 'om_style_guide' },
       select: { content: true },
     })
     if (styleGuideChunk?.content) staticPrompt += `\n\nOM'S COMMUNICATION STYLE:\n${styleGuideChunk.content}`
-    // MUST be the same model + thinking setting as the reply path: prompt caches are MODEL-SCOPED, so
-    // pinging a different model warms a cache no reply can read, and every reply then pays a full
-    // cold write (~₹25-35) instead of a ₹1.5 read. That is exactly what happened when the brain was
-    // switched to Opus 5 while this ping still said 4.8 — per-reply cost jumped ~6x (₹3.5 → ₹23).
     const res = await anthropic.messages.create({
-      model: resolveReplyModel(settings),
-      max_tokens: 1,
-      thinking: { type: 'disabled' },
+      ...replyModelParams(model, { maxTokens: 64 }),
       system: [{ type: 'text', text: staticPrompt, cache_control: { type: 'ephemeral', ttl: '1h' } }],
       messages: [{ role: 'user', content: 'ping' }],
-    })
-    cacheTouch.at = Date.now()
-    const u = res.usage || {}
-    // $5/M input: fresh 1x, 1h-cache write 2x, cache read 0.1x — same accounting as the reply path
-    const cost = ((u.input_tokens || 0) * 0.000005)
-      + ((u.cache_creation_input_tokens || 0) * 0.000005 * 2.0)
-      + ((u.cache_read_input_tokens || 0) * 0.000005 * 0.10)
-      + ((u.output_tokens || 0) * 0.000025)
-    await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: cost } } }).catch(() => {})
-    console.log(`[CacheKeepAlive] pinged — read=${u.cache_read_input_tokens || 0} write=${u.cache_creation_input_tokens || 0} cost=$${cost.toFixed(4)}`)
+    }, { timeout: 40_000, maxRetries: 0 })
+    const cost = modelUsageCost(res.model || model, res.usage || {}, { oneHour: true })
+    await db.settings.update({ where: { id: 'default' }, data: { dailySpentUsd: { increment: cost.costUsd } } })
+    const stillSelected = await db.settings.findUnique({ where: { id: 'default' }, select: { replyModel: true } })
+    if (modelMatches(res.model) && resolveReplyModel(stillSelected || settings) === model) {
+      cacheTouch.at = Date.now()
+      cacheTouch.model = res.model
+    }
+    console.log(`[CacheKeepAlive] ${res.model || model} read=${cost.cacheReadTokens} write=${cost.cacheWrite1hTokens} cost=$${cost.costUsd.toFixed(4)}${cost.estimated ? ' (estimated)' : ''}`)
   } catch (err) {
-    console.error('[CacheKeepAlive] ping failed (harmless — next buyer pays the write):', err.message)
+    console.error('[CacheKeepAlive] ping failed (next buyer may pay the write):', err.message)
+  } finally {
+    cacheKeepAliveBusy = false
   }
 }
 setInterval(cacheKeepAlive, 5 * 60 * 1000)
