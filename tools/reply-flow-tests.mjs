@@ -237,6 +237,37 @@ const tests = [
     assert.equal(row.promptSent.modelUse.rewrite.responseId, 'rewrite-response')
     assert.equal(row.promptSent.modelUse.rewrite.changed, true)
   }],
+  ['visible language drafting notes use the leak handoff with provider and spend evidence', async () => {
+    for (const note of ['Buyer wrote in Devanagari, so reply in Devanagari.', 'The buyer writes in English; therefore respond in English.', 'Buyer wrote in Roman Hindi so reply in Roman Hindi.']) {
+      const r = await runCase({ selectedModel: 'claude-opus-5-5', thinkingFirst: true,
+        buyerText: 'एक पीस का रेट समझाइए', reply: note + '\n\nसर, ये एक पीस का रेट है।' })
+      assert.equal(r.sent.length, 0)
+      assert.deepEqual(r.errors, [])
+      const pending = r.pending.get('buyer-test')
+      assert.ok(pending)
+      const row = pending.messages[0].logData
+      assert.equal(row.deferReason, 'reasoning_leak_blocked')
+      assert.equal(row.promptSent.modelUse.responseModel, 'claude-opus-5-5')
+      assert.ok(row.costUsd > 0)
+      assert.equal(r.spendUpdates.filter(update => update.data.dailySpentUsd?.increment === row.costUsd).length, 1)
+      assert.equal(r.rewriteRequests.length, 0)
+    }
+  }],
+  ['normal Hindi answers and buyer-facing language instructions keep their answer path', async () => {
+    for (const reply of ['सर, ये एक पीस का रेट है।', 'You can reply in English sir.', 'If your buyer wrote in Hindi, you can send their question here sir.']) {
+      const r = await runCase({ selectedModel: 'claude-opus-5-5', buyerText: 'एक पीस का रेट समझाइए', reply })
+      assert.equal(r.sent[0]?.message, reply)
+      assert.equal(r.pending.size, 0)
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['a buyer quoting a drafting note cannot block a clean model answer', async () => {
+    const reply = 'You can ask in English sir.'
+    const r = await runCase({ selectedModel: 'claude-opus-5-5', buyerText: 'What did this mean: Buyer wrote in English, so reply in English?', reply })
+    assert.equal(r.sent[0]?.message, reply)
+    assert.equal(r.pending.size, 0)
+    assert.deepEqual(r.errors, [])
+  }],
   ['a stock maintenance request cannot create an unsupported supply promise', async () => {
     for (const reply of ['Ok sir, regular tees ka stock rakhenge 👍', 'Ok sir, regular tees ka stock rakhenge, sab sizes available hain abhi 👉 https://sale91.com/catalog/p/example', 'Stock rakhenge, aap order kar lijiye 👉 https://sale91.com/catalog/p/example', 'Stock rakhne ki koshish karenge sir']) {
     const r = await runCase({ incomingText: 'Demand badh gayi hai, regular tees ka stock available rakhna please', reply })

@@ -3765,6 +3765,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   // XML think/reasoning tags first (Opus 5 with thinking disabled can occasionally emit these) — must
   // never reach a buyer, and this makes them defer + count toward the reasoning-leak signal.
   const _leakMarkers = /<\/?think(ing)?>|<\/?reasoning>|\bWait\s*[-—,:]|Let me (reconsider|think|re-?check)|RAW WHATSAPP ORDER|the buyer (shared|is asking|wants|gave)|the previous context|which means (Regular Fit|the buyer)|\bRoute to website\b|this is a size breakdown|\bI should (reply|defer|reconsider|send)/i
+  const _languageDraftingNote = /(?:^|\n)\s*(?:the\s+)?buyer\s+(?:wrote|writes)\s+in\s+(?:Devanagari|Roman\s+Hindi|Hindi|Hinglish|English)\s*[,;]?\s+(?:so|therefore)\s+(?:reply|respond)\s+in\b/i
   const _wc = (aiReply || '').trim().split(/\s+/).filter(Boolean).length
   const _paras = ((aiReply || '').match(/\n\s*\n/g) || []).length
   // Block ONLY on an explicit chain-of-thought marker, or an EXTREME length dump (>120 words —
@@ -3772,7 +3773,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   // are often multi-line and >60 words (the full Delhi visit-address block, store-hours, an
   // enumerated product family, the train-flow explanation). Blocking those was deferring real
   // answers (Ketu 2026-06-08: "share your delhi shop address" got deferred instead of the address).
-  if (_leakMarkers.test(aiReply || '') || _wc > 120) {
+  if (_leakMarkers.test(aiReply || '') || _languageDraftingNote.test(aiReply || '') || _wc > 120) {
     console.warn(`[LeakGuard] ${whatsappNumber} — reply looked like a reasoning leak (${_wc} words, ${_paras} para-breaks); deferring. First 120: ${(aiReply || '').slice(0, 120)}`)
     scheduleDeferReply({
       whatsappNumber, deferMessage: settings.deferMessage, conversationId,
