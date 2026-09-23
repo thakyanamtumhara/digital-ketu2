@@ -33,6 +33,7 @@ import { billRetrievalGuard, billLoginIdentityGuard } from './bill-retrieval.js'
 import { purchaseMinimumGuard } from './purchase-minimum.js'
 import { isGameEarningsFollowup } from './game-followup.js'
 import { isPrinterFulfilmentFollowup } from './printer-followup.js'
+import { isOrderHowFollowup } from './order-how-followup.js'
 import { isRecipientReceiptQuestion } from './receipt-question.js'
 import { isNearestMetroQuestion } from './metro-question.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
@@ -3138,6 +3139,12 @@ Answer with ONLY one word: REPLY or SILENT.` }],
         && !(await ketuRepliedLast(db, conversationId))) {
       verdict = 'REPLY'
       console.log(`[Restraint] ${whatsappNumber} — printer fulfilment follow-up remains answerable`)
+    }
+    if (verdict.startsWith('SILENT') && !imageBlock && !imageUrl && !imageMessages.length
+        && isOrderHowFollowup(mergedText, recentForGate)
+        && !(await ketuRepliedLast(db, conversationId))) {
+      verdict = 'REPLY'
+      console.log(`[Restraint] ${whatsappNumber} — order how-to follow-up remains answerable`)
     }
     // DETERMINISTIC BACKSTOP (audit 2026-08-07): the gate is a judgment call and it silenced 45
     // answerable messages in 6 days — questions ("Kya price hoga?"), price echoes ("50 - 90 rs"),

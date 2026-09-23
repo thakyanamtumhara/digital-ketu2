@@ -161,6 +161,47 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['short how-to follow-up after ordering reassurance survives a silent gate', async () => {
+    const r = await runCase({ incomingText: 'Ok sir kese', gateVerdict: 'SILENT',
+      history: [{ status: 'REPLIED', buyerMessage: 'Can I order without GST?', aiReply: 'Haan sir, GST ke bina bhi order ho jayega, Aadhaar ki zaroorat nahi hai.', createdAt: new Date(Date.now() - 60000) }],
+      reply: 'Website pe product select karke order kar dijiye sir 👉 https://sale91.com' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /sale91\.com/)
+    assert.ok(!r.logs.some(row => row.deferReason === 'ai_chose_silence'))
+    assert.equal(r.handled.length, 0)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['short how-to routing preserves acknowledgements, stale context and owner handling', async () => {
+    const prior = { status: 'REPLIED', buyerMessage: 'How to order?', aiReply: 'Website pe order kar dijiye sir.', createdAt: new Date(Date.now() - 60000) }
+    for (const opts of [
+      { incomingText: 'Ok sir', history: [prior] },
+      { incomingText: 'Ok sir kese', history: [{ ...prior, createdAt: new Date(Date.now() - 3 * 3600000) }] },
+      { incomingText: 'Ok sir kese', history: [{ ...prior, aiReply: 'Ketu will reply shortly sir.' }] },
+      { incomingText: 'Ok sir kese', history: [prior], outboundHistory: [{ status: 'SKIPPED', deferReason: 'manual_reply', createdAt: new Date() }] },
+    ]) {
+      const r = await runCase({ ...opts, gateVerdict: 'SILENT' })
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.sent.length, 0)
+      assert.deepEqual(r.errors, [])
+    }
+    const cooldown = await runCase({ incomingText: 'Ok sir kese', history: [prior], cooldown: true, gateVerdict: 'SILENT' })
+    assert.equal(cooldown.logs[0].status, 'COOLDOWN')
+    const capped = await runCase({ buyerText: 'Ok sir kese', history: [prior], repliesToday: 25, gateVerdict: 'SILENT' })
+    assert.equal(capped.logs[0].deferReason, 'daily_reply_cap')
+    const partial = await runCase({ incomingText: 'Ok sir kese', history: [prior], active: false, gateVerdict: 'SILENT' })
+    assert.equal(partial.requests.length, 0)
+  }],
+  ['short how-to routing retains the model handoff and guard failure boundary', async () => {
+    const history = [{ status: 'REPLIED', buyerMessage: 'Can I order?', aiReply: 'Haan sir, order ho jayega.', createdAt: new Date(Date.now() - 60000) }]
+    for (const opts of [{ reply: '[DEFER]' }, { guardThrows: true, reply: 'Order online sir.' }]) {
+      const r = await runCase({ ...opts, incomingText: 'Ok sir kese', history, gateVerdict: 'SILENT' })
+      assert.equal(r.requests.length, 1)
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 1)
+      assert.equal(r.handled.length, 0)
+    }
+  }],
   ['Opus 5.5 mixed hoodie quote includes XXL scope while the complaint remains held', async () => {
     const r = await runCase({ selectedModel: 'claude-opus-5-5', thinkingFirst: true,
       buyerText: 'Not received yet. Please share hoodie price and photos.',
