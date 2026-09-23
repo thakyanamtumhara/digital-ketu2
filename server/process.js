@@ -26,6 +26,7 @@ import { catalogRequestHasTimingQuestion, catalogRequestHasSampleQuestion } from
 import { regularFitBlueHint, regularFitBlueGuard } from './regular-fit-blue.js'
 import { pendingProductChoiceGuard } from './product-choice.js'
 import { resolvedStockChoice, unavailableStockChoice } from './stock-choice.js'
+import { restockDurationContext, restockDurationHint, restockDurationGuard } from './restock-duration.js'
 import { isAppStoreLookupProblem, appDiscoveryReplyGuard } from './app-discovery.js'
 import { multipartShippingGuard } from './multipart-shipping.js'
 import { customLabelReferralGuard } from './custom-label-referral.js'
@@ -3365,7 +3366,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
     },
     orderBy: { createdAt: 'desc' },
     take: 12,
-    select: { buyerMessage: true, aiReply: true, status: true, deferReason: true, createdAt: true },
+    select: { buyerMessage: true, aiReply: true, status: true, deferReason: true, isMedia: true, createdAt: true },
   })
   const conversationHistory = recentLogs.reverse()
 
@@ -3481,8 +3482,10 @@ Reply with exactly one word: KETU or ASSISTANT.`,
   let stockSnapshot = null
   const timingNow = Date.now()
   const stockChoice = resolvedStockChoice({ buyerText: mergedText, history: conversationHistory, imageUrl, now: timingNow })
-  const stockRequest = stockChoice || mergedText
-  if (stockChoice || STOCK_INTENT_RE.test(mergedText || '') || isStockArrivalQuestion(mergedText) || discontinuedSizeRequest(mergedText)) {
+  const restockDuration = restockDurationContext({ buyerText: mergedText, history: conversationHistory, imageUrl: imageUrl || imageBlock || imageMessages.length, quotedText, now: timingNow })
+  if (restockDuration) userPrompt = restockDurationHint(restockDuration) + userPrompt
+  const stockRequest = stockChoice || restockDuration || mergedText
+  if (stockChoice || restockDuration || STOCK_INTENT_RE.test(mergedText || '') || isStockArrivalQuestion(mergedText) || discontinuedSizeRequest(mergedText)) {
     try {
       stockSnapshot = await getStockSnapshot()
       const stockBlock = formatStockBlock(stockSnapshot, { timedFacts: await fetchTimedFacts(db), now: timingNow })
@@ -4001,6 +4004,7 @@ Reply with exactly one word: KETU or ASSISTANT.`,
       aiReply = stockMaintenance
       console.log(`[StockMaintenance] ${whatsappNumber} — unsupported maintenance promise acknowledged`)
     }
+    aiReply = restockDurationGuard({ request: restockDuration, reply: aiReply }) || aiReply
     aiReply = canonicalizeStockAlertLinks(aiReply, whatsappNumber)
   } catch (guardErr) {
     postModelGuardFailed = true

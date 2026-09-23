@@ -3033,6 +3033,49 @@ for (const [name, extra, changed] of [
   assert.equal(r.sent.length, 1)
   assert.equal(r.sent[0].message, changed ? mixedFitOutput.replace('₹91, Bio ₹121, True Bio ₹141', '₹91–₹97, Bio ₹121–₹127, True Bio ₹141–₹147') : mixedFitOutput)
 }])
+const restockDurationHistory = () => [
+  { buyerMessage: 'hi navy kab tak stock aye ga ??', aiReply: 'Which product sir?', status: 'REPLIED', createdAt: new Date(Date.now() - 180000) },
+  { buyerMessage: 'navy hoodi need 12 pcs i have an order', aiReply: 'Hoodies are listed in the catalogue.', status: 'REPLIED', createdAt: new Date(Date.now() - 120000) },
+  { buyerMessage: 'navy hoodie', aiReply: 'Check the hoodie page sir.', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) },
+]
+tests.push(['restock duration follow-up cannot become a courier promise', async () => {
+  const r = await runCase({ buyerText: 'please tell me the duration', history: restockDurationHistory(), reply: 'Usually it reaches in 2-3 days sir. Order today and it will dispatch tomorrow.' })
+  assert.deepEqual(r.errors, [])
+  assert.match(r.requests[0].messages[0].content, /RESTOCK DURATION CONTEXT/)
+  assert.equal(r.sent.length, 0)
+  assert.equal(r.pending.size, 1)
+}])
+tests.push(['restock duration loads current stock and preserves a relevant answer', async () => {
+  const reply = 'Which hoodie GSM and size do you need sir?'
+  const r = await runCase({ buyerText: 'please tell me the duration', history: restockDurationHistory(), stockSnapshot: pluralStockSnapshot, reply })
+  assert.deepEqual(r.errors, [])
+  assert.match(r.requests[0].messages[0].content, /LIVE STOCK DATA/)
+  assert.equal(r.sent[0].message, reply)
+}])
+for (const [name, extra] of [
+  ['courier question', { buyerText: 'How long for courier delivery?' }],
+  ['stale restock history', { history: restockDurationHistory().map(row => ({ ...row, createdAt: new Date(Date.now() - 3600000) })) }],
+  ['owner intervention', { history: [...restockDurationHistory(), { status: 'SKIPPED', deferReason: 'manual_reply', buyerMessage: 'navy hoodie', aiReply: 'Checking', createdAt: new Date() }] }],
+  ['current image', { imageUrl: 'https://media.invalid/photo' }],
+  ['other product', { history: restockDurationHistory().map(row => ({ ...row, buyerMessage: row.buyerMessage.replace(/hoodi(?:e)?/g, 'polo') })) }],
+]) tests.push([`restock duration keeps ${name} outside the repair`, async () => {
+  const reply = 'Usually it reaches in 2-3 days sir.'
+  const r = await runCase({ buyerText: 'please tell me the duration', history: restockDurationHistory(), reply, ...extra })
+  assert.deepEqual(r.errors, [])
+  const content = r.requests[0].messages[0].content
+  assert.doesNotMatch(typeof content === 'string' ? content : JSON.stringify(content), /RESTOCK DURATION CONTEXT/)
+  assert.equal(r.sent[0].message, reply)
+}])
+tests.push(['restock duration preserves missing-stock handoff, cap and owner cooldown', async () => {
+  const r = await runCase({ buyerText: 'please tell me the duration', history: restockDurationHistory(), stockThrows: true, reply: '[DEFER]' })
+  assert.equal(r.sent.length, 0)
+  assert.equal(r.pending.size, 1)
+  assert.ok(r.errors.every(error => error.includes('[StockLookup]')))
+  const cooldown = await runCase({ buyerText: 'please tell me the duration', history: restockDurationHistory(), cooldown: true })
+  assert.equal(cooldown.sent.length, 0)
+  const capped = await runCase({ buyerText: 'please tell me the duration', history: restockDurationHistory(), repliesToday: 25 })
+  assert.equal(capped.logs[0].deferReason, 'daily_reply_cap')
+}])
 let failed = 0
 for (const [name, test] of tests) {
   try { await test(); console.log(`PASS ${name}`) }
