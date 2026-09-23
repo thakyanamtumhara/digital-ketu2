@@ -3016,6 +3016,23 @@ const tests = [
     assert.match(r.requests[0].messages[0].content, /Buyer: The side gate address please\n\[No reply was sent/)
   }],
 ]
+const mixedFitCatalog = { categories: [{ products: [
+  { name: 'Non Bio Round Neck', slug: 'non-bio-round-neck', gsm: 180, sizes: ['38', '46'], colors: ['Black'], rates: [{ colors: ['Black'], pricePerSize: { '38': 91, '46': 97 }, samplePrice: 111 }] },
+  { name: 'Biowash Round Neck', slug: 'biowash-round-neck', gsm: 180, sizes: ['38', '46'], colors: ['Black'], rates: [{ colors: ['Black'], pricePerSize: { '38': 121, '46': 127 }, samplePrice: 151 }] },
+  { name: 'True Biowash Round Neck', slug: 'true-biowash-round-neck', gsm: 180, sizes: ['38', '46'], colors: ['Black'], rates: [{ colors: ['Black'], pricePerSize: { '38': 141, '46': 147 }, samplePrice: 171 }] },
+] }] }
+const mixedFitOutput = 'Regular fit (180gsm): Non-Bio ₹91, Bio ₹121, True Bio ₹141. Oversize: 210gsm ₹201. 10+ pcs bulk rates. https://sale91.com/catalog'
+for (const [name, extra, changed] of [
+  ['mixed-fit summary keeps current regular-fit ranges and its oversize tail', {}, true],
+  ['mixed-fit summary preserves a selected size', { buyerText: 'GSM rate for size 38' }, false],
+  ['mixed-fit summary preserves an owner conversation', { history: [{ deferReason: 'manual_reply', aiReply: 'Check the selected item', createdAt: new Date() }] }, false],
+  ['mixed-fit summary preserves media context', { imageUrl: 'https://media.invalid/photo' }, false],
+]) tests.push([name, async () => {
+  const r = await runCase({ buyerText: 'Dono chahiye, GSM ke according rate batao', reply: mixedFitOutput, catalogData: mixedFitCatalog, ...extra })
+  assert.deepEqual(r.errors, [])
+  assert.equal(r.sent.length, 1)
+  assert.equal(r.sent[0].message, changed ? mixedFitOutput.replace('₹91, Bio ₹121, True Bio ₹141', '₹91–₹97, Bio ₹121–₹127, True Bio ₹141–₹147') : mixedFitOutput)
+}])
 let failed = 0
 for (const [name, test] of tests) {
   try { await test(); console.log(`PASS ${name}`) }

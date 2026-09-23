@@ -2,6 +2,32 @@ const PRODUCT = /\b(true\s+)?bio(?:[ -]?wash)?(?:\s+(?:rneck|round\s*neck))?\b/g
 const SIMPLE_ASK = /^(?:(?:product|180\s*gsm|regular\s+fit|t-?shirts?|what|is|of|hi|hello|sir|bhai|please|pls|plz|share|send|tell|me|the|your|ka|ki|ke|k|kya|hai|hain|h|rate|rates|price|prices|list)\s*)+$/i
 const SELECTED = /\b(?:xxs|xs|s|m|l|xl|xxl|xxxl|36|38|40|42|44|46|black|white|navy|grey|gray|maroon|charcoal|red|brown|pink|samples?)\b|\b\d+\s*(?:pcs?|pieces?|t-?shirts?)\b/i
 
+export function mixedFitRegularPriceGuard({ products = [], buyerText, history = [], reply, imageUrl = null }) {
+  const text = String(buyerText || '')
+  const output = String(reply || '')
+  const excluded = /\d|\[[^\]]+\]|https?:\/\/|\b(?:samples?|size|colou?rs?|coupon|refund|exchange|return|complaint|payment|paid|dispatch|delivery|stock|restock|cotton|fabric|polo|hoodie|kids?|acid|bio(?:wash)?)\b/i
+  if (imageUrl || text.length > 250 || !/\b(?:rate|price)s?\b/i.test(text) || !/\bgsm\b/i.test(text) || excluded.test(text) || SELECTED.test(text)) return null
+  if (history.slice(-6).some(row => row.deferReason === 'manual_reply' || row.isMedia || excluded.test(String(row.buyerMessage || '')) || SELECTED.test(String(row.buyerMessage || '')))) return null
+  if (output.length > 700 || /\[(?:DEFER|SKIP)\]|\bsample\b/i.test(output) || !/\boversize\s*:/i.test(output) || !/\b10\s*\+\s*(?:total\s*)?(?:pcs?|pieces?)\b/i.test(output)) return null
+  const clause = /\bRegular\s+fit\s*(?:\(\s*(\d{3})\s*gsm\s*\)|(\d{3})\s*gsm)\s*:\s*(Non[ -]?Bio\s*₹\s*\d+(?:\.\d+)?\s*,\s*Bio\s*₹\s*\d+(?:\.\d+)?\s*,\s*True\s+Bio\s*₹\s*\d+(?:\.\d+)?)(?=\s*[.\n])/gi
+  const matches = [...output.matchAll(clause)]
+  if (matches.length !== 1) return null
+  const match = matches[0]
+  const slugs = ['non-bio-round-neck', 'biowash-round-neck', 'true-biowash-round-neck']
+  const options = slugs.map(slug => products.filter(p => p.slug === slug))
+  if (options.some(items => items.length !== 1)) return null
+  const selected = options.map(items => items[0])
+  if (selected.some(p => p.gsm !== Number(match[1] || match[2]) || !Array.isArray(p.bulkRange) || p.bulkRange.length !== 2 || p.bulkRange.some(n => typeof n !== 'number' || !Number.isFinite(n) || n <= 0) || p.bulkRange[0] > p.bulkRange[1])) return null
+  if (selected.some(p => (p.colors || []).some(colour => new RegExp(`\\b${String(colour).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test([text, ...history.slice(-6).map(row => row.buyerMessage || '')].join('\n'))))) return null
+  let index = 0
+  const corrected = match[0].replace(/₹\s*\d+(?:\.\d+)?/g, () => {
+    const range = selected[index++].bulkRange
+    return `₹${range[0]}${range[0] === range[1] ? '' : `–₹${range[1]}`}`
+  })
+  if (corrected === match[0]) return null
+  return output.slice(0, match.index) + corrected + output.slice(match.index + match[0].length)
+}
+
 export function regularFitRateSummaryGuard({ products = [], buyerText, history = [], reply, imageUrl = null, english = false }) {
   const text = String(buyerText || '').trim().replace(/[?!.,]+$/g, '').trim()
   const output = String(reply || '')
