@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { freezeReplayInputs, replayRequest, runReplayCase, privateDirectory, savePrivate, sha256, assertFreshReplayOutput } from './replay.mjs'
@@ -98,7 +98,13 @@ add('explicit cache accounting for Haiku retains its own rates', () => {
   assert.ok(Math.abs(c.costUsd - 0.00032) < 1e-12); assert.equal(c.rates.inputPerMTok, 1)
 })
 add('raw output cannot be saved inside a git repository', () => {
-  assert.throws(() => privateDirectory(new URL('../unsafe-replay-output', import.meta.url).pathname), /outside every git repository/)
+  const repository = join(temp, 'repository')
+  mkdirSync(join(repository, '.git'), { recursive: true })
+  assert.throws(() => privateDirectory(join(repository, 'nested', 'output')), /outside every git repository/)
+  const worktree = join(temp, 'worktree')
+  mkdirSync(worktree)
+  writeFileSync(join(worktree, '.git'), 'gitdir: ../repository/.git/worktrees/fixture\n')
+  assert.throws(() => privateDirectory(join(worktree, 'nested', 'output')), /outside every git repository/)
   const path = join(temp, 'safe', 'result.json'); savePrivate(path, { ok: true }); assert.equal(JSON.parse(readFileSync(path)).ok, true)
 })
 add('a reused output cannot silently reset prior paid or uncertain spend', () => {
