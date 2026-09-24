@@ -7,7 +7,7 @@ const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
 async function runCase({ selectedModel = 'claude-opus-5', returnedModel = null, responseStop = 'end_turn', thinkingFirst = false, responseUsage = null, firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, orderingTable = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, missingMediaUrls = [], gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [], lastOutcome = null } = {}) {
-  const sent = [], logs = [], errors = [], requests = [], rewriteRequests = [], invoiceRequests = []
+  const sent = [], logs = [], errors = [], requests = [], rewriteRequests = [], invoiceRequests = [], skipNotifications = []
   const restraintRequests = [], handled = [], embeddingSearches = []
   const timers = [], recoveryQueries = [], spendUpdates = []
   let clock = recovery?.now ?? Date.now()
@@ -23,6 +23,7 @@ async function runCase({ selectedModel = 'claude-opus-5', returnedModel = null, 
     setTimeout(fn, ms) { timers.push({ fn, ms }); if (!recovery && ms < 30000) queueMicrotask(fn); return { unref() {} } },
     clearTimeout() {},
     fetch: async (url, options) => {
+      if (String(url) === 'https://transport.invalid/api/messages/ai-reply-skipped') { skipNotifications.push(JSON.parse(options.body)); return { ok: true } }
       if (String(url) === 'https://transport.invalid/api/conversations/mark-handled') { handled.push(JSON.parse(options.body)); return { ok: true } }
       if (String(url).startsWith('https://media.invalid/')) {
         const available = mediaAvailable && !missingMediaUrls.includes(String(url))
@@ -141,7 +142,12 @@ async function runCase({ selectedModel = 'claude-opus-5', returnedModel = null, 
   } else {
     await module.namespace.runAiFlow({ whatsappNumber, mergedText: buyerText, normalizedText: buyerText, imageUrl, conversationId: 'conversation-test', db, anthropic, settings: { systemPrompt: 'test rules', deferMessage: 'Ketu will reply shortly sir' }, startTime: Date.now(), messageIds: ['inbound-test'] })
   }
-  return { sent, logs, errors, requests, rewriteRequests, invoiceRequests, restraintRequests, handled, embeddingSearches, spendUpdates, pending: module.namespace.pendingDefers, recoveryQueries, timerDelays: timers.map(t => t.ms) }
+  if (!sent.length && !module.namespace.pendingDefers.has(whatsappNumber) && !module.namespace.pendingWelcomeFollowups.has(whatsappNumber)) {
+    const last = logs.at(-1)
+    const reason = last && (last.status === 'SKIPPED' || last.deferReason === 'cooldown_ender') ? last.deferReason : null
+    await module.namespace.notifySkippedViaWwbun(whatsappNumber, { reason })
+  }
+  return { sent, logs, errors, requests, rewriteRequests, invoiceRequests, restraintRequests, handled, embeddingSearches, spendUpdates, pending: module.namespace.pendingDefers, recoveryQueries, skipNotifications, timerDelays: timers.map(t => t.ms) }
 }
 
 const blueCatalog = { categories: [{ products: [{
@@ -161,6 +167,47 @@ const pluralStockSnapshot = {
   oos: { Sweatshirt: { Navy: 'M' } }, coming: {}, fetchedAt: Date.now(),
 }
 const tests = [
+  ['silenced substantive owner follow-up keeps Waiting without sending a buyer reply', async () => {
+    const r = await runCase({ incomingText: 'True bio', gateVerdict: 'SILENT',
+      outboundHistory: [{ status: 'SKIPPED', deferReason: 'manual_reply', createdAt: new Date(Date.now() - 75 * 60000) }],
+    })
+    assert.equal(r.logs.at(-1).deferReason, 'owner_followup_silence')
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.equal(r.skipNotifications.at(-1).noReplyNeeded, false)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['owner follow-up queue guard preserves closed, stale and clone-owned conversations', async () => {
+    const manual = { status: 'SKIPPED', deferReason: 'manual_reply', createdAt: new Date(Date.now() - 75 * 60000) }
+    for (const opts of [
+      { buyerText: 'Okay', outboundHistory: [manual] },
+      { buyerText: 'Theek hai', outboundHistory: [manual] },
+      { incomingText: 'Ok sir', outboundHistory: [manual], expectedNoReplyNeeded: false },
+      { incomingText: 'True bio', outboundHistory: [{ ...manual, createdAt: new Date(Date.now() - 13 * 3600000) }] },
+      { incomingText: 'True bio', outboundHistory: [{ status: 'REPLIED', createdAt: new Date() }, manual] },
+      { incomingText: 'True bio', outboundHistory: [] },
+    ]) {
+      const r = await runCase({ ...opts, gateVerdict: 'SILENT' })
+      assert.ok(!r.logs.some(x => x.deferReason === 'owner_followup_silence'), JSON.stringify({ opts, logs: r.logs }))
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.skipNotifications.at(-1).noReplyNeeded, opts.expectedNoReplyNeeded ?? true, JSON.stringify({ opts, logs: r.logs }))
+      assert.deepEqual(r.errors, [])
+    }
+  }],
+  ['owner follow-up queue guard preserves cooldown, cap and an independent buying question', async () => {
+    const outboundHistory = [{ status: 'SKIPPED', deferReason: 'manual_reply', createdAt: new Date(Date.now() - 75 * 60000) }]
+    const cooldown = await runCase({ incomingText: 'True bio', outboundHistory, gateVerdict: 'SILENT', cooldown: true })
+    assert.equal(cooldown.logs[0].status, 'COOLDOWN')
+    assert.equal(cooldown.skipNotifications.at(-1).noReplyNeeded, false)
+    const capped = await runCase({ buyerText: 'True bio', outboundHistory, gateVerdict: 'SILENT', repliesToday: 25 })
+    assert.equal(capped.logs[0].deferReason, 'daily_reply_cap')
+    assert.equal(capped.skipNotifications.at(-1).noReplyNeeded, false)
+    const buying = await runCase({ incomingText: 'Can I order one sample?', outboundHistory, gateVerdict: 'SILENT', reply: 'Yes sir, order one sample on https://sale91.com' })
+    assert.equal(buying.requests.length, 1)
+    assert.equal(buying.sent.length, 1)
+    assert.ok(!buying.logs.some(x => x.deferReason === 'owner_followup_silence'))
+    for (const r of [cooldown, capped, buying]) assert.deepEqual(r.errors, [])
+  }],
   ['short how-to follow-up after ordering reassurance survives a silent gate', async () => {
     const r = await runCase({ incomingText: 'Ok sir kese', gateVerdict: 'SILENT',
       history: [{ status: 'REPLIED', buyerMessage: 'Can I order without GST?', aiReply: 'Haan sir, GST ke bina bhi order ho jayega, Aadhaar ki zaroorat nahi hai.', createdAt: new Date(Date.now() - 60000) }],

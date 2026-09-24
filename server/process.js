@@ -3207,8 +3207,10 @@ Answer with ONLY one word: REPLY or SILENT.` }],
       }
     }
     if (verdict.startsWith('SILENT')) {
+      const ownerFollowup = !isPureEnder(mergedText) && !isBareAck(mergedText)
+        && await ketuRepliedLast(db, conversationId)
       await createLog(db, conversationId, mergedText, messageIds, {
-        status: 'SKIPPED', deferReason: 'ai_chose_silence',
+        status: 'SKIPPED', deferReason: ownerFollowup ? 'owner_followup_silence' : 'ai_chose_silence',
         promptTokens: gate.usage?.input_tokens || 0, completionTokens: gate.usage?.output_tokens || 0,
         totalTokens: (gate.usage?.input_tokens || 0) + (gate.usage?.output_tokens || 0), costUsd: gateCost,
         processingMs: Date.now() - startTime,
