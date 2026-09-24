@@ -3226,6 +3226,25 @@ tests.push(['printer contact answer retains normal handoff and guard failure bou
   assert.equal(guard.sent.length, 0)
   assert.equal(guard.pending.size, 1)
 }])
+tests.push(['sublimation quote retains the source size band and verified sample price through actual flow', async () => {
+  const catalogData = { categories: [{ products: [{ name: 'Sublimation T-Shirt', slug: 'sublimation-t-shirt', colors: ['White'], sizes: ['36', '44'], rates: [{ colors: ['White'], pricePerSize: { 36: 131, 44: 139 }, samplePrice: 157 }] }] }] }
+  const reply = 'Polyester mein Sublimation T-shirt hai sir, sirf White — ₹131 (10+ pcs), sample ₹157 👉 https://sale91.com/catalog/p/sublimation-t-shirt'
+  const opts = { selectedModel: 'claude-opus-5-5', buyerText: 'Polyester tshirt price', reply, catalogData }
+  for (const firstContact of [false, true]) {
+    const r = await runCase({ ...opts, firstContact })
+    assert.equal(r.sent[0]?.message, reply.replace('₹131', '₹131–₹139 (size ke hisaab se)'))
+    assert.deepEqual(r.errors, [])
+  }
+  for (const extra of [{ buyerText: 'Polyester size 44 price' }, { buyerText: 'Polyester sample price' }, { imageUrl: 'https://media.invalid/product.jpg' }]) {
+    const r = await runCase({ ...opts, ...extra })
+    assert.equal(r.sent[0]?.message, reply)
+    assert.deepEqual(r.errors, [])
+  }
+  for (const extra of [{ reply: '[DEFER]' }, { cooldown: true }, { guardThrows: true }]) {
+    const r = await runCase({ ...opts, ...extra })
+    assert.equal(r.sent.length, 0)
+  }
+}])
 let failed = 0
 for (const [name, test] of tests) {
   try { await test(); console.log(`PASS ${name}`) }
