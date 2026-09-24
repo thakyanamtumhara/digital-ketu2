@@ -3,6 +3,13 @@ import { deliveryDaysGuard, hasInventedDays, DELIVERY_CANONICAL, bigBuyerDiscoun
 let pass = 0, total = 0
 const t = (name, got, want) => { total++; const ok = got === want; if (ok) pass++; console.log(`${ok ? '✅' : '❌'} ${name.padEnd(64)} got=${JSON.stringify(got).slice(0, 40)} want=${JSON.stringify(want).slice(0, 40)}`) }
 // delivery
+t('Bio neck size arrival preserves its stock answer', deliveryDaysGuard({ buyerText: 'Maroon Bio Neck sizes kab tak aayengi?', reply: 'Maroon 42 ~6 din mein aa jayega sir' }), null)
+t('True Bio stock arrival without a neck suffix stays outside courier guard', deliveryDaysGuard({ buyerText: 'True Bio Maroon kab aayega?', reply: 'Maroon ~6 din mein aa jayega sir' }), null)
+t('True Bio round neck arrival preserves stock timing', deliveryDaysGuard({ buyerText: 'True Bio Round Neck sizes kab tak aayengi?', reply: '42 ~6 din mein aa jayega sir' }), null)
+t('True Bio explicit courier timing remains guarded', deliveryDaysGuard({ buyerText: 'True Bio Neck courier se kitne din mein milega?', reply: '6 din mein mil jayega sir' }), DELIVERY_CANONICAL)
+t('True Bio existing order timing remains guarded', deliveryDaysGuard({ buyerText: 'Mera True Bio Neck order kab aayega?', reply: '6 din mein mil jayega sir' }), DELIVERY_CANONICAL)
+t('Biography does not become a garment stock request', deliveryDaysGuard({ buyerText: 'Biography courier se kitne din mein milegi?', reply: '6 din mein mil jayega sir' }), DELIVERY_CANONICAL)
+t('True Bio handoff stays outside repair', deliveryDaysGuard({ buyerText: 'True Bio Neck kab aayega?', reply: '[DEFER]' }), null)
 t('Hindi courier duration cannot borrow another city estimate', deliveryDaysGuard({ buyerText: 'मैं जयपुर से हूँ। आप डिलिवर में मैक्सिमम टाम कितना लगाओगे?', reply: '4-5 din mein mil jaata hai sir' }), DELIVERY_CANONICAL)
 t('Hindi delivery spelling and Hindi numeric days', deliveryDaysGuard({ buyerText: 'डिलीवरी में कितना समय लगता है?', reply: '४ से ५ दिन में मिल जाएगा' }), DELIVERY_CANONICAL)
 t('Hindi sanctioned numeric estimate remains', deliveryDaysGuard({ buyerText: 'कोरियर में कितने दिन लगते हैं?', reply: '२-३ दिन में मिल जाता है, सही तारीख checkout पर है' }), null)

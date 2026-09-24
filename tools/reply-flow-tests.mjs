@@ -1708,6 +1708,22 @@ const tests = [
     assert.equal(r.sent[0].message, reply)
     assert.deepEqual(r.errors, [])
   }],
+  ['Bio neck restock survives postguards with the selected adaptive model', async () => {
+    const reply = 'Maroon Bio Neck 42 ~6 din mein aa jayega sir'
+    const r = await runCase({ selectedModel: 'claude-opus-5-5', buyerText: 'Maroon Bio Neck sizes kab tak aayengi?', reply })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.equal(r.sent[0].message, reply)
+    assert.deepEqual(r.errors, [])
+  }],
+  ['Bio neck explicit courier timing still gets the sanctioned estimate', async () => {
+    const r = await runCase({ selectedModel: 'claude-opus-5-5', buyerText: 'Bio Neck courier se kitne din mein milega?', reply: '6 din mein mil jayega sir' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /Usually 2-3 din/)
+    assert.match(r.sent[0].message, /ETD/)
+    assert.deepEqual(r.errors, [])
+  }],
   ['explicit product courier answer still gets corrected in the send flow', async () => {
     const r = await runCase({ buyerText: '210gsm S courier se kab tak aayega?', reply: '5 din mein mil jayega sir' })
     assert.equal(r.requests.length, 1)
