@@ -3110,6 +3110,43 @@ tests.push(['restock duration preserves missing-stock handoff, cap and owner coo
   const capped = await runCase({ buyerText: 'please tell me the duration', history: restockDurationHistory(), repliesToday: 25 })
   assert.equal(capped.logs[0].deferReason, 'daily_reply_cap')
 }])
+const printerContactHistory = () => [{ buyerMessage: 'Printing service', aiReply: 'For printing, contact the printer https://wa.me/910000000000', status: 'REPLIED', createdAt: new Date(Date.now() - 60000) }]
+tests.push(['printer contact identity question survives a silent gate', async () => {
+  const r = await runCase({ incomingText: 'wo number kiska hai', history: printerContactHistory(), gateVerdict: 'SILENT', reply: 'Printer ka number hai sir.' })
+  assert.equal(r.requests.length, 1)
+  assert.equal(r.sent[0]?.message, 'Printer ka number hai sir.')
+  assert.equal(r.logs.at(-1).sentViaWwbun, true)
+  assert.deepEqual(r.errors, [])
+}])
+tests.push(['printer contact acknowledgement and unrelated context stay silent', async () => {
+  for (const [text, history] of [['Theek hai unse baat kar lunga', printerContactHistory()], ['wo number kiska hai', []], ['wo number kiska hai', [{ ...printerContactHistory()[0], aiReply: 'Contact the courier https://wa.me/910000000000' }]]]) {
+    const r = await runCase({ incomingText: text, history, gateVerdict: 'SILENT' })
+    assert.equal(r.requests.length, 0)
+    assert.equal(r.sent.length, 0)
+    assert.deepEqual(r.errors, [])
+  }
+}])
+tests.push(['printer contact question preserves cooldown, cap and owner control', async () => {
+  const opts = { incomingText: 'wo number kiska hai', history: printerContactHistory(), gateVerdict: 'SILENT' }
+  const cooldown = await runCase({ ...opts, cooldown: true })
+  assert.equal(cooldown.requests.length, 0)
+  assert.equal(cooldown.sent.length, 0)
+  assert.equal(cooldown.logs[0].status, 'COOLDOWN')
+  const capped = await runCase({ ...opts, repliesToday: 25 })
+  assert.equal(capped.logs.at(-1).deferReason, 'daily_reply_cap')
+  const owned = await runCase({ ...opts, lastOutcome: { deferReason: 'manual_reply', aiReply: 'I will check this myself.', createdAt: new Date() } })
+  assert.equal(owned.requests.length, 0)
+  assert.equal(owned.sent.length, 0)
+}])
+tests.push(['printer contact answer retains normal handoff and guard failure boundaries', async () => {
+  const opts = { incomingText: 'wo number kiska hai', history: printerContactHistory(), gateVerdict: 'SILENT' }
+  const handoff = await runCase({ ...opts, reply: '[DEFER]' })
+  assert.equal(handoff.sent.length, 0)
+  assert.equal(handoff.pending.size, 1)
+  const guard = await runCase({ ...opts, guardThrows: true, reply: 'Printer ka number hai sir.' })
+  assert.equal(guard.sent.length, 0)
+  assert.equal(guard.pending.size, 1)
+}])
 let failed = 0
 for (const [name, test] of tests) {
   try { await test(); console.log(`PASS ${name}`) }

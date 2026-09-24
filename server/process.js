@@ -33,7 +33,7 @@ import { customLabelReferralGuard } from './custom-label-referral.js'
 import { billRetrievalGuard, billLoginIdentityGuard } from './bill-retrieval.js'
 import { purchaseMinimumGuard } from './purchase-minimum.js'
 import { isGameEarningsFollowup } from './game-followup.js'
-import { isPrinterFulfilmentFollowup } from './printer-followup.js'
+import { isPrinterFulfilmentFollowup, isPrinterContactFollowup } from './printer-followup.js'
 import { isOrderHowFollowup } from './order-how-followup.js'
 import { isRecipientReceiptQuestion } from './receipt-question.js'
 import { isNearestMetroQuestion } from './metro-question.js'
@@ -3141,6 +3141,12 @@ Answer with ONLY one word: REPLY or SILENT.` }],
         && !(await ketuRepliedLast(db, conversationId))) {
       verdict = 'REPLY'
       console.log(`[Restraint] ${whatsappNumber} — printer fulfilment follow-up remains answerable`)
+    }
+    if (verdict.startsWith('SILENT') && !imageBlock && !imageUrl && !imageMessages.length
+        && isPrinterContactFollowup(mergedText, recentForGate)
+        && !(await ketuRepliedLast(db, conversationId))) {
+      verdict = 'REPLY'
+      console.log(`[Restraint] ${whatsappNumber} — printer contact question remains answerable`)
     }
     if (verdict.startsWith('SILENT') && !imageBlock && !imageUrl && !imageMessages.length
         && isOrderHowFollowup(mergedText, recentForGate)

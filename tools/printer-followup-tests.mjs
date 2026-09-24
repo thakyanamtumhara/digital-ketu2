@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { isPrinterFulfilmentFollowup } from '../server/printer-followup.js'
+import { isPrinterFulfilmentFollowup, isPrinterContactFollowup } from '../server/printer-followup.js'
 
 const now = Date.parse('2026-01-01T12:00:00Z')
 const recent = [{ aiReply: 'For printing, contact the printer https://wa.me/910000000000', createdAt: new Date(now - 60000) }]
@@ -23,3 +23,23 @@ const cases = [
 ]
 for (const [name, text, history, expected] of cases) assert.equal(isPrinterFulfilmentFollowup(text, history, now), expected, name)
 console.log(`${cases.length} printer follow-up checks passed`)
+
+const contactCases = [
+  ['Hindi referral question', 'wo number kiska hai', recent, true],
+  ['compact referral question', 'ye kiska no hai', recent, true],
+  ['English referral question', 'Whose number is this?', recent, true],
+  ['Hindi script referral question', 'यह नंबर किसका है?', recent, true],
+  ['acknowledgement', 'Theek hai unse baat kar lunga', recent, false],
+  ['statement', 'Ye printer ka number hai', recent, false],
+  ['mixed complaint', 'ye number kiska hai payment nahi mila', recent, false],
+  ['no context', 'wo number kiska hai', [], false],
+  ['missing time', 'wo number kiska hai', [{ aiReply: recent[0].aiReply }], false],
+  ['future context', 'wo number kiska hai', [{ ...recent[0], createdAt: new Date(now + 1) }], false],
+  ['stale context', 'wo number kiska hai', [{ ...recent[0], createdAt: new Date(now - 7200001) }], false],
+  ['different latest answer', 'wo number kiska hai', [{ ...recent[0], aiReply: 'Order online sir.' }, ...recent], false],
+  ['courier contact', 'wo number kiska hai', [{ ...recent[0], aiReply: 'Contact the courier https://wa.me/910000000000' }], false],
+  ['multiple contacts', 'wo number kiska hai', [{ ...recent[0], aiReply: recent[0].aiReply + ' https://wa.me/910000000001' }], false],
+  ['pending handoff', 'wo number kiska hai', [{ ...recent[0], aiReply: recent[0].aiReply + ' [DEFER]' }], false],
+]
+for (const [name, text, history, expected] of contactCases) assert.equal(isPrinterContactFollowup(text, history, now), expected, name)
+console.log(`${contactCases.length} printer contact checks passed`)
