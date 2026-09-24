@@ -1,6 +1,13 @@
 const BUYER_INTENT = /[?？؟]|\d+\s*(?:gsm|pcs?|pieces?)\b|\b(?:prices?|rates?|gsm|chahiye|chaiye|orders?|stock|sizes?|colou?rs?|samples?|bulk|hai|milega|kitna|kitne|send|bhej|buy|buying|purchase|need|want|require|interested|enquiry|inquiry|refund|return|complaint|payment|paid|invoice|delivery|dispatch|tracking|partnership|supplier|manufactur(?:e|er|ing)|black|white|navy|maroon|xxl|xl)\b|चाहिए|मिलेगा|कितन|कीमत|भेज|ऑर्डर/i
 const APPAREL = /\b(?:t[ -]?shirts?|tees?|hoodies?|polos?|uniforms?|sports\s*wear|festival\s*(?:and|&)\s*event\s*wear|custom\s*(?:clothing|designs?|prints?))\b/i
 
+export function isGujaratiStoreGreeting(text, messages = []) {
+  if (!messages.length || messages.some(m => m?.messageType !== 'text' || m.hasMedia || m.mediaUrl)) return false
+  const value = String(text || '').trim()
+  if (value.length > 1100) return false
+  return /^[\p{Script=Gujarati} ]{1,50} એમ્બરોડરી 🦅\s*-\s*[\p{Script=Gujarati} ]{1,40}, ગુજરાત\s+👉 ઝડપ થી ઓડર કરવા માટે ઓફિસ નંબર પર કોન્ટેક કરો [0-9 ]{10,16}\s+👉તમારે જે શર્ટ કે ટીશર્ટ લેવું હોઈ એનો ફોટો નાખો\s+👉શર્ટ ના ફોટા જોવા ઇન્સ્ટા એકાઉન્ટ ફોલો કરો 👇👇\s+शर्ट ओर टीशर्ट के फोटो देखने के लिए हमारा पेज फॉलो करें 👇👇\s+https:\/\/www\.instagram\.com\/[a-zA-Z0-9_.]{1,80}\/?(?:\?igsh=[a-zA-Z0-9_=-]{1,100})?\s+👉100% એડવાન્સ પેમેન્ટ કરવું પડશે, આપડે ફ્રોડ નથી કરતા,\s+👉 આપડી શોપ નું લોકેશન રૂબરૂ પણ આવી શકો 👇https:\/\/maps\.app\.goo\.gl\/[a-zA-Z0-9]{1,80}$/u.test(value)
+}
+
 export function isPrintCatalogueGreeting(text, messages = []) {
   if (!messages.length || messages.some(m => m?.messageType !== 'text' || m.hasMedia || m.mediaUrl)) return false
   const value = String(text || '').trim().replace(/[’‘]/g, "'")

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting, isProjectServiceGreeting, isSocialLinksGreeting, isPrintCatalogueGreeting } from '../server/store-greeting.js'
+import { gujaratiStoreGreeting } from './cases/gujarati-store-fixture.mjs'
+import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting, isProjectServiceGreeting, isSocialLinksGreeting, isPrintCatalogueGreeting, isGujaratiStoreGreeting } from '../server/store-greeting.js'
 
 const menu = '👋 Welcome to Example Clothing!\n👕 T-Shirts and custom prints\n🧥 Hoodies\n🏫 School Uniforms\n🎉 Festival & Event Wear\nBrowse our catalog and message us your requirements.\nExample Clothing — wear your style!'
 const messages = [{ messageType: 'text' }]
@@ -90,4 +91,17 @@ printCatalogueEq(printCatalogue, false, [])
 for (const messageType of ['image', 'document', 'audio', 'video', 'reaction']) printCatalogueEq(printCatalogue, false, [...messages, { messageType }])
 printCatalogueEq(printCatalogue, false, [{ messageType: 'text', hasMedia: true }])
 printCatalogueEq(printCatalogue, false, [{ messageType: 'text', mediaUrl: 'https://media.invalid/file' }])
+function gujaratiEq(text, expected, items = messages) { assert.equal(isGujaratiStoreGreeting(text, items), expected, text); checks++ }
+gujaratiEq(gujaratiStoreGreeting, true)
+gujaratiEq(gujaratiStoreGreeting.replaceAll('\n', '\r\n'), true)
+gujaratiEq(gujaratiStoreGreeting.replace('?igsh=example', ''), true)
+for (const ask of ['Can I order a sample?', 'I need 10 plain tees', 'price', '240gsm', 'Black M', 'refund', 'મને ટીશર્ટ જોઈએ', 'મારો ઓર્ડર', 'मुझे चाहिए', '?', '？', '؟']) {
+  gujaratiEq(gujaratiStoreGreeting + '\n' + ask, false)
+  gujaratiEq(ask + '\n' + gujaratiStoreGreeting, false)
+}
+for (const value of ['>' + gujaratiStoreGreeting, '"' + gujaratiStoreGreeting + '"', gujaratiStoreGreeting.repeat(2), gujaratiStoreGreeting.replace('એડવાન્સ પેમેન્ટ', 'મારો ઓર્ડર'), gujaratiStoreGreeting.replace('ગુજરાત', 'ગુજરાત જોઈએ'), gujaratiStoreGreeting.replace('instagram.com/', 'instagram.com.example.net/'), gujaratiStoreGreeting.replace('igsh=example', 'igsh=example&question=sample'), gujaratiStoreGreeting.replace('maps.app.goo.gl/', 'sale91.com/'), gujaratiStoreGreeting.replace('ફોટો નાખો', 'ભાવ બતાવો')]) gujaratiEq(value, false)
+gujaratiEq(gujaratiStoreGreeting, false, [])
+for (const messageType of ['image', 'document', 'audio', 'video', 'reaction', 'system']) gujaratiEq(gujaratiStoreGreeting, false, [...messages, { messageType }])
+gujaratiEq(gujaratiStoreGreeting, false, [{ messageType: 'text', hasMedia: true }])
+gujaratiEq(gujaratiStoreGreeting, false, [{ messageType: 'text', mediaUrl: 'https://media.invalid/file' }])
 console.log(`${checks} store-greeting checks passed`)

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { usdToInrRate } from '../shared/cost.mjs'
 
 const API = '/api'
-const APP_VERSION = '2026.09.24.2'
+const APP_VERSION = '2026.09.24.3'
 
 function App() {
   const [tab, setTab] = useState('live')
