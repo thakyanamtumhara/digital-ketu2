@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { formatBuyerProfileBlock, formatOrderLookupBlock } from '../server/order-lookup.js'
 import { gujaratiStoreGreeting } from './cases/gujarati-store-fixture.mjs'
 import { readFile } from 'node:fs/promises'
 import { SourceTextModule, SyntheticModule, createContext } from 'node:vm'
@@ -7,7 +8,7 @@ import { resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE, forma
 const processUrl = new URL('../server/process.js', import.meta.url)
 const source = await readFile(processUrl, 'utf8')
 
-async function runCase({ selectedModel = 'claude-opus-5', returnedModel = null, responseStop = 'end_turn', thinkingFirst = false, responseUsage = null, firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, orderingTable = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, missingMediaUrls = [], gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [], lastOutcome = null } = {}) {
+async function runCase({ buyerProfile = null, orderResults = [], selectedModel = 'claude-opus-5', returnedModel = null, responseStop = 'end_turn', thinkingFirst = false, responseUsage = null, firstContact = false, whatsappNumber = 'buyer-test', reply = 'Address sir: Khanpur.', failCalls = 0, guardThrows = false, cooldown = false, history = [], guardHistory = null, timedFacts = [], stockSnapshot = null, stockThrows = false, realStockResolver = false, incomingText = null, incomingMessages = null, invoiceKind = 'FRESH', active = true, catalogUnavailable = false, catalogData = null, orderingTable = null, knowledge = [], recovery = null, buyerText = 'address kya hai', rewriteReply = null, rewriteThrows = false, preferredLanguage = null, imageUrl = null, mediaAvailable = true, missingMediaUrls = [], gateVerdict = 'ASSISTANT', repliesToday = 0, keywordFilters = [], outboundHistory = [], lastOutcome = null } = {}) {
   const sent = [], logs = [], errors = [], requests = [], rewriteRequests = [], invoiceRequests = [], skipNotifications = []
   const restraintRequests = [], handled = [], embeddingSearches = []
   const timers = [], recoveryQueries = [], spendUpdates = []
@@ -53,7 +54,7 @@ async function runCase({ selectedModel = 'claude-opus-5', returnedModel = null, 
     './embeddings.js': { vectorSearch: async (_db, _ai, text, opts) => { embeddingSearches.push({ text, cache: opts.embeddingCache, sources: opts.sources }); return opts.sources?.includes('STYLE_PAIR') ? [] : knowledge } },
     './transcribe.js': { transcribeAudio() {}, isTranscriptionConfigured: () => false, getTranscriptionProvider() {} },
     './ig-gate.js': { evaluateIgGate() {} },
-    './order-lookup.js': { lookupOrdersByPhone: async () => [], formatOrderLookupBlock: () => '', getBuyerProfile: async () => null, formatBuyerProfileBlock: () => '' },
+    './order-lookup.js': { lookupOrdersByPhone: async () => orderResults, formatOrderLookupBlock: orders => orders.length ? formatOrderLookupBlock(orders) : '', getBuyerProfile: async () => buyerProfile, formatBuyerProfileBlock },
     './stock-lookup.js': { getStockSnapshot: async () => { if (stockThrows) throw Error('stock unavailable'); return stockSnapshot || {} }, formatStockBlock: snapshot => stockSnapshot ? formatStockBlock(snapshot, { timedFacts }) : '', resolveUnnamedProduct: realStockResolver ? resolveUnnamedProduct : () => '', unnamedProductCandidates: realStockResolver ? unnamedProductCandidates : () => [], unnamedProductGuard: realStockResolver ? unnamedProductGuard : () => null, resolveTimedFactProduct, detectColoursAndSizes, PRODUCT_NAMED_RE },
     './photo-links.js': { getPhotoIndex: async () => [], formatPhotoBlock: () => '', PHOTO_INTENT_RE: /a^/ },
     './openai-fallback.js': { openaiReply() { throw Error('unexpected fallback') }, isOpenAiFallbackConfigured: () => false },
@@ -3298,6 +3299,22 @@ tests.push(['sublimation quote retains the source size band and verified sample 
     const r = await runCase({ ...opts, ...extra })
     assert.equal(r.sent.length, 0)
   }
+}])
+tests.push(['unknown booking evidence reaches the real model request without a negative status claim', async () => {
+  const r = await runCase({ selectedModel: 'claude-opus-5-5', buyerText: 'Can you confirm the porter link? Order number TEST-42', buyerProfile: { count: 1, lastDate: '2026-09-26', lastDays: 0, lastAwb: null }, reply: 'Tracking/porter link requests need Ketu.\n\n[DEFER]' })
+  const input = JSON.stringify(r.requests[0].messages)
+  assert.match(input, /status UNKNOWN/)
+  assert.doesNotMatch(input, /NOT yet courier-booked/)
+  assert.equal(r.sent.length, 0)
+  assert.ok(r.pending.size > 0)
+  assert.deepEqual(r.errors, [])
+}])
+tests.push(['verified tracking remains available through the real reply path', async () => {
+  const link = 'https://trq.pages.dev/?a1234567890'
+  const r = await runCase({ selectedModel: 'claude-opus-5-5', buyerText: 'Please share tracking for my order', orderResults: [{ shortId: 'TEST-41', awb: 'a1234567890', courier: 'Courier', trackUrl: link }], reply: 'Here is your tracking link sir: ' + link })
+  assert.match(JSON.stringify(r.requests[0].messages), /booked, AWB a1234567890/)
+  assert.ok(r.sent[0].message.includes(link))
+  assert.deepEqual(r.errors, [])
 }])
 let failed = 0
 for (const [name, test] of tests) {

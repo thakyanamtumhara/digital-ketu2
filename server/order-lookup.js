@@ -177,7 +177,7 @@ export function formatBuyerProfileBlock(p) {
     bits.push(lastBit)
   }
   if (p.lastAwb) bits.push(`newest order BOOKED, tracking: ${p.lastTrackUrl}`)
-  else if (p.lastDays !== null && p.lastDays <= 3) bits.push('newest order NOT yet courier-booked')
+  else if (p.lastDays !== null && p.lastDays <= 3) bits.push('no verified courier AWB found for the newest order; booking and dispatch status UNKNOWN, including Porter/bike/transport — do not infer that a booking or tracking link does not exist')
   return `👤 BUYER PROFILE (live order system, this buyer's own number — TRUSTED background): ${bits.join('; ')}.
 HOW TO USE: background context ONLY — makes you sound like you KNOW this buyer (returning buyer ≠ stranger; you may naturally reference their last product when relevant, e.g. "pichhli baar wala 240gsm?"). Do NOT recite this data unprompted, do NOT greet with their order history, NEVER mention a "system/profile/lookup", and complaints/modifications still [DEFER] as usual. Ketu's own thread messages always win.`
 }
@@ -190,8 +190,8 @@ export function formatOrderLookupBlock(orders) {
   }
   const lines = orders.map(o => o.awb
     ? `- Order ${o.shortId} (${o.date || 'date n/a'}): booked, AWB ${o.awb} via ${o.courier} — tracking link: ${o.trackUrl}`
-    : `- Order ${o.shortId} (${o.date || 'date n/a'}): NOT yet booked with a courier (no AWB yet)`)
+    : `- Order ${o.shortId} (${o.date || 'date n/a'}): no verified courier AWB found; booking and dispatch status UNKNOWN, including Porter/bike/transport`)
   return `📦 ORDER LOOKUP RESULT (live order system, searched by THIS buyer's own WhatsApp number — TRUSTED FACTS, use them):
 ${lines.join('\n')}
-HOW TO USE: if the buyer is asking where THEIR order is / tracking / "dispatched?" / status — answer from the data above the way Ketu does: one short line + the tracking link, e.g. "Ye raha tracking link sir 👉 [trackUrl]" (use the NEWEST relevant order). If the relevant order shows NOT yet booked, or the buyer is COMPLAINING (late / lost / damaged / "X din ho gaye" / missing pieces), or their question doesn't match these orders → [DEFER] as usual. NEVER invent a status, date, or courier beyond what is shown here.`
+HOW TO USE: if the buyer is asking where THEIR order is / tracking / "dispatched?" / status — answer from the data above the way Ketu does: one short line + the tracking link, e.g. "Ye raha tracking link sir 👉 [trackUrl]" (use the NEWEST relevant order). If the relevant order has no verified tracking record, or the buyer is COMPLAINING (late / lost / damaged / "X din ho gaye" / missing pieces), or their question doesn't match these orders → [DEFER] as usual. Missing courier AWB data does NOT prove that a booking or tracking link does not exist. NEVER invent a status, date, or courier beyond what is shown here.`
 }
