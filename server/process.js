@@ -35,7 +35,7 @@ import { billRetrievalGuard, billLoginIdentityGuard } from './bill-retrieval.js'
 import { purchaseMinimumGuard } from './purchase-minimum.js'
 import { isGameEarningsFollowup } from './game-followup.js'
 import { isPrinterFulfilmentFollowup, isPrinterContactFollowup } from './printer-followup.js'
-import { isOrderHowFollowup } from './order-how-followup.js'
+import { isOrderHowFollowup, isOrderLinkFollowup } from './order-how-followup.js'
 import { isRecipientReceiptQuestion } from './receipt-question.js'
 import { isNearestMetroQuestion } from './metro-question.js'
 import { getPhotoIndex, formatPhotoBlock, PHOTO_INTENT_RE } from './photo-links.js'
@@ -2641,7 +2641,7 @@ export async function processIncomingMessage({ whatsappNumber, messages, db, ant
   }
 
   // --- Run AI flow (vector search → Claude → reply) ---
-  await runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId: conversation.id, normalizedText, db, anthropic, settings, startTime, messageIds, imageUrl: productImageUrl, imageMessages: messages.filter(message => message.messageType === 'image') })
+  await runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId: conversation.id, normalizedText, db, anthropic, settings, startTime, messageIds, imageUrl: productImageUrl, imageMessages: messages.filter(message => message.messageType === 'image'), textOnlyInput: messages.every(message => message.messageType === 'text' && !message.mediaUrl) })
 
   } finally {
     // If there's a pending defer with no active timer (paused by new message arrival),
@@ -3008,7 +3008,7 @@ export function winterStockLine(now = new Date()) {
   return 'Winter stock September ke baad aayega sir 🙏'
 }
 
-async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId, normalizedText, db, anthropic, settings, startTime, messageIds, imageUrl = null, imageMessages = [] }) {
+async function runAiFlow({ whatsappNumber, mergedText, quotedText, conversationId, normalizedText, db, anthropic, settings, startTime, messageIds, imageUrl = null, imageMessages = [], textOnlyInput = false }) {
   const isInstagram = String(whatsappNumber || '').startsWith('ig:')
   // --- Product-photo vision: load the image so Claude can SEE it (null if none/failed/unsupported) ---
   const imageBlock = imageUrl ? await fetchImageBlock(imageUrl) : null
@@ -3150,10 +3150,10 @@ Answer with ONLY one word: REPLY or SILENT.` }],
       console.log(`[Restraint] ${whatsappNumber} — printer contact question remains answerable`)
     }
     if (verdict.startsWith('SILENT') && !imageBlock && !imageUrl && !imageMessages.length
-        && isOrderHowFollowup(mergedText, recentForGate)
+        && (isOrderHowFollowup(mergedText, recentForGate) || (textOnlyInput && !quotedText && isOrderLinkFollowup(mergedText, recentForGate)))
         && !(await ketuRepliedLast(db, conversationId))) {
       verdict = 'REPLY'
-      console.log(`[Restraint] ${whatsappNumber} — order how-to follow-up remains answerable`)
+      console.log(`[Restraint] ${whatsappNumber} — ordering follow-up remains answerable`)
     }
     // DETERMINISTIC BACKSTOP (audit 2026-08-07): the gate is a judgment call and it silenced 45
     // answerable messages in 6 days — questions ("Kya price hoga?"), price echoes ("50 - 90 rs"),

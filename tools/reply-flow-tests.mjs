@@ -250,6 +250,44 @@ const tests = [
       assert.equal(r.handled.length, 0)
     }
   }],
+  ['ordering link request survives silence without replying to a plain purchase acknowledgement', async () => {
+    const history = [{ status: 'REPLIED', buyerMessage: 'Shipping charges?', aiReply: 'Calculate here https://www.bulkplaintshirt.com/calculation.html', createdAt: new Date(Date.now() - 60000) }]
+    const r = await runCase({ incomingText: 'Yes I will order. Send me the link please', history, gateVerdict: 'SILENT', selectedModel: 'claude-opus-5-5', reply: 'Order on https://sale91.com sir.' })
+    assert.equal(r.requests.length, 1)
+    assert.equal(r.sent.length, 1)
+    assert.match(r.sent[0].message, /sale91\.com/)
+    assert.ok(!r.logs.some(x => x.deferReason === 'ai_chose_silence'))
+    assert.deepEqual(r.errors, [])
+    const ack = await runCase({ incomingText: 'Yes I will order', history, gateVerdict: 'SILENT' })
+    assert.equal(ack.requests.length, 0)
+    assert.equal(ack.sent.length, 0)
+  }],
+  ['ordering link request preserves owner work, cooldown, caps, media and model handoffs', async () => {
+    const history = [{ status: 'REPLIED', buyerMessage: 'Shipping charges?', aiReply: 'Calculate here https://www.bulkplaintshirt.com/calculation.html', createdAt: new Date(Date.now() - 60000) }]
+    const incomingText = 'I want to order, please share the website link'
+    for (const opts of [
+      { cooldown: true },
+      { active: false },
+      { outboundHistory: [{ status: 'SKIPPED', deferReason: 'manual_reply', createdAt: new Date() }] },
+      { history: [{ ...history[0], createdAt: new Date(Date.now() - 3 * 3600000) }] },
+      { history: [{ ...history[0], aiReply: 'Ketu will reply shortly sir.' }] },
+    ]) {
+      const r = await runCase({ incomingText, history, gateVerdict: 'SILENT', ...opts })
+      assert.equal(r.requests.length, 0)
+      assert.equal(r.sent.length, 0)
+      assert.deepEqual(r.errors, [])
+    }
+    const capped = await runCase({ buyerText: incomingText, history, gateVerdict: 'SILENT', repliesToday: 25 })
+    assert.equal(capped.logs[0].deferReason, 'daily_reply_cap')
+    const media = await runCase({ incomingMessages: [{ messageId: 'video-test', messageType: 'video', mediaUrl: 'https://media.invalid/clip', messageText: incomingText }], history, gateVerdict: 'SILENT' })
+    assert.equal(media.requests.length, 0)
+    for (const opts of [{ reply: '[DEFER]' }, { reply: 'Order online sir.', guardThrows: true }]) {
+      const r = await runCase({ incomingText, history, gateVerdict: 'SILENT', ...opts })
+      assert.equal(r.requests.length, 1)
+      assert.equal(r.sent.length, 0)
+      assert.equal(r.pending.size, 1)
+    }
+  }],
   ['Opus 5.5 mixed hoodie quote includes XXL scope while the complaint remains held', async () => {
     const r = await runCase({ selectedModel: 'claude-opus-5-5', thinkingFirst: true,
       buyerText: 'Not received yet. Please share hoodie price and photos.',
