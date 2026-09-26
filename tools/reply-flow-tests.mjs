@@ -3316,6 +3316,26 @@ tests.push(['verified tracking remains available through the real reply path', a
   assert.ok(r.sent[0].message.includes(link))
   assert.deepEqual(r.errors, [])
 }])
+tests.push(['current biowash rate keeps its size range without changing nearby routing', async () => {
+  const catalogData = { categories: [{ products: [{ name: 'True Biowash Round Neck', slug: 'true-biowash-round-neck', gsm: 180, colors: ['Black', 'White'], sizes: ['36', '44'], rates: [{ colors: ['Black', 'White'], pricePerSize: { 36: 131, 44: 141 }, samplePrice: 157 }] }] }] }
+  const reply = 'Abhi ka rate True Bio Round Neck ₹131/pc hai sir (10+ pcs), catalog mein latest rates hain 👉 https://sale91.com/catalog/p/true-biowash-round-neck'
+  const opts = { selectedModel: 'claude-opus-5-5', buyerText: 'Tshirt ka rate badh gaya hai?', reply, catalogData }
+  for (const firstContact of [false, true]) {
+    const r = await runCase({ ...opts, firstContact })
+    assert.equal(r.sent[0]?.message, reply.replace('₹131', '₹131–₹141').replace('10+ pcs', '10+ total pcs, colour/size ke hisaab se'))
+    assert.deepEqual(r.errors, [])
+  }
+  for (const extra of [{ buyerText: 'True Bio 44 price' }, { buyerText: 'True Bio sample price' }, { imageUrl: 'https://media.invalid/product.jpg' }, { history: [{ buyerMessage: '44 please', status: 'REPLIED', aiReply: 'Size 44 sir', createdAt: new Date() }] }]) {
+    const r = await runCase({ ...opts, ...extra })
+    assert.equal(r.sent[0]?.message, reply)
+    assert.deepEqual(r.errors, [])
+  }
+  for (const extra of [{ reply: '[DEFER]' }, { cooldown: true }, { guardThrows: true }, { repliesToday: 10000 }]) {
+    const r = await runCase({ ...opts, ...extra })
+    assert.ok(!r.sent.some(x => x.message.includes('₹131–₹141')))
+    if (!extra.repliesToday) assert.equal(r.sent.length, 0)
+  }
+}])
 let failed = 0
 for (const [name, test] of tests) {
   try { await test(); console.log(`PASS ${name}`) }

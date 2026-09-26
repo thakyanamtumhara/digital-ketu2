@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { biowashRateSummaryGuard, regularFitRateSummaryGuard } from '../server/biowash-price.js'
+import { biowashRateSummaryGuard, regularFitRateSummaryGuard, currentBiowashQuoteGuard } from '../server/biowash-price.js'
 
 const products = [
   { slug: 'biowash-round-neck', gsm: 180, bulkRange: [111, 121], sampleRange: [151, 151] },
@@ -49,4 +49,23 @@ eq(regularFitRateSummaryGuard({ ...regular, history: [{ deferReason: 'manual_rep
 eq(regularFitRateSummaryGuard({ ...regular, imageUrl: 'https://media.invalid/photo.jpg' }), null)
 for (const change of [{ gsm: 200 }, { fit: 'oversize' }, { bulkRange: [0, 121] }, { bulkRange: [121, 111] }, { bulkRange: [111, NaN] }, { bulkRange: ['111', 121] }, { bulkRange: null }]) eq(regularFitRateSummaryGuard({ ...regular, products: [regular.products[0], { ...regular.products[1], ...change }] }), null)
 for (const data of [[], [regular.products[0]], [...regular.products, regular.products[0]]]) eq(regularFitRateSummaryGuard({ ...regular, products: data }), null)
+const current = {
+  products: [{ slug: 'true-biowash-round-neck', colors: ['Black', 'White'], sizes: ['36', '44'], rates: [{ colors: ['Black', 'White'], pricePerSize: { 36: 131, 44: 141 } }] }],
+  buyerText: 'Tshirt ka rate badh gaya hai?',
+  reply: 'Abhi ka rate True Bio Round Neck ₹131/pc hai sir (10+ pcs), catalog mein latest rates hain 👉 https://sale91.com/catalog/p/true-biowash-round-neck',
+  now: Date.parse('2026-09-26T15:00:00Z'),
+}
+const fixedCurrent = current.reply.replace('₹131', '₹131–₹141').replace('10+ pcs', '10+ total pcs, colour/size ke hisaab se')
+eq(currentBiowashQuoteGuard(current), fixedCurrent)
+eq(currentBiowashQuoteGuard({ ...current, english: true }), fixedCurrent.replace('colour/size ke hisaab se', 'by colour/size'))
+eq(currentBiowashQuoteGuard({ ...current, history: [{ buyerMessage: 'Navy 44', isMedia: true, createdAt: '2026-07-17T05:52:22Z' }] }), fixedCurrent)
+eq(currentBiowashQuoteGuard({ ...current, history: [{ buyerMessage: current.buyerText, deferReason: 'welcome_followup_scheduled' }] }), fixedCurrent)
+for (const buyerText of ['True Bio current price?', 'Has the tshirt price increased?', 'Tshirt ka rate badh gaya hai']) eq(currentBiowashQuoteGuard({ ...current, buyerText }), fixedCurrent)
+for (const buyerText of ['True Bio 44 price', 'Tshirt sample price', 'Tshirt price and delivery', 'Tshirt price discount', 'Tshirt price 100 pcs', '[Image] Tshirt price', 'Tshirt Black price', 'Tshirt price yesterday 121']) eq(currentBiowashQuoteGuard({ ...current, buyerText }), null)
+for (const reply of [fixedCurrent, current.reply.replace('₹131', '₹141'), current.reply.replace('₹131', 'from ₹131'), current.reply + ' [DEFER]', current.reply + ' size 36', current.reply + ' in stock', current.reply + ' price increased', current.reply.replace('10+ pcs', 'sample'), current.reply.replace('sale91.com', 'example.com'), current.reply + ' Bio ₹111', '[DEFER]']) eq(currentBiowashQuoteGuard({ ...current, reply }), null)
+for (const history of [[{ buyerMessage: 'Navy 44' }], [{ buyerMessage: 'Hi', isMedia: true }], [{ buyerMessage: 'Hi', deferReason: 'manual_reply' }], [{ buyerMessage: 'Navy 44', createdAt: '2026-09-26T14:59:00Z' }], [{ buyerMessage: 'Navy 44', createdAt: '2026-09-27T14:59:00Z' }]]) eq(currentBiowashQuoteGuard({ ...current, history }), null)
+eq(currentBiowashQuoteGuard({ ...current, imageUrl: 'image' }), null)
+for (const changes of [{ colors: [] }, { colors: ['Black'] }, { sizes: ['36'] }, { rates: [] }, { rates: [{ colors: ['Black', 'White'], pricePerSize: { 36: 131 } }] }, { rates: [{ colors: ['Black', 'White'], pricePerSize: { 36: 131, 44: NaN } }] }]) eq(currentBiowashQuoteGuard({ ...current, products: [{ ...current.products[0], ...changes }] }), null)
+eq(currentBiowashQuoteGuard({ ...current, products: [...current.products, ...current.products] }), null)
+eq(currentBiowashQuoteGuard({ ...current, products: [{ ...current.products[0], rates: [{ colors: ['Black', 'White'], pricePerSize: { 36: 131, 44: 151 } }] }] }), fixedCurrent.replace('₹141', '₹151'))
 console.log(`${checks} biowash price checks passed`)

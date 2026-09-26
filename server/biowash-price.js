@@ -2,6 +2,48 @@ const PRODUCT = /\b(true\s+)?bio(?:[ -]?wash)?(?:\s+(?:rneck|round\s*neck))?\b/g
 const SIMPLE_ASK = /^(?:(?:product|180\s*gsm|regular\s+fit|t-?shirts?|what|is|of|hi|hello|sir|bhai|please|pls|plz|share|send|tell|me|the|your|ka|ki|ke|k|kya|hai|hain|h|rate|rates|price|prices|list)\s*)+$/i
 const SELECTED = /\b(?:xxs|xs|s|m|l|xl|xxl|xxxl|36|38|40|42|44|46|black|white|navy|grey|gray|maroon|charcoal|red|brown|pink|samples?)\b|\b\d+\s*(?:pcs?|pieces?|t-?shirts?)\b/i
 
+export function currentBiowashQuoteGuard({ products = [], buyerText, history = [], reply, imageUrl, now = Date.now(), english = false }) {
+  const text = String(buyerText || '').trim().replace(/[?!.,]/g, ' ')
+  const output = String(reply || '')
+  const ask = /^(?:(?:true|bio|biowash|wash|round|neck|t[ -]?shirts?|price|prices|rate|rates|ka|ki|ke|kya|hai|hain|h|abhi|bar|badh|badha|gaya|gaye|hi|hello|sir|please|pls|current|latest|has|have|the|increased|changed|what|is|are)\s*)+$/i
+  if (imageUrl || text.length > 120 || !ask.test(text) || !/\b(?:prices?|rates?)\b/i.test(text) || !Array.isArray(history)) return null
+  if (history.some(row => {
+    const at = Date.parse(row.createdAt)
+    if (Number.isFinite(at) && at <= now && now - at > 2 * 3600000) return false
+    const prior = String(row.buyerMessage || '').trim().replace(/[?!.,]/g, ' ')
+    return row.deferReason === 'manual_reply' || row.isMedia || !(/^(?:(?:hi|hello|sir)\s*)*$/i.test(prior) || prior.trim().toLowerCase() === text.trim().toLowerCase())
+  })) return null
+  const urls = output.match(/https?:\/\/\S+/gi) || []
+  const plain = output.replace(/https?:\/\/\S+/gi, '')
+  const named = [...plain.matchAll(PRODUCT)]
+  const prices = [...plain.matchAll(/(?:₹\s*|\brs\.?\s*)(\d+(?:\.\d+)?)/gi)]
+  if (output.length > 320 || named.length !== 1 || prices.length !== 1 || !/\b10\s*\+\s*(?:total\s+)?(?:pcs?|pieces?)\b/i.test(plain)) return null
+  const slug = named[0][1] ? 'true-biowash-round-neck' : 'biowash-round-neck'
+  if (urls.some(url => !new RegExp(`^https://(?:www\\.)?(?:sale91\\.com|bulkplaintshirt\\.com)/catalog(?:/p/${slug})?/?$`, 'i').test(url))) return null
+  const rest = plain.replace(PRODUCT, 'product').replace(/(?:₹\s*|\brs\.?\s*)\d+(?:\.\d+)?/gi, '').replace(/\b10\s*\+/g, '')
+  if (/\d|\p{L}/u.test(rest.replace(/[a-z]/gi, ''))) return null
+  const words = rest.replace(/[^a-z]+/gi, ' ').trim().split(/\s+/)
+  if (words.some(word => !/^(?:product|abhi|current|latest|ka|ki|ke|hai|hain|h|sir|bhai|mein|pe|bulk|pcs?|pieces?|total|per|each|the|is|are|at|for|price|prices|rate|rates|catalog|catalogue|in|on)$/i.test(word))) return null
+  const matches = products.filter(p => p.slug === slug)
+  if (matches.length !== 1) return null
+  const product = matches[0]
+  if (!Array.isArray(product.colors) || !product.colors.length || new Set(product.colors).size !== product.colors.length || !Array.isArray(product.sizes) || !product.sizes.length || new Set(product.sizes).size !== product.sizes.length || !Array.isArray(product.rates) || !product.rates.length) return null
+  const colors = [], values = []
+  for (const rate of product.rates) {
+    if (!Array.isArray(rate.colors) || !rate.colors.length || !rate.pricePerSize || Object.keys(rate.pricePerSize).length !== product.sizes.length) return null
+    colors.push(...rate.colors)
+    for (const size of product.sizes) {
+      const value = rate.pricePerSize[size]
+      if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
+      values.push(value)
+    }
+  }
+  if (colors.length !== product.colors.length || new Set(colors).size !== colors.length || colors.some(c => !product.colors.includes(c))) return null
+  const min = Math.min(...values), max = Math.max(...values)
+  if (min === max || Number(prices[0][1]) !== min) return null
+  return output.replace(/(?:₹\s*|\brs\.?\s*)\d+(?:\.\d+)?/i, `₹${min}–₹${max}`).replace(/\b10\s*\+\s*(?:total\s+)?(?:pcs?|pieces?)\b/i, `10+ total pcs, ${english ? 'by colour/size' : 'colour/size ke hisaab se'}`)
+}
+
 export function mixedFitRegularPriceGuard({ products = [], buyerText, history = [], reply, imageUrl = null }) {
   const text = String(buyerText || '')
   const output = String(reply || '')

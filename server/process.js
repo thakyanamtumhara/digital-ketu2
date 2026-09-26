@@ -21,7 +21,7 @@ import { gsmAmbiguityHint, gsmPriceRangeGuard } from './gsm-hint.js'
 import { poloRateSummaryGuard, poloColourQuoteGuard } from './polo-price.js'
 import { sublimationPriceGuard } from './sublimation-price.js'
 import { hoodieRateSummaryGuard } from './hoodie-price.js'
-import { biowashRateSummaryGuard, regularFitRateSummaryGuard, mixedFitRegularPriceGuard } from './biowash-price.js'
+import { biowashRateSummaryGuard, regularFitRateSummaryGuard, mixedFitRegularPriceGuard, currentBiowashQuoteGuard } from './biowash-price.js'
 import { isStoreMenuGreeting, isStoreReceiptGreeting, isPrintServiceGreeting, isProjectServiceGreeting, isSocialLinksGreeting, isPrintCatalogueGreeting, isGujaratiStoreGreeting } from './store-greeting.js'
 import { catalogRequestHasTimingQuestion, catalogRequestHasSampleQuestion } from './catalog-request.js'
 import { regularFitBlueHint, regularFitBlueGuard } from './regular-fit-blue.js'
@@ -3899,6 +3899,11 @@ Reply with exactly one word: KETU or ASSISTANT.`,
       console.log(`[PoloColourPriceRange] ${whatsappNumber} — selected colour size ranges applied`)
     }
     aiReply = sublimationPriceGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, imageUrl: imageUrl || imageBlock || imageMessages.length }) || aiReply
+    const currentBioPriceReply = currentBiowashQuoteGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, imageUrl: imageUrl || imageBlock || imageMessages.length, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
+    if (currentBioPriceReply) {
+      aiReply = currentBioPriceReply
+      console.log(`[CurrentBioPriceRange] ${whatsappNumber} — current catalogue range applied`)
+    }
     const hoodiePriceReply = hoodieRateSummaryGuard({ products: catalogProducts, buyerText: mergedText, history: conversationHistory, reply: aiReply, english: buyerUsesEnglish({ buyerText: mergedText, history: conversationHistory }) })
     if (hoodiePriceReply) {
       aiReply = hoodiePriceReply
